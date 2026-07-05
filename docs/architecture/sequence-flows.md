@@ -2,24 +2,29 @@
 
 ## 1. Happy Path: Alert to RCA in Slack
 
-```
-Prometheus                ingestion            watcher-agent   planner-agent  reasoner-agent  llm-gateway  feedback-service   Slack
-    │  POST /alerts/prometheus │                    │               │               │              │             │            │
-    ├─────────────────────────►│                    │               │               │              │             │            │
-    │                          │ normalize, dedupe   │               │               │              │             │            │
-    │                          │ INSERT incident+alert+outbox(plan_requested), one tx │              │             │            │
-    │                          │────────────────────►│               │               │              │             │            │
-    │                          │  (via outbox-worker) │ correlate, INSERT plan_requested outbox       │             │            │
-    │                          │                    │───────────────►│               │              │             │            │
-    │                          │                    │  (via outbox-worker)          │ build plan, INSERT reasoning_requested outbox │
-    │                          │                    │               │──────────────►│              │             │            │
-    │                          │                    │               │  (via outbox-worker)          │ POST /v1/complete           │
-    │                          │                    │               │               │─────────────►│             │            │
-    │                          │                    │               │               │◄─────────────┤             │            │
-    │                          │                    │               │               │ INSERT recommendation, outbox(recommendation.created) │
-    │                          │                    │               │               │──────────────────────────────────────────►│            │
-    │                          │                    │               │               │  (via outbox-worker)                     │ POST Slack card │
-    │                          │                    │               │               │                                          │───────────►│
+```mermaid
+sequenceDiagram
+    participant Prometheus
+    participant ingestion
+    participant watcher as watcher-agent
+    participant planner as planner-agent
+    participant reasoner as reasoner-agent
+    participant llm as llm-gateway
+    participant feedback as feedback-service
+    participant Slack
+
+    Prometheus->>ingestion: POST /alerts/prometheus
+    Note over ingestion: normalize, dedupe<br/>INSERT incident+alert+outbox(plan_requested), one tx
+    ingestion->>watcher: via outbox-worker
+    Note over watcher: correlate, INSERT plan_requested outbox
+    watcher->>planner: via outbox-worker
+    Note over planner: build plan, INSERT reasoning_requested outbox
+    planner->>reasoner: via outbox-worker
+    reasoner->>llm: POST /v1/complete
+    llm-->>reasoner: RCA completion
+    Note over reasoner: INSERT recommendation, outbox(recommendation.created)
+    reasoner->>feedback: via outbox-worker
+    feedback->>Slack: POST Slack card
 ```
 
 Every arrow labeled "via outbox-worker" is: agent commits state + outbox row in one
@@ -44,18 +49,23 @@ The second POST produces no pipeline work. The engineer sees one incident, not t
 
 ## 3. LLM Fallback
 
-```
-reasoner-agent  → POST /v1/complete (mode=extended) → llm-gateway
-llm-gateway     → primary provider fails, retries exhausted (3 attempts, 1s/3s/9s backoff)
-                → fallback provider fails too (or none configured)
-                → llm-gateway returns 503
-reasoner-agent  → receives 503
-                → generate_template_rca(incident, plan): root_cause explains AI was
-                  unavailable, recommended_actions = the plan's investigation steps
-                → INSERT recommendation (is_fallback=true, confidence=low)
-                → outbox(recommendation.created), pipeline continues normally
-feedback-service → Slack card renders with an "AI Unavailable" banner, but the
-                   engineer still gets the full list of investigation steps
+```mermaid
+sequenceDiagram
+    participant reasoner as reasoner-agent
+    participant llm as llm-gateway
+    participant feedback as feedback-service
+    participant Slack
+
+    reasoner->>llm: POST /v1/complete (mode=extended)
+    loop 3 attempts, 1s/3s/9s backoff
+        llm->>llm: primary provider call fails
+    end
+    llm->>llm: fallback provider fails (or none configured)
+    llm-->>reasoner: 503
+    Note over reasoner: generate_template_rca(incident, plan):<br/>root_cause explains AI was unavailable,<br/>recommended_actions = plan's investigation steps
+    Note over reasoner: INSERT recommendation (is_fallback=true, confidence=low)
+    reasoner->>feedback: via outbox-worker (recommendation.created)
+    feedback->>Slack: POST Slack card ("AI Unavailable" banner + investigation steps)
 ```
 
 No incident is ever left without a recommendation, even during a full LLM provider
@@ -63,24 +73,32 @@ outage. See [docs/adr/0004-llm-gateway.md](../adr/0004-llm-gateway.md).
 
 ## 4. Feedback Loop
 
-```
-Engineer clicks [👍 Helpful] / [👎 Not Helpful] / [✏️ Add Correction] in Slack
-  → Slack sends an interactive callback to feedback-service
-  → feedback-service validates the callback, writes a feedback row linked to the
-    recommendation and incident
-  → incident status updates if appropriate
-  → radar_feedback_total{sentiment} metric incremented
+```mermaid
+sequenceDiagram
+    actor Engineer
+    participant Slack
+    participant feedback as feedback-service
+
+    Engineer->>Slack: clicks 👍 Helpful / 👎 Not Helpful / ✏️ Add Correction
+    Slack->>feedback: interactive callback
+    Note over feedback: validate callback<br/>write feedback row (linked to recommendation + incident)<br/>update incident status if appropriate<br/>increment radar_feedback_total{sentiment}
 ```
 
 ## 5. Slack Bot Query
 
-```
-Engineer: "@radar last 5 incidents for order-service"
-  → feedback-service receives app_mention via Slack Events API (Socket Mode locally,
-    Events API + nginx ingress in Kubernetes)
-  → bot command parser extracts: command=last, n=5, service=order-service
-  → query existing Postgres tables (no new tables, no other service involved)
-  → format and reply in the same thread
+```mermaid
+sequenceDiagram
+    actor Engineer
+    participant Slack
+    participant feedback as feedback-service
+    participant Postgres
+
+    Engineer->>Slack: "@radar last 5 incidents for order-service"
+    Slack->>feedback: app_mention (Socket Mode locally, Events API + nginx ingress in k8s)
+    Note over feedback: bot command parser extracts:<br/>command=last, n=5, service=order-service
+    feedback->>Postgres: query existing tables (no new tables, no other service involved)
+    Postgres-->>feedback: rows
+    feedback->>Slack: reply in the same thread
 ```
 
 ## 6. Outbox Retry and Dead Lettering
