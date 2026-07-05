@@ -102,9 +102,20 @@ curl -s http://localhost:8200/v1/sys/health      # Vault
 | `make dev` | start the local stack (detached) |
 | `make stop` | stop the stack, keep data |
 | `make clean` | stop the stack and **delete all data volumes** |
+| `make ps` | status and health of all services |
 | `make lint` | `ruff check` + `mypy` over the workspace |
 | `make test` | run pytest |
 | `make setup` | re-sync dependencies and reinstall hooks |
+
+Single services can be controlled with `s=<service>`, where `<service>` is one
+of `postgres`, `elasticsearch`, `kibana`, `prometheus`, `grafana`, `vault`:
+
+| Command | What it does |
+|---|---|
+| `make start s=postgres` | start (or create) one service |
+| `make stop-one s=kibana` | stop one service, keep the rest running |
+| `make restart s=grafana` | restart one service |
+| `make logs s=vault` | follow logs for one service (`make logs` for all) |
 
 Data (Postgres tables, Elasticsearch indices, Grafana state) survives
 `make stop` / `make dev` cycles. Only `make clean` wipes it.
