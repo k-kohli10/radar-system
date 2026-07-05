@@ -19,7 +19,9 @@ level::
 from __future__ import annotations
 
 from .alerts import NormalizedAlert
+from .bot import BotCommand, BotCommandType, BotResponse
 from .events import OutboxEvent, ProcessedEvent
+from .feedback import FeedbackEvent
 from .incidents import (
     Confidence,
     Incident,
@@ -27,6 +29,15 @@ from .incidents import (
     PlanStep,
     Recommendation,
     RecommendedAction,
+)
+from .llm import (
+    GatewayStreamEvent,
+    LLMMode,
+    LLMProvider,
+    LLMRequest,
+    LLMResponse,
+    Message,
+    Usage,
 )
 
 __version__ = "0.2.0"
@@ -44,4 +55,18 @@ __all__ = [
     # events
     "OutboxEvent",
     "ProcessedEvent",
+    # llm
+    "GatewayStreamEvent",
+    "LLMMode",
+    "LLMProvider",
+    "LLMRequest",
+    "LLMResponse",
+    "Message",
+    "Usage",
+    # feedback
+    "FeedbackEvent",
+    # bot
+    "BotCommand",
+    "BotCommandType",
+    "BotResponse",
 ]
