@@ -1,0 +1,47 @@
+"""RADAR shared contracts.
+
+Pydantic v2 domain schemas and ``typing.Protocol`` backend interfaces shared
+across every RADAR service and plugin.
+
+Hard rules for this package:
+
+- Pydantic v2 for all models.
+- ``typing.Protocol`` (never ABCs) for all backend interfaces.
+- Zero vendor imports. Depends only on ``pydantic`` and the standard library.
+- mypy strict must pass.
+
+Every public contract is re-exported here, so consumers import from the top
+level::
+
+    from radar_contracts import NormalizedAlert, Incident, LLMProvider
+"""
+
+from __future__ import annotations
+
+from .alerts import NormalizedAlert
+from .events import OutboxEvent, ProcessedEvent
+from .incidents import (
+    Confidence,
+    Incident,
+    InvestigationPlan,
+    PlanStep,
+    Recommendation,
+    RecommendedAction,
+)
+
+__version__ = "0.2.0"
+
+__all__ = [
+    # alerts
+    "NormalizedAlert",
+    # incidents
+    "Confidence",
+    "Incident",
+    "InvestigationPlan",
+    "PlanStep",
+    "Recommendation",
+    "RecommendedAction",
+    # events
+    "OutboxEvent",
+    "ProcessedEvent",
+]
