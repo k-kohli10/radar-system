@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# uv
+.uv/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Vault dev data
+deploy/compose/vault-data/
+
+# Docker Compose local state
+deploy/compose/.data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# Terraform-style local state (if introduced later)
+*.tfstate
+*.tfstate.*
