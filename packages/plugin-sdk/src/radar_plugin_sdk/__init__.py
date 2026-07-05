@@ -24,6 +24,8 @@ from .base import (
     PluginMetadata,
     PluginNotFoundError,
 )
+from .config import BackendConfig
+from .loader import BackendLoader
 from .registry import PluginRegistry
 
 __version__ = "0.2.0"
@@ -36,4 +38,8 @@ __all__ = [
     "PluginMetadata",
     # registry
     "PluginRegistry",
+    # loader
+    "BackendLoader",
+    # config
+    "BackendConfig",
 ]
