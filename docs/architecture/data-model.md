@@ -1,14 +1,15 @@
 # Data Model
 
-All state lives in Postgres. There is no separate ticketing system and no Redis —
-Postgres is both the system of record and the message backbone (via the outbox tables).
+All state lives in Postgres. There is no separate ticketing system and no Redis.
+Postgres is both the system of record and the message backbone, through the outbox
+tables.
 
 ## Schema Conventions
 
 ```
 - UUIDs for all primary keys, generated application-side
 - All timestamps are TIMESTAMPTZ
-- JSONB for flexible payloads only — never for a column you filter on
+- JSONB for flexible payloads only, never for a column you filter on
 - Every foreign key has an index
 - Every WHERE-clause column has an index
 - Partial indexes on hot paths (the outbox poller)
@@ -38,7 +39,7 @@ The reasoner's output. Captures which provider/model produced it
 (`llm_provider`, `model_alias`, `model_id`), the root cause narrative, a confidence
 level, the recommended actions, the context bundle it reasoned over, and token/latency
 usage. `is_fallback=true` marks a template-generated RCA produced when the LLM was
-unavailable — the incident still gets a recommendation, just not an AI-derived one.
+unavailable. The incident still gets a recommendation, just not an AI-derived one.
 
 ### feedback
 Engineer reactions to a recommendation, captured from Slack (👍/👎/correction).
@@ -64,20 +65,20 @@ runbook's content actually changes.
 ### audit_log
 Append-only trail of significant state transitions across all entities, keyed by
 `entity_type` + `entity_id`, always carrying `correlation_id`. Never updated or
-deleted — it is the record of what RADAR did and when, independent of what the
-mutable tables currently say.
+deleted. It's the record of what RADAR did and when, independent of what the mutable
+tables currently say.
 
 ## The correlation_id Thread
 
 Every alert, incident, plan, recommendation, feedback row, outbox event, log line, and
-OTel span carries the same `correlation_id` for a given incident's lifecycle. This is
-what makes it possible to reconstruct — in Kibana APM, in Postgres, or in raw logs —
-the complete path from "an alert fired" to "an engineer clicked 👍," using nothing but
+OTel span carries the same `correlation_id` for a given incident's lifecycle. That's
+what makes it possible to reconstruct the complete path, from "an alert fired" to
+"an engineer clicked 👍", in Kibana APM, in Postgres, or in raw logs, using nothing but
 that one ID.
 
 ## Full DDL
 
 The authoritative schema (all tables, columns, and indexes) is defined in
 [docs/implementation_plan.md](../implementation_plan.md) under "Postgres Schema." That
-DDL is what Alembic migrations in `packages/database/` implement — this document
+DDL is what Alembic migrations in `packages/database/` implement. This document
 describes the *why* behind it, not a duplicate of the *what*.

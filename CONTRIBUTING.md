@@ -14,8 +14,8 @@ a PR.
   plan (agent frameworks, notification channel, secrets handling, etc.) is not up for
   revisiting mid-implementation. Propose changes via a new ADR, not a silent deviation.
 - **No dump commits.** Commit history should read as a narrative of how the system grew.
-  Small, scoped, imperative-mood commits (`feat(scope): ...`, `test(scope): ...`,
-  `docs: ...`) — not "add everything" commits.
+  Keep commits small, scoped, and imperative mood (`feat(scope): ...`,
+  `test(scope): ...`, `docs: ...`) instead of "add everything" commits.
 - **Config, not code, for anything domain-tunable.** Correlation rules and plan templates
   are YAML, mounted as ConfigMaps. Don't hardcode what the plan says is config.
 

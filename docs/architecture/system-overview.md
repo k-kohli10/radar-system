@@ -4,7 +4,7 @@
 
 RADAR is an Incident Intelligence Platform. It sits downstream of detection systems
 (Prometheus, Kibana Watcher) and upstream of the on-call engineer. Its job is
-correlation, reasoning, and delivery — not detection.
+correlation, reasoning, and delivery. Not detection.
 
 ## Domain
 
@@ -70,8 +70,8 @@ Prometheus alertmanager / Kibana Watcher
      On-call engineer
 ```
 
-All agent-to-agent communication is mediated by the Postgres transactional outbox —
-never direct HTTP between agents. See
+All agent-to-agent communication is mediated by the Postgres transactional outbox.
+There is never direct HTTP between agents. See
 [docs/architecture/agent-pipeline.md](agent-pipeline.md) and
 [docs/adr/0003-postgres-outbox.md](../adr/0003-postgres-outbox.md).
 
@@ -98,7 +98,7 @@ nginx ingress. Every image builds for both `linux/amd64` and `linux/arm64` via
 
 ## Non-Goals
 
-- RADAR does not detect anomalies — Prometheus and Kibana own that.
-- RADAR does not remediate automatically — it recommends.
-- RADAR does not create tickets — incident state lives entirely in Postgres.
-- RADAR does not adopt an agent framework — the three-stage pipeline is hand-rolled.
+- RADAR does not detect anomalies. Prometheus and Kibana own that.
+- RADAR does not remediate automatically. It recommends.
+- RADAR does not create tickets. Incident state lives entirely in Postgres.
+- RADAR does not adopt an agent framework. The three stage pipeline is hand rolled.

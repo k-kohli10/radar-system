@@ -40,7 +40,7 @@ POST /alerts/mock  (same alert, 90 seconds later)
   → no new outbox event, no new plan, no new RCA
 ```
 
-The second POST produces no pipeline work — the engineer sees one incident, not two.
+The second POST produces no pipeline work. The engineer sees one incident, not two.
 
 ## 3. LLM Fallback
 
@@ -53,7 +53,7 @@ reasoner-agent  → receives 503
                 → generate_template_rca(incident, plan): root_cause explains AI was
                   unavailable, recommended_actions = the plan's investigation steps
                 → INSERT recommendation (is_fallback=true, confidence=low)
-                → outbox(recommendation.created) — pipeline continues normally
+                → outbox(recommendation.created), pipeline continues normally
 feedback-service → Slack card renders with an "AI Unavailable" banner, but the
                    engineer still gets the full list of investigation steps
 ```
@@ -83,7 +83,7 @@ Engineer: "@radar last 5 incidents for order-service"
   → format and reply in the same thread
 ```
 
-## 6. Outbox Retry and Dead-Lettering
+## 6. Outbox Retry and Dead Lettering
 
 ```
 outbox-worker dispatches event → target agent unreachable / 5xx
@@ -95,5 +95,5 @@ outbox-worker dispatches event → target agent unreachable / 5xx
   attempt 6: status → dead_letter, audit_log entry written, metric emitted
 ```
 
-A dead-lettered event stops retrying automatically but is never deleted — it is
-inspectable and requeueable via the outbox-worker's admin endpoints.
+A dead lettered event stops retrying automatically but is never deleted. It stays
+inspectable and requeueable through the outbox worker's admin endpoints.

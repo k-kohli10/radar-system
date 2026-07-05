@@ -12,7 +12,7 @@ and rotated through Vault as part of the agent pipeline's trust model
 (see the LLM Gateway's Token IAM). Reusing that same token scheme for external alert
 sources would mean an alerting system credential and an internal agent credential share
 the same shape and the same rotation path, even though they authenticate fundamentally
-different trust levels — one is "another RADAR agent," the other is "an external
+different trust levels. One is "another RADAR agent," the other is "an external
 system we've configured to talk to us."
 
 ## Decision
@@ -24,11 +24,11 @@ wrong token → 401) but are issued, scoped, and rotated independently.
 
 ## Consequences
 - Compromising or rotating an external source's credential never touches internal
-  agent-to-agent auth, and vice versa — the two trust boundaries can be reasoned about
+  agent-to-agent auth, and vice versa. The two trust boundaries can be reasoned about
   and rotated independently.
 - Adding a third external alert source later means minting one more webhook token, not
   reshaping the internal agent token scheme.
 - Ingestion's route handlers must check the header name appropriate to the endpoint
   (`X-Radar-Webhook-Token` on `/alerts/*`, `X-Radar-Agent-Token` on `/events` if
-  ingestion ever exposes one) rather than a single shared auth dependency — a small
-  amount of duplication in exchange for a clear trust boundary.
+  ingestion ever exposes one) rather than a single shared auth dependency. That's a
+  small amount of duplication in exchange for a clear trust boundary.

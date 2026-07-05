@@ -19,7 +19,7 @@ for automatic per-request spans.
 
 ## Consequences
 - Native `async def` route handlers match the async Postgres/HTTP stack throughout the
-  codebase — no thread-pool bridging for I/O-bound work.
+  codebase, with no thread-pool bridging needed for I/O-bound work.
 - Pydantic v2 validation gives request/response schema enforcement for free, backed by
   the same contract models used internally.
 - Consistent shape across all eight services means shared middleware (agent token

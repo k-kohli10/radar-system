@@ -17,19 +17,18 @@ visible via `kubectl describe pod`, process introspection, and are commonly
 A Vault init-container fetches secrets once, before the main container starts, and
 writes them to files on an in-memory (`emptyDir: {medium: Memory}`) volume mounted at
 `/vault/secrets`. The main container reads secrets from those files at startup. No
-sidecar. No secrets in environment variables. Rotation is: rotate the value in Vault,
-restart the pod — the init-container re-fetches on next start. There is no live secret
-refresh without a restart.
+sidecar. No secrets in environment variables. Rotation works by rotating the value in
+Vault and restarting the pod. The init-container re-fetches on next start. There is no
+live secret refresh without a restart.
 
 ## Consequences
-- No long-running Vault-aware process in the pod beyond the app itself — one less
-  container to patch, monitor, and reason about for every workload.
-- Secrets never appear in `kubectl describe pod`, pod env, or process listings —
-  they're file contents on a `tmpfs` volume, readable only by the app's own filesystem
-  access.
+- No long-running Vault-aware process in the pod beyond the app itself, which is one
+  less container to patch, monitor, and reason about for every workload.
+- Secrets never appear in `kubectl describe pod`, pod env, or process listings. They're
+  file contents on a `tmpfs` volume, readable only by the app's own filesystem access.
 - Rotation requires a pod restart, not a live in-place refresh. Acceptable for RADAR's
-  secret set (agent tokens, provider API keys) — none of them need sub-second rotation,
-  and a rolling restart is cheap.
+  secret set (agent tokens, provider API keys), since none of them need sub-second
+  rotation and a rolling restart is cheap.
 - Every workload's Helm template carries the same init-container boilerplate (see the
-  Vault Init-Container Pattern in the implementation plan) — one pattern, copy-pasted
-  per service rather than abstracted, so it stays inspectable per workload.
+  Vault Init-Container Pattern in the implementation plan). It's one pattern,
+  copy-pasted per service rather than abstracted, so it stays inspectable per workload.

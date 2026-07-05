@@ -6,8 +6,8 @@
 Watcher → Planner → Reasoner
 ```
 
-Fixed, linear, three stages. Not a graph, not a framework — a sequence of purpose-built
-services that each do one job and hand off through the outbox.
+Fixed, linear, three stages. Not a graph, not a framework. Just a sequence of
+purpose-built services that each do one job and hand off through the outbox.
 
 ## Why No Direct HTTP Between Agents
 
@@ -52,17 +52,17 @@ Correlates raw alerts into incidents.
 3. Compute fingerprint = sha256(service_name + alert_name + severity)
 4. Apply service_groups: alerts from grouped services fold into one incident
 5. Query for an open incident with the same fingerprint within the configured window
-6. Apply suppression rules — some alert types suppress follow-on incidents for a
+6. Apply suppression rules. Some alert types suppress follow-on incidents for a
    cooldown period
 7. Duplicate found: increment alert_count, apply escalation rules, attach the alert
 8. No duplicate: create a new incident, write outbox(incident.plan_requested)
-9. All of the above — alert, incident, outbox event, processed_events, audit_log —
-   in one transaction
+9. All of the above, alert, incident, outbox event, processed_events, audit_log,
+   happens in one transaction
 ```
 
 Correlation rules (window overrides, service groups, suppression, escalation,
 fingerprint fields) live in `apps/watcher-agent/config/correlation-rules.yaml`, mounted
-as a ConfigMap — never hardcoded.
+as a ConfigMap. Never hardcoded.
 
 ## Planner Agent
 
@@ -74,7 +74,7 @@ Builds an investigation plan from a template, no LLM call.
 3. Match template by "service_name:alert_name" key
 4. No match → use the _default template
 5. Write investigation_plan, outbox(incident.reasoning_requested), processed_events,
-   audit_log — one transaction
+   and audit_log, all in one transaction
 ```
 
 Templates live in `apps/planner-agent/config/plan-templates.yaml`.
@@ -89,13 +89,13 @@ The only stage that calls an LLM.
 3. Build the context bundle (incident metadata + investigation steps, plus
    retrieved runbook context from Phase 8 onward)
 4. POST /v1/complete to llm-gateway, mode=extended
-5. 503 from gateway → fallback.generate_template_rca(incident, plan) instead —
-   the recommendation is built directly from the plan's steps, confidence=low,
+5. 503 from gateway → fallback.generate_template_rca(incident, plan) instead. The
+   recommendation is built directly from the plan's steps, confidence=low,
    is_fallback=True
 6. Parse the RCA into root_cause, confidence, recommended_actions
-7. Write recommendation, outbox(recommendation.created), processed_events, audit_log
-   — one transaction (the LLM call itself is outside the transaction, since it's an
-   external network call)
+7. Write recommendation, outbox(recommendation.created), processed_events, and
+   audit_log in one transaction. The LLM call itself sits outside the transaction,
+   since it's an external network call
 ```
 
 An incident is never left without a recommendation. See
