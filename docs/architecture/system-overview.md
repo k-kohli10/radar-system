@@ -47,28 +47,41 @@ feedback-service      Delivers RCA cards to Slack, collects feedback, and runs t
 
 Detection is external. RADAR's flow starts at ingestion:
 
+```mermaid
+flowchart TB
+    ext["Prometheus / Kibana Watcher<br/><small>pre-fired alert</small>"]
+    ing["ingestion<br/><small>normalize, dedupe, outbox</small>"]
+    watcher["watcher-agent<br/><small>correlate alerts into an incident</small>"]
+    planner["planner-agent<br/><small>build an investigation plan</small>"]
+    reasoner["reasoner-agent<br/><small>call LLM, produce RCA</small>"]
+    feedback["feedback-service<br/><small>deliver Slack card, run Slack bot</small>"]
+    oncall(["On-call engineer"])
+    pg[("Postgres<br/><small>transactional outbox<br/>all agent comms</small>")]
+
+    ext --> ing
+    ing -- outbox-worker --> watcher
+    watcher -- outbox-worker --> planner
+    planner -- outbox-worker --> reasoner
+    reasoner -- outbox-worker --> feedback
+    feedback -- Slack API --> oncall
+
+    ing -. outbox .-> pg
+    watcher -. outbox .-> pg
+    planner -. outbox .-> pg
+    reasoner -. outbox .-> pg
+    feedback -. outbox .-> pg
+
+    classDef external fill:#eef3fc,stroke:#2f5fa8,color:#1a2b4a;
+    classDef agent fill:#eafaf6,stroke:#127d69,color:#0b3d33;
+    classDef store fill:#eef1fb,stroke:#33418f,color:#1a2350;
+
+    class ext,feedback,oncall external
+    class ing,watcher,planner,reasoner agent
+    class pg store
 ```
-Prometheus alertmanager / Kibana Watcher
-        │  POST /alerts/{prometheus,kibana}
-        ▼
-   ingestion
-        │  normalize → dedupe → outbox(alert.normalized)
-        ▼
- outbox-worker → watcher-agent
-        │  correlate → outbox(incident.plan_requested)
-        ▼
- outbox-worker → planner-agent
-        │  build plan → outbox(incident.reasoning_requested)
-        ▼
- outbox-worker → reasoner-agent
-        │  POST /v1/complete to llm-gateway (direct call, not via outbox)
-        │  → outbox(recommendation.created)
-        ▼
- outbox-worker → feedback-service
-        │  POST to Slack API
-        ▼
-     On-call engineer
-```
+
+Note: `reasoner-agent` also calls `llm-gateway` directly via `POST /v1/complete` — that hop is a
+direct call, not mediated by the outbox, and is omitted above for clarity.
 
 All agent-to-agent communication is mediated by the Postgres transactional outbox.
 There is never direct HTTP between agents. See
