@@ -30,6 +30,7 @@ from .incidents import (
     Recommendation,
     RecommendedAction,
 )
+from .knowledge import EmbeddingProvider, KnowledgeStore
 from .llm import (
     GatewayStreamEvent,
     LLMMode,
@@ -82,4 +83,7 @@ __all__ = [
     # traces
     "Span",
     "TracesBackend",
+    # knowledge
+    "EmbeddingProvider",
+    "KnowledgeStore",
 ]
