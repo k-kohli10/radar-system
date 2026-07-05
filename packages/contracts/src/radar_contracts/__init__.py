@@ -39,6 +39,10 @@ from .llm import (
     Message,
     Usage,
 )
+from .logs import LogsBackend
+from .metrics import MetricsBackend
+from .notifications import NotificationBackend
+from .traces import Span, TracesBackend
 
 __version__ = "0.2.0"
 
@@ -69,4 +73,13 @@ __all__ = [
     "BotCommand",
     "BotCommandType",
     "BotResponse",
+    # notifications
+    "NotificationBackend",
+    # logs
+    "LogsBackend",
+    # metrics
+    "MetricsBackend",
+    # traces
+    "Span",
+    "TracesBackend",
 ]
