@@ -2,8 +2,9 @@
 
 ## Pipeline Shape
 
-```
-Watcher → Planner → Reasoner
+```mermaid
+flowchart LR
+    Watcher[watcher-agent] --> Planner[planner-agent] --> Reasoner[reasoner-agent]
 ```
 
 Fixed, linear, three stages. Not a graph, not a framework. Just a sequence of
@@ -46,18 +47,21 @@ Body:
 
 Correlates raw alerts into incidents.
 
-```
-1. Check processed_events → if seen, return 200 (idempotent replay)
-2. Load correlation rules from YAML config (ConfigMap in production)
-3. Compute fingerprint = sha256(service_name + alert_name + severity)
-4. Apply service_groups: alerts from grouped services fold into one incident
-5. Query for an open incident with the same fingerprint within the configured window
-6. Apply suppression rules. Some alert types suppress follow-on incidents for a
-   cooldown period
-7. Duplicate found: increment alert_count, apply escalation rules, attach the alert
-8. No duplicate: create a new incident, write outbox(incident.plan_requested)
-9. All of the above, alert, incident, outbox event, processed_events, audit_log,
-   happens in one transaction
+```mermaid
+flowchart TD
+    A[event: alert.normalized] --> B{Seen in processed_events?}
+    B -- yes --> R200[Return 200]
+    B -- no --> C[Load correlation rules from YAML ConfigMap]
+    C --> D["fingerprint = sha256(service_name + alert_name + severity)"]
+    D --> E[Fold grouped services into one fingerprint]
+    E --> F{Open incident with same fingerprint in window?}
+    F -- yes --> G{Suppressed by cooldown rule?}
+    G -- yes --> H[Skip outbox write]
+    G -- no --> I[Increment alert_count, apply escalation, attach alert]
+    F -- no --> J[Create incident, write outbox: incident.plan_requested]
+    H --> K[(One transaction: alert + incident + processed_events + audit_log)]
+    I --> K
+    J --> K
 ```
 
 Correlation rules (window overrides, service groups, suppression, escalation,
@@ -68,13 +72,16 @@ as a ConfigMap. Never hardcoded.
 
 Builds an investigation plan from a template, no LLM call.
 
-```
-1. Check processed_events → if seen, return 200
-2. Load plan templates from YAML config (ConfigMap in production)
-3. Match template by "service_name:alert_name" key
-4. No match → use the _default template
-5. Write investigation_plan, outbox(incident.reasoning_requested), processed_events,
-   and audit_log, all in one transaction
+```mermaid
+flowchart TD
+    A[event: incident.plan_requested] --> B{Seen in processed_events?}
+    B -- yes --> R200[Return 200]
+    B -- no --> C[Load plan templates from YAML ConfigMap]
+    C --> D{"Template matches service_name:alert_name?"}
+    D -- yes --> E[Use matched template]
+    D -- no --> F[Use _default template]
+    E --> G[(One transaction: investigation_plan + outbox: reasoning_requested + processed_events + audit_log)]
+    F --> G
 ```
 
 Templates live in `apps/planner-agent/config/plan-templates.yaml`.
@@ -83,21 +90,20 @@ Templates live in `apps/planner-agent/config/plan-templates.yaml`.
 
 The only stage that calls an LLM.
 
-```
-1. Check processed_events → if seen, return 200
-2. Load incident and plan from Postgres
-3. Build the context bundle (incident metadata + investigation steps, plus
-   retrieved runbook context from Phase 8 onward)
-4. POST /v1/complete to llm-gateway, mode=extended
-5. 503 from gateway → fallback.generate_template_rca(incident, plan) instead. The
-   recommendation is built directly from the plan's steps, confidence=low,
-   is_fallback=True
-6. Parse the RCA into root_cause, confidence, recommended_actions
-7. Write recommendation, outbox(recommendation.created), processed_events, and
-   audit_log in one transaction. The LLM call itself sits outside the transaction,
-   since it's an external network call
+```mermaid
+flowchart TD
+    A[event: incident.reasoning_requested] --> B{Seen in processed_events?}
+    B -- yes --> R200[Return 200]
+    B -- no --> C[Load incident + plan from Postgres]
+    C --> D[Build context bundle: incident metadata + investigation steps<br/>+ retrieved runbook context from Phase 8 onward]
+    D --> E["POST /v1/complete to llm-gateway, mode=extended"]
+    E -- 503 --> F["fallback.generate_template_rca(incident, plan)<br/>confidence=low, is_fallback=true"]
+    E -- 200 --> G[Parse root_cause, confidence, recommended_actions]
+    F --> H[(One transaction: recommendation + outbox: recommendation.created + processed_events + audit_log)]
+    G --> H
 ```
 
+The LLM call itself sits outside the transaction, since it's an external network call.
 An incident is never left without a recommendation. See
 [docs/adr/0004-llm-gateway.md](../adr/0004-llm-gateway.md) for the fallback chain in
 full.
