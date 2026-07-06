@@ -1572,6 +1572,8 @@ feedback-quality.json    Positive/negative ratio, correction rate over time
 
 ### Package Versions
 
+# NOTE: Some pins below were bumped for Python 3.14 wheel compatibility (pydantic 2.10.0->2.13.4, ruff 0.8.0->0.15.20, mypy 1.13.0->2.1.0); remaining packages to be re-verified for 3.14 as each phase lands.
+
 ```toml
 [project]
 requires-python = ">=3.12"
@@ -1579,7 +1581,7 @@ requires-python = ">=3.12"
 [tool.uv.dependencies]
 fastapi                              = "0.115.0"
 uvicorn                              = {extras = ["standard"], version = "0.32.0"}
-pydantic                             = "2.10.0"
+pydantic                             = "2.13.4"
 pydantic-settings                    = "2.6.0"
 sqlalchemy                           = {extras = ["asyncio"], version = "2.0.36"}
 alembic                              = "1.14.0"
@@ -1600,8 +1602,8 @@ slack-sdk                            = "3.33.0"
 pytest          = "8.3.0"
 pytest-asyncio  = "0.24.0"
 pytest-cov      = "6.0.0"
-ruff            = "0.8.0"
-mypy            = "1.13.0"
+ruff            = "0.15.20"
+mypy            = "2.1.0"
 ```
 
 ### Every Service Must Have

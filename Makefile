@@ -5,7 +5,7 @@ SERVICES := postgres elasticsearch kibana prometheus grafana vault
 .PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps
 
 setup:
-	uv sync
+	uv sync --all-packages
 	uv run pre-commit install
 
 env-check:
