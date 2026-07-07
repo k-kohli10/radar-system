@@ -907,14 +907,16 @@ CREATE INDEX idx_outbox_created_at     ON outbox_events(created_at DESC);
 -- ============================================================
 -- processed_events
 -- Idempotency table. Each agent records event_ids it handled.
+-- Composite PK (event_id, processed_by): the same event_id can be marked
+-- processed independently by each service, matching the is_already_processed
+-- (event_id, processed_by) lookup. The PK index serves that lookup.
 -- ============================================================
 CREATE TABLE processed_events (
-    event_id        UUID        PRIMARY KEY,
+    event_id        UUID        NOT NULL,
     processed_by    VARCHAR(64) NOT NULL,
-    processed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    processed_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (event_id, processed_by)
 );
-
-CREATE INDEX idx_processed_by ON processed_events(processed_by);
 
 
 -- ============================================================
