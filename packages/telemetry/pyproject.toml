@@ -1,0 +1,41 @@
+[project]
+name = "radar-telemetry"
+version = "0.3.0"
+description = "RADAR telemetry: Prometheus metric factories, OpenTelemetry tracing with OTLP/gRPC export to Elasticsearch, and span-event helpers."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "radar-common",
+    "fastapi==0.115.0",
+    "prometheus-client==0.21.0",
+    "opentelemetry-sdk==1.28.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.28.0",
+    "opentelemetry-instrumentation-fastapi==0.49b0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.0",
+    "pytest-asyncio==0.24.0",
+    "mypy==2.1.0",
+]
+
+[tool.uv.sources]
+radar-common = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/radar_telemetry"]
+
+[tool.mypy]
+strict = true
+python_version = "3.14"
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

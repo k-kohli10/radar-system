@@ -2,7 +2,8 @@ COMPOSE_FILE := deploy/compose/docker-compose.yml
 COMPOSE := docker compose --env-file .env -f $(COMPOSE_FILE)
 SERVICES := postgres elasticsearch kibana prometheus grafana vault
 
-.PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps
+.PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps \
+	migrate migrate-check migrate-down revision
 
 setup:
 	uv sync --all-packages
@@ -26,6 +27,24 @@ test:
 
 clean: env-check
 	$(COMPOSE) down -v
+
+# --- Database migrations (Alembic) -------------------------------------------
+# alembic.ini lives in packages/database and env.py reads POSTGRES_DSN, which we
+# load from the repo-root .env (../../.env once inside the package directory).
+MIGRATE := cd packages/database && POSTGRES_DSN="$$(grep '^POSTGRES_DSN=' ../../.env | cut -d= -f2-)" uv run alembic
+
+migrate: env-check
+	$(MIGRATE) upgrade head
+
+migrate-check: env-check
+	$(MIGRATE) check
+
+migrate-down: env-check
+	$(MIGRATE) downgrade -1
+
+revision: env-check
+	@test -n "$(m)" || { echo 'usage: make revision m="message"'; exit 1; }
+	$(MIGRATE) revision --autogenerate -m "$(m)"
 
 # --- Single-service controls: make <target> s=<service> ----------------------
 # Services: $(SERVICES)
