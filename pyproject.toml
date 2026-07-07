@@ -35,6 +35,10 @@ select = ["E", "F", "I", "N", "W", "UP"]
 [tool.mypy]
 strict = true
 python_version = "3.14"
+# pydantic-settings sources fields from the environment / Vault files at
+# runtime, so `Settings()` is valid with no args; the plugin teaches mypy this
+# (and sharpens Pydantic model checking generally).
+plugins = ["pydantic.mypy"]
 # `type-abstract` is a false positive for the plugin registry: passing a
 # @runtime_checkable Protocol class as a `type[T]` key is intentional and never
 # instantiates the Protocol. Suppressed repo-wide so callers stay strict-clean.

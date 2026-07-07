@@ -1,0 +1,37 @@
+[project]
+name = "radar-common"
+version = "0.3.0"
+description = "RADAR shared runtime primitives: structured logging, config/secret loading, agent-token auth, error classes, id and time helpers."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.0",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.6.0",
+    "structlog==24.4.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.0",
+    "pytest-asyncio==0.24.0",
+    "httpx==0.28.0",
+    "mypy==2.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/radar_common"]
+
+[tool.mypy]
+strict = true
+python_version = "3.14"
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
