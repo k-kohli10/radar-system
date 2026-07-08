@@ -158,8 +158,10 @@ def build_router(
                 translate=vendor.translate,
                 chat=chat,
             )
-        except PluginError as exc:
-            # PluginError messages carry registry names only, never settings.
+        except (PluginError, TypeError, ValueError) as exc:
+            # PluginError messages carry registry names only; constructor
+            # TypeError/ValueError (e.g. Anthropic's required max_tokens
+            # guard) mention parameter names, never settings values.
             raise ConfigurationError(f"{where}: {exc}") from None
 
     primary: dict[LLMMode, ProviderBinding] = {}
