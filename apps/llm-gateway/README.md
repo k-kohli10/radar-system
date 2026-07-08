@@ -43,7 +43,9 @@ status_code.
 
 OpenAI, Anthropic, and Gemini via their individual SDKs (`openai`,
 `anthropic`, `google-generativeai`). No LangChain, LangGraph, or LiteLLM.
-Provider/model per mode is config, not code: see `plugins/llm/`.
+Provider/model per mode is config, not code: edit
+[`config/gateway.yaml`](config/gateway.yaml) and restart. Adapters live in
+`plugins/llm/`.
 
 ## Run locally
 

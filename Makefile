@@ -3,7 +3,7 @@ COMPOSE := docker compose --env-file .env -f $(COMPOSE_FILE)
 SERVICES := postgres elasticsearch kibana prometheus grafana vault
 
 .PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps \
-	migrate migrate-check migrate-down revision gateway gateway-check
+	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets
 
 setup:
 	uv sync --all-packages
@@ -34,7 +34,7 @@ clean: env-check
 # Vault into GATEWAY_SECRETS_DIR, with the non-secret mode config beside them.
 # Override any of these per invocation, e.g. `make gateway GATEWAY_PORT=9000`.
 GATEWAY_SECRETS_DIR ?= $(HOME)/.radar-dev/secrets
-GATEWAY_CONFIG ?= $(GATEWAY_SECRETS_DIR)/gateway.yaml
+GATEWAY_CONFIG ?= apps/llm-gateway/config/gateway.yaml
 GATEWAY_PORT ?= 8081
 
 gateway-check:
@@ -46,6 +46,12 @@ gateway: gateway-check
 	RADAR_SECRETS_DIR="$(GATEWAY_SECRETS_DIR)" \
 	RADAR_GATEWAY_CONFIG_PATH="$(GATEWAY_CONFIG)" \
 	uv run uvicorn radar_llm_gateway.main:app --port $(GATEWAY_PORT) --no-access-log
+
+# Re-pull gateway secrets from the dev Vault into GATEWAY_SECRETS_DIR (the
+# local init-container simulation). Run after changing values in Vault, then
+# restart the gateway.
+gateway-secrets: env-check
+	RADAR_SECRETS_DIR="$(GATEWAY_SECRETS_DIR)" uv run python scripts/dev-gateway-secrets.py
 
 # --- Database migrations (Alembic) -------------------------------------------
 # alembic.ini lives in packages/database and env.py reads POSTGRES_DSN, which we
