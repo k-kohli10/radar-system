@@ -13,6 +13,9 @@ members = [
     "radar-contracts",
     "radar-database",
     "radar-llm-gateway",
+    "radar-plugin-llm-anthropic",
+    "radar-plugin-llm-gemini",
+    "radar-plugin-llm-openai",
     "radar-plugin-sdk",
     "radar-system",
     "radar-telemetry",
@@ -1127,7 +1130,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "1.55.0"
+version = "1.55.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1139,9 +1142,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/7b/b1a3b6fa17dc523c603121dd23615bcd895a9fc3ab23be92307b9347bc50/openai-1.55.0.tar.gz", hash = "sha256:6c0975ac8540fe639d12b4ff5a8e0bf1424c844c4a4251148f59f06c4b2bd5db", size = 313963, upload-time = "2024-11-20T18:28:07.254Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/39/d4859d897da053b61b84403f67dbef1abd075e441cb354892ff14f98e2c7/openai-1.55.3.tar.gz", hash = "sha256:547e85b94535469f137a779d8770c8c5adebd507c2cc6340ca401a7c4d5d16f0", size = 314571, upload-time = "2024-11-28T16:56:47.832Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/b2/9d8939c9ef73e6a2d5cb3366ef3fabd728a8de4729210d9af785c0edc6ec/openai-1.55.0-py3-none-any.whl", hash = "sha256:446e08918f8dd70d8723274be860404c8c7cc46b91b93bbc0ef051f57eb503c1", size = 389528, upload-time = "2024-11-20T18:28:05.482Z" },
+    { url = "https://files.pythonhosted.org/packages/10/06/691ef3f0112ecf0d7420d0bf35b5d16cf81554141f4b4913a9831031013d/openai-1.55.3-py3-none-any.whl", hash = "sha256:2a235d0e1e312cd982f561b18c27692e253852f4e5fb6ccf08cb13540a9bdaa1", size = 389558, upload-time = "2024-11-28T16:56:46.174Z" },
 ]
 
 [[package]]
@@ -1728,7 +1731,7 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.115.0" },
     { name = "google-generativeai", specifier = "==0.8.3" },
     { name = "httpx", specifier = "==0.28.0" },
-    { name = "openai", specifier = "==1.55.0" },
+    { name = "openai", specifier = "==1.55.3" },
     { name = "prometheus-client", specifier = "==0.21.0" },
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "pydantic-settings", specifier = "==2.6.0" },
@@ -1747,6 +1750,93 @@ dev = [
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
     { name = "types-pyyaml", specifier = "==6.0.12.20250516" },
+]
+
+[[package]]
+name = "radar-plugin-llm-anthropic"
+version = "0.4.0"
+source = { editable = "plugins/llm/anthropic" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "radar-contracts" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = "==0.40.0" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+]
+
+[[package]]
+name = "radar-plugin-llm-gemini"
+version = "0.4.0"
+source = { editable = "plugins/llm/gemini" }
+dependencies = [
+    { name = "google-generativeai" },
+    { name = "radar-contracts" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "google-generativeai", specifier = "==0.8.3" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+]
+
+[[package]]
+name = "radar-plugin-llm-openai"
+version = "0.4.0"
+source = { editable = "plugins/llm/openai" }
+dependencies = [
+    { name = "openai" },
+    { name = "radar-contracts" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "openai", specifier = "==1.55.3" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
 ]
 
 [[package]]
