@@ -3,7 +3,7 @@ COMPOSE := docker compose --env-file .env -f $(COMPOSE_FILE)
 SERVICES := postgres elasticsearch kibana prometheus grafana vault
 
 .PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps \
-	migrate migrate-check migrate-down revision
+	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets
 
 setup:
 	uv sync --all-packages
@@ -27,6 +27,31 @@ test:
 
 clean: env-check
 	$(COMPOSE) down -v
+
+# --- LLM gateway (local dev) --------------------------------------------------
+# Runs the gateway against Vault-sourced secret FILES (the init-container
+# pattern, simulated locally): openai_api_key + gateway_tokens pulled from
+# Vault into GATEWAY_SECRETS_DIR, with the non-secret mode config beside them.
+# Override any of these per invocation, e.g. `make gateway GATEWAY_PORT=9000`.
+GATEWAY_SECRETS_DIR ?= $(HOME)/.radar-dev/secrets
+GATEWAY_CONFIG ?= apps/llm-gateway/config/gateway.yaml
+GATEWAY_PORT ?= 8081
+
+gateway-check:
+	@test -f "$(GATEWAY_SECRETS_DIR)/openai_api_key" || { echo "ERROR: $(GATEWAY_SECRETS_DIR)/openai_api_key missing — pull it from Vault (secret/radar/llm) first."; exit 1; }
+	@test -f "$(GATEWAY_SECRETS_DIR)/gateway_tokens" || { echo "ERROR: $(GATEWAY_SECRETS_DIR)/gateway_tokens missing — pull it from Vault (secret/radar/llm-gateway) first."; exit 1; }
+	@test -f "$(GATEWAY_CONFIG)" || { echo "ERROR: $(GATEWAY_CONFIG) missing — write the mode config there."; exit 1; }
+
+gateway: gateway-check
+	RADAR_SECRETS_DIR="$(GATEWAY_SECRETS_DIR)" \
+	RADAR_GATEWAY_CONFIG_PATH="$(GATEWAY_CONFIG)" \
+	uv run uvicorn radar_llm_gateway.main:app --port $(GATEWAY_PORT) --no-access-log
+
+# Re-pull gateway secrets from the dev Vault into GATEWAY_SECRETS_DIR (the
+# local init-container simulation). Run after changing values in Vault, then
+# restart the gateway.
+gateway-secrets: env-check
+	RADAR_SECRETS_DIR="$(GATEWAY_SECRETS_DIR)" uv run python scripts/dev-gateway-secrets.py
 
 # --- Database migrations (Alembic) -------------------------------------------
 # alembic.ini lives in packages/database and env.py reads POSTGRES_DSN, which we

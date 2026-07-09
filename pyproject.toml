@@ -55,7 +55,21 @@ exclude = [
     "tests/conftest\\.py$",
 ]
 
+# google-generativeai ships no py.typed marker (google.api_core, by contrast,
+# is typed and stays strictly checked). grpcio's stubs are a separate package
+# (types-grpcio) we don't need — only the gateway tests import grpc, to build
+# enum-coded exceptions.
+[[tool.mypy.overrides]]
+module = ["google", "google.generativeai", "google.generativeai.*", "grpc", "grpc.*"]
+ignore_missing_imports = true
+
+# google.api_core's exception constructors are untyped; the gateway tests
+# construct them to drive the Gemini translator. Production code never does.
+[[tool.mypy.overrides]]
+module = ["test_gateway_providers"]
+disallow_untyped_calls = false
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "packages"]
+testpaths = ["tests", "packages", "apps"]

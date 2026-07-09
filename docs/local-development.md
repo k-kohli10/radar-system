@@ -144,6 +144,68 @@ Single service — pass `s=<service>` where `<service>` is one of `postgres`,
 > indices, and Grafana state survive `make stop` → `make dev`. Only
 > `make clean` wipes them.
 
+Database migrations (Alembic, against the compose Postgres):
+
+| Command | What it does |
+|---|---|
+| `make migrate` | apply all pending migrations (`upgrade head`) |
+| `make migrate-check` | verify models and migrations are in sync |
+| `make migrate-down` | roll back the most recent migration |
+| `make revision m="add foo table"` | autogenerate a new migration from model changes |
+
+---
+
+## 🤖 Run the LLM gateway
+
+From Phase 4 onward you can run the LLM gateway as a real local server and hit
+it with curl or Postman:
+
+```bash
+make gateway
+```
+
+| Command / variable | What it does |
+|---|---|
+| `make gateway` | start the gateway on http://localhost:8081 (Ctrl-C to stop) |
+| `make gateway-secrets` | re-pull API keys + token map from Vault into the secrets dir (run after any Vault change, then restart the gateway) |
+| `GATEWAY_PORT=9000 make gateway` | pick a different port |
+| `GATEWAY_SECRETS_DIR=...` | where the secret files live (default `~/.radar-dev/secrets`) |
+| `GATEWAY_CONFIG=...` | mode config path (default `apps/llm-gateway/config/gateway.yaml`) |
+
+**Changing the backing model or provider** is a config edit, not a code
+change: open [`apps/llm-gateway/config/gateway.yaml`](../apps/llm-gateway/config/gateway.yaml),
+set `provider:` / `model:` for any mode (openai · anthropic · gemini), restart
+the gateway, done. Two rules: the matching API key file must exist in the
+secrets dir, and anthropic modes must set `max_output_tokens`.
+
+The gateway follows the platform's secret rule even locally: it reads
+**Vault-sourced files**, never environment variables. Two secret files must
+exist in `GATEWAY_SECRETS_DIR` (the target checks and tells you which one is
+missing):
+
+| File | Contents | Vault path it mirrors |
+|---|---|---|
+| `openai_api_key` | your OpenAI API key, one line | `secret/radar/llm` |
+| `gateway_tokens` | YAML map: `tokens: {<64-hex>: {service, allowed_mode}}` | `secret/radar/llm-gateway` |
+
+Store the secrets in the dev Vault (`vault kv put`), then pull each field to a
+file — the same flow the Kubernetes init-container performs (ADR 0007). Rotate
+by updating Vault, re-pulling the file, and restarting the gateway.
+
+Smoke-test it:
+
+```bash
+curl -s localhost:8081/readyz                    # {"status":"ready"} — 503 means a secret or config is missing
+curl -s localhost:8081/v1/complete \
+  -H "X-Radar-Agent-Token: <a token from gateway_tokens — no trailing colon!>" \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"fast","messages":[{"role":"user","content":"hello"}]}'
+```
+
+> 📡 **Harmless noise:** `Transient error … exporting traces to localhost:4317`
+> means the OTel Collector isn't running locally. It arrives with the
+> observability phase; requests are unaffected.
+
 ---
 
 ## 🪝 Git hooks

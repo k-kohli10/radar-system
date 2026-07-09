@@ -53,3 +53,34 @@ without a recommendation, even during a full provider outage.
 - The gateway is a single point of failure for all LLM-dependent behavior in RADAR.
   Phase 13 adds a circuit breaker to fail fast against a provider that is currently
   down, rather than retrying into a known-bad backend on every request.
+
+## Amendment (Phase 4): where the config and the token map live
+
+The plan's gateway config shape shows `modes`, `fallback`, and `tokens` as one
+document, but token values are secrets and the mode table is meant to be a
+ConfigMap. Implementation resolved the conflict by splitting the two along the
+platform's config/secret boundary (ADR 0007):
+
+- **Mode routing** (`modes` + `fallback`) is non-secret YAML, checked in at
+  `apps/llm-gateway/config/gateway.yaml` and mounted as a ConfigMap in
+  production. Path override: `RADAR_GATEWAY_CONFIG_PATH`. Changing a mode's
+  provider/model is an edit to this file plus a restart — never a code change.
+- **The token→mode map** lives in a single Vault secret, `gateway_tokens`
+  (path `secret/radar/llm-gateway`), holding a YAML map of
+  `token → {service, allowed_mode}`. The init-container writes it to
+  `/vault/secrets/gateway_tokens` like any other secret file; it never appears
+  in the ConfigMap or the environment.
+- **Provider API keys** are separate Vault-sourced files
+  (`openai_api_key`, `anthropic_api_key`, `gemini_api_key` at
+  `secret/radar/llm`), read at startup only for providers the config actually
+  references.
+
+Both config and token map are loaded once at startup, so rotation follows the
+platform rule: change in Vault, restart the pod. Because `gateway_tokens` is a
+map, rotation can be zero-downtime — add the new token alongside the old,
+restart, move the caller, remove the old token, restart.
+
+The gateway is also the one service bootstrapped with `with_agent_auth=False`:
+it has no single inbound `agent_token` of its own and instead enforces caller
+auth itself against the token map (constant-time comparison, tokens never
+logged or echoed in errors).
