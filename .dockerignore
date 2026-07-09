@@ -1,0 +1,27 @@
+# The Docker build context is the repo root (uv workspace builds need every
+# member present to match uv.lock), so `COPY . .` would otherwise send the whole
+# tree to the daemon. Two reasons to trim it:
+#   1. Size/speed — keep .venv, caches, and other generated artifacts out of the
+#      context so the transfer and build stay fast. (The builder runs its own
+#      `uv sync` into a fresh image venv, so nothing here is about the host
+#      .venv "clobbering" the image — it can't; this is purely context weight.)
+#   2. Hygiene — never ship .git history or secrets (.env) into the build
+#      context / daemon.
+.git
+.github
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+.mypy_cache
+**/.mypy_cache
+.pytest_cache
+**/.pytest_cache
+.ruff_cache
+**/.ruff_cache
+.env
+**/.env
+htmlcov
+**/*.egg-info
+deploy/compose
+docs
