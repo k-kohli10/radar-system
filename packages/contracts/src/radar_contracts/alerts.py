@@ -12,10 +12,33 @@ correlated onto an incident.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class Severity(StrEnum):
+    """Canonical alert/incident severity.
+
+    A closed vocabulary, declared most-severe to least-severe, so a given
+    severity is the *same* value regardless of source and thus compares equal
+    downstream (watcher escalation, and the dedup fingerprint that embeds
+    severity). Ingestion validates each source's reported severity against this
+    set and rejects anything else with 422 — sources are configured to emit
+    these values; ingestion never maps or translates one spelling to another.
+
+    Equality only. Do not rely on ``str`` ordering (``"critical" < "high"`` is
+    lexical, not severity order); rank-based comparison for escalation is the
+    watcher's concern and derives from the declaration order here.
+    """
+
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    INFO = "info"
 
 
 class NormalizedAlert(BaseModel):
@@ -54,9 +77,8 @@ class NormalizedAlert(BaseModel):
         max_length=256,
         description="Name of the alerting rule, e.g. 'OrderProcessingFailureRate'.",
     )
-    severity: str = Field(
-        max_length=32,
-        description="Severity as reported by the source, e.g. 'critical', 'high'.",
+    severity: Severity = Field(
+        description="Canonical severity, validated against the Severity set.",
     )
     status: str = Field(
         default="firing",

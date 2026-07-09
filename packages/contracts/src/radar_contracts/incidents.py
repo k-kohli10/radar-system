@@ -15,6 +15,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .alerts import Severity
+
 
 class Confidence(StrEnum):
     """Confidence level of a recommendation.
@@ -79,9 +81,8 @@ class Incident(BaseModel):
         max_length=512,
         description="Human-readable incident title.",
     )
-    severity: str = Field(
-        max_length=32,
-        description="Incident severity, possibly escalated from alert severity.",
+    severity: Severity = Field(
+        description="Canonical incident severity, possibly escalated from the alert.",
     )
     status: str = Field(
         default="open",

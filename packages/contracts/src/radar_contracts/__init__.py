@@ -18,7 +18,7 @@ level::
 
 from __future__ import annotations
 
-from .alerts import NormalizedAlert
+from .alerts import NormalizedAlert, Severity
 from .bot import BotCommand, BotCommandType, BotResponse
 from .events import OutboxEvent, ProcessedEvent
 from .feedback import FeedbackEvent
@@ -45,11 +45,12 @@ from .metrics import MetricsBackend
 from .notifications import NotificationBackend
 from .traces import Span, TracesBackend
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     # alerts
     "NormalizedAlert",
+    "Severity",
     # incidents
     "Confidence",
     "Incident",
