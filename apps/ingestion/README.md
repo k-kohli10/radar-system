@@ -36,6 +36,39 @@ GET  /metrics                                     Prometheus text format
 The 5-minute window is a boundary, not a rounding: an identical alert at 4m59s
 attaches to the open incident; at 5m01s it opens a new one.
 
+## One alert per request
+
+Each POST carries exactly one alert and produces at most one incident. Prometheus
+alertmanager batches alerts into a single webhook by default, so RADAR configures
+alertmanager to **fan out** one alert per POST (a receiver whose `group_by` puts each
+alert in its own group). A body that still arrives batched — one carrying an `alerts`
+array — is rejected with **422**, never truncated to the first alert and never a crash
+(see [ADR 0011](../../docs/adr/0011-inbound-webhook-token.md)). Any malformed or
+incomplete payload is a 422 the same way.
+
+Expected per-source bodies (one alert each):
+
+```
+prometheus  a single alertmanager alert object:
+            {"status": "firing",
+             "labels": {"alertname": "...", "service": "...", "severity": "..."},
+             "annotations": {"summary": "..."},
+             "startsAt": "2026-07-09T10:30:00Z", "fingerprint": "..."}
+
+kibana      a Kibana Watcher webhook body:
+            {"service_name": "...", "alert_name": "...", "severity": "...",
+             "status": "firing", "triggered_at": "2026-07-09T10:30:00Z",
+             "watch_id": "...", "labels": {...}, "annotations": {...}}
+
+mock        a minimal test body (fired_at optional, defaults to now):
+            {"service_name": "...", "alert_name": "...", "severity": "critical"}
+```
+
+`severity` is a **canonical, closed set**: `critical | high | medium | low | info`.
+Every source must emit one of these; an unknown value (e.g. `warning`, `page`, `P1`)
+is a **422**, never mapped or floored — so the same severity always compares equal
+downstream (watcher escalation) and produces a stable dedup fingerprint.
+
 ## Configuration and secrets
 
 Non-secret settings come from `RADAR_*` environment variables. The Postgres DSN

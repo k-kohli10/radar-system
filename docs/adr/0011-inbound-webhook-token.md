@@ -32,3 +32,18 @@ wrong token → 401) but are issued, scoped, and rotated independently.
   (`X-Radar-Webhook-Token` on `/alerts/*`, `X-Radar-Agent-Token` on `/events` if
   ingestion ever exposes one) rather than a single shared auth dependency. That's a
   small amount of duplication in exchange for a clear trust boundary.
+
+## Inbound alert cardinality (one alert per request)
+
+Ingestion normalizes exactly one alert per POST and opens exactly one incident per
+new fingerprint — the pipeline's singular "202 with incident_id". Prometheus
+alertmanager, however, batches multiple alerts into a single webhook body (an
+`alerts` array) by default. RADAR therefore configures alertmanager to **fan out**
+one alert per POST: a receiver whose grouping (`group_by`) places each alert in its
+own group so each fires its own request.
+
+A body that still arrives batched — one carrying an `alerts` array — is treated as a
+misconfiguration and rejected with **422** (`InvalidPayloadError`), never silently
+truncated to `alerts[0]` and never crashing the handler. The same 422 discipline
+covers any malformed or incomplete payload. Kibana Watcher and the mock source send
+one alert per request by construction.
