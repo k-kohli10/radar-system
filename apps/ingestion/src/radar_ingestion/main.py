@@ -112,8 +112,14 @@ def create_app(
                 await database.dispose()
             log.info("ingestion.shutdown")
 
+    def get_database() -> Database | None:
+        # Reads the current value each request: None until startup sets it (or
+        # if startup failed), so the alert routes can answer 503 instead of
+        # touching a missing database.
+        return database
+
     app = FastAPI(title="radar-ingestion", lifespan=lifespan)
-    app.include_router(create_alerts_router())
+    app.include_router(create_alerts_router(get_database=get_database))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
