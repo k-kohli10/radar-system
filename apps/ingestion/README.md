@@ -69,18 +69,48 @@ Every source must emit one of these; an unknown value (e.g. `warning`, `page`, `
 is a **422**, never mapped or floored — so the same severity always compares equal
 downstream (watcher escalation) and produces a stable dedup fingerprint.
 
+## Webhook authentication
+
+Every `/alerts/*` request must carry an `X-Radar-Webhook-Token` header, validated
+**per source** ([ADR 0011](../../docs/adr/0011-inbound-webhook-token.md)): the
+Prometheus endpoint accepts only the Prometheus token, and so on — a token valid
+for one source presented to another's endpoint is rejected. A missing or wrong
+token is **401**. Because auth is a trust boundary, 401 beats 422: a bad token
+with a malformed body returns 401, not 422 (only authenticated callers get body
+validation errors).
+
+Each source's token lives in its **own** Vault secret file, so one can be rotated
+or revoked without touching the others:
+
+```
+/vault/secrets/webhook_token_prometheus
+/vault/secrets/webhook_token_kibana
+/vault/secrets/webhook_token_mock
+```
+
+Each file holds just that source's `secrets.token_hex(32)` value. A source whose
+file is absent is not loaded and its endpoint fails closed (401); at least one
+must be present. In local dev, pull them from Vault into secret files with
+`make ingestion-secrets` (writes the three files, matching the prod layout).
+
 ## Configuration and secrets
 
-Non-secret settings come from `RADAR_*` environment variables. The Postgres DSN
-embeds a password, so it is a **secret**: it is read from the Vault-mounted
-`postgres_dsn` file, never from the environment
-([ADR 0007](../../docs/adr/0007-vault-init-container.md)). The per-source webhook
-tokens are likewise loaded from Vault.
+Non-secret settings come from `RADAR_*` environment variables. Secrets are read
+from Vault-mounted files, never the environment
+([ADR 0007](../../docs/adr/0007-vault-init-container.md)): the `postgres_dsn`
+(the DSN embeds a password) and the per-source `webhook_token_*` files above.
+`/readyz` is 200 only when both have loaded and the database is reachable.
 
 ## Run locally
 
 ```
 uv run uvicorn radar_ingestion.main:app --port 8080
+
+# requires a webhook_tokens secret; send the matching source token:
+curl -sX POST localhost:8080/alerts/mock \
+  -H "X-Radar-Webhook-Token: $MOCK_TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"service_name": "order-service", "alert_name": "OrderProcessingFailureRate", "severity": "critical"}'
 ```
 
 ## Docker

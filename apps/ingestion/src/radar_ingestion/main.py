@@ -38,6 +38,12 @@ from radar_telemetry import (
 
 from radar_ingestion.config import IngestionSettings, load_postgres_dsn
 from radar_ingestion.routes import create_alerts_router
+from radar_ingestion.security import (
+    WebhookAuth,
+    WebhookTokenMap,
+    install_guarded_webhook_validation_handler,
+    load_webhook_tokens,
+)
 
 
 class Readiness:
@@ -85,15 +91,17 @@ def create_app(
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
     database: Database | None = None
+    webhook_tokens: WebhookTokenMap | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal database
+        nonlocal database, webhook_tokens
         try:
             dsn = load_postgres_dsn()
             database = Database(dsn)
+            webhook_tokens = load_webhook_tokens()
             readiness.mark_ready()
-            log.info("ingestion.ready")
+            log.info("ingestion.ready", webhook_sources=webhook_tokens.sources)
         except ConfigurationError as exc:
             # Config-layer messages are written to be secret-free.
             readiness.mark_not_ready(str(exc))
@@ -118,8 +126,19 @@ def create_app(
         # touching a missing database.
         return database
 
+    def get_webhook_tokens() -> WebhookTokenMap | None:
+        # Same late-binding as get_database: None until startup loads the Vault
+        # secret, so the webhook auth dependency answers 503 while not ready.
+        return webhook_tokens
+
+    webhook_auth = WebhookAuth(get_webhook_tokens)
+
     app = FastAPI(title="radar-ingestion", lifespan=lifespan)
-    app.include_router(create_alerts_router(get_database=get_database))
+    # Make 401 beat 422 on /alerts/*: a malformed body must not mask a bad token.
+    install_guarded_webhook_validation_handler(app, webhook_auth)
+    app.include_router(
+        create_alerts_router(get_database=get_database, webhook_auth=webhook_auth)
+    )
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

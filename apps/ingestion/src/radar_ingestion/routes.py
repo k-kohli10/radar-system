@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from radar_common import (
     InvalidPayloadError,
     bind_correlation_id,
@@ -31,16 +31,22 @@ from radar_database import Database
 
 from radar_ingestion.normalizer import AlertSource, normalize
 from radar_ingestion.publisher import persist_alert
+from radar_ingestion.security import WebhookAuth
 
 log = get_logger("ingestion.routes")
 
 
-def create_alerts_router(*, get_database: Callable[[], Database | None]) -> APIRouter:
+def create_alerts_router(
+    *,
+    get_database: Callable[[], Database | None],
+    webhook_auth: WebhookAuth,
+) -> APIRouter:
     """Build the ``/alerts/{prometheus,kibana,mock}`` routing surface.
 
     ``get_database`` returns the live :class:`~radar_database.Database` (set at
     startup) or ``None`` if the service is not ready — the handler answers 503
-    in that case rather than touching a missing database.
+    in that case rather than touching a missing database. Each endpoint is
+    guarded by ``webhook_auth`` for its own source's ``X-Radar-Webhook-Token``.
     """
     router = APIRouter()
 
@@ -90,15 +96,27 @@ def create_alerts_router(*, get_database: Callable[[], Database | None]) -> APIR
             "deduplicated": result.deduplicated,
         }
 
-    @router.post("/alerts/prometheus", status_code=status.HTTP_202_ACCEPTED)
+    @router.post(
+        "/alerts/prometheus",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=[Depends(webhook_auth.require(AlertSource.PROMETHEUS))],
+    )
     async def ingest_prometheus(payload: dict[str, Any]) -> dict[str, str | bool]:
         return await _ingest(AlertSource.PROMETHEUS, payload)
 
-    @router.post("/alerts/kibana", status_code=status.HTTP_202_ACCEPTED)
+    @router.post(
+        "/alerts/kibana",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=[Depends(webhook_auth.require(AlertSource.KIBANA))],
+    )
     async def ingest_kibana(payload: dict[str, Any]) -> dict[str, str | bool]:
         return await _ingest(AlertSource.KIBANA, payload)
 
-    @router.post("/alerts/mock", status_code=status.HTTP_202_ACCEPTED)
+    @router.post(
+        "/alerts/mock",
+        status_code=status.HTTP_202_ACCEPTED,
+        dependencies=[Depends(webhook_auth.require(AlertSource.MOCK))],
+    )
     async def ingest_mock(payload: dict[str, Any]) -> dict[str, str | bool]:
         return await _ingest(AlertSource.MOCK, payload)
 
