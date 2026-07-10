@@ -1,0 +1,36 @@
+[project]
+name = "radar-plugin-logs-elastic"
+version = "0.1.0"
+description = "RADAR logs backend plugin for Elasticsearch: implements the radar-contracts LogsBackend protocol over the elasticsearch SDK. Portable — depends only on radar-contracts and the vendor SDK."
+requires-python = ">=3.12"
+dependencies = [
+    "radar-contracts",
+    "elasticsearch[async]==8.15.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.0",
+    "pytest-asyncio==0.24.0",
+    "mypy==2.1.0",
+]
+
+[tool.uv.sources]
+radar-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/radar_plugin_logs_elastic"]
+
+[tool.mypy]
+strict = true
+python_version = "3.14"
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
