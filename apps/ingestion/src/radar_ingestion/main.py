@@ -194,4 +194,21 @@ def create_app(
     return app
 
 
-app = create_app()
+_app: FastAPI | None = None
+
+
+def __getattr__(name: str) -> FastAPI:
+    """Build the ASGI ``app`` lazily on first access (``main:app`` for uvicorn).
+
+    Importing this module — e.g. to reach :func:`create_app` from tests — must
+    have no side effects; in particular it must not register platform metrics on
+    the global Prometheus registry, which would collide (`Duplicated timeseries`)
+    when another service's app is imported in the same process. Cached so
+    repeated ``app`` access returns one instance, never a second registration.
+    """
+    if name == "app":
+        global _app
+        if _app is None:
+            _app = create_app()
+        return _app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
