@@ -33,3 +33,20 @@ depend only on the protocol type, never on a concrete vendor import.
 - Only one implementation per category ships in early phases (OpenAI, Elasticsearch,
   Prometheus, Slack). The architecture is proven by the LLM category having three
   interchangeable providers from Phase 4 onward, not by breadth across every category.
+- The loader/registry path itself is proven end-to-end by the LLM gateway (Phase 4),
+  which registers the OpenAI/Anthropic/Gemini plugins into a `PluginRegistry` and
+  resolves providers per mode through `BackendLoader`. The logs and metrics categories
+  reuse that same, already-exercised machinery; they simply have no consumer yet.
+- As of Phase 5, `LogsBackend` and `MetricsBackend` are implemented (`plugins/logs/elastic`,
+  `plugins/metrics/prometheus`) but **currently unconsumed**: no composition root registers
+  or loads them from config. Their conformance (`issubclass` + registry registration) and
+  behavior (per-plugin unit tests) are proven, but no running service constructs them from
+  config yet. This is deliberate build-ahead, consistent with the one-implementation-per-
+  category stance above — not an oversight.
+- OPEN QUESTION (`MetricsBackend`): it has no planned consumer. Services emit metrics
+  directly through `radar_telemetry` (typed `RequestMetrics`/`LLMMetrics`/`OutboxMetrics`/
+  `IncidentMetrics` over `prometheus_client`), which does not sit on `MetricsBackend`. A
+  later, deliberate decision should choose whether `radar_telemetry` should be backed by
+  `MetricsBackend` (making it the recording seam) or whether `MetricsBackend` stays a
+  defined-but-dormant Protocol kept for optionality. Not a blocker; flagged so the dormant
+  state is a known choice rather than a surprise.

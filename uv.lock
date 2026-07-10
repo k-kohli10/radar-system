@@ -19,6 +19,7 @@ members = [
     "radar-plugin-llm-gemini",
     "radar-plugin-llm-openai",
     "radar-plugin-logs-elastic",
+    "radar-plugin-metrics-prometheus",
     "radar-plugin-sdk",
     "radar-system",
     "radar-telemetry",
@@ -2384,6 +2385,35 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "elasticsearch", extras = ["async"], specifier = "==8.15.1" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+]
+
+[[package]]
+name = "radar-plugin-metrics-prometheus"
+version = "0.1.0"
+source = { editable = "plugins/metrics/prometheus" }
+dependencies = [
+    { name = "prometheus-client" },
+    { name = "radar-contracts" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "prometheus-client", specifier = "==0.21.0" },
     { name = "radar-contracts", editable = "packages/contracts" },
 ]
 
