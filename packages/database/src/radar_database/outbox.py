@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from radar_common import new_event_id, utcnow
+from radar_common import new_event_id
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -101,6 +101,19 @@ async def mark_dispatched(session: AsyncSession, event: OutboxEvent) -> None:
     await session.delete(event)
 
 
+async def _server_now(session: AsyncSession) -> datetime:
+    """Return Postgres' transaction clock (``NOW()``) as a tz-aware datetime.
+
+    Retry scheduling must reference the same clock as claim eligibility
+    (:func:`claim_outbox_batch` compares ``process_after <= NOW()`` server-side).
+    Reading the DB's ``now()`` here keeps both on the server clock instead of
+    mixing in the app host's, whose skew would silently shift retry timing.
+    """
+    value = await session.scalar(select(func.now()))
+    assert isinstance(value, datetime)  # NOW() always returns one timestamptz row
+    return value
+
+
 async def mark_failed(
     session: AsyncSession,
     event: OutboxEvent,
@@ -115,8 +128,13 @@ async def mark_failed(
     failure it is set to ``dead_letter`` and an ``audit_log`` row is written in
     the same transaction. Returns ``True`` if the event was dead-lettered (so
     the caller can emit the dead-letter metric).
+
+    The backoff base is the Postgres server clock (:func:`_server_now`), so it
+    agrees with the server-side ``process_after <= NOW()`` eligibility check —
+    one clock, immune to app/DB host skew. ``now`` overrides it for deterministic
+    tests.
     """
-    moment = now if now is not None else utcnow()
+    moment = now if now is not None else await _server_now(session)
     event.attempts += 1
     event.last_error = error
     event.updated_at = moment
