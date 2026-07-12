@@ -1,0 +1,48 @@
+[project]
+name = "radar-outbox-worker"
+version = "0.6.0"
+description = "RADAR outbox worker: the transport between agents. Polls outbox_events, claims due pending rows with FOR UPDATE SKIP LOCKED so no two workers claim the same event, and dispatches each via POST /events to its target_service with a hard timeout, bounded backoff retry, dead-letter promotion, and crash recovery. A consumer, not an agent: no POST /events of its own, only /healthz, /readyz, /metrics, and token-guarded dead-letter admin endpoints."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "radar-common",
+    "radar-contracts",
+    "radar-database",
+    "radar-telemetry",
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.32.0",
+    "pydantic==2.13.4",
+    "sqlalchemy[asyncio]==2.0.51",
+    "httpx==0.28.0",
+    "prometheus-client==0.21.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.0",
+    "pytest-asyncio==0.24.0",
+    "mypy==2.1.0",
+]
+
+[tool.uv.sources]
+radar-common = { workspace = true }
+radar-contracts = { workspace = true }
+radar-database = { workspace = true }
+radar-telemetry = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/radar_outbox_worker"]
+
+[tool.mypy]
+strict = true
+python_version = "3.14"
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
