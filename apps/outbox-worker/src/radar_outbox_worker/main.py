@@ -47,6 +47,7 @@ from radar_common import (
 from radar_common.bootstrap import AGENT_TOKEN_SECRET
 from radar_database import Database, OutboxEvent
 from radar_telemetry import (
+    create_outbox_metrics,
     create_request_metrics,
     instrument_fastapi,
     render_latest,
@@ -147,6 +148,7 @@ def create_app(
 
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
+    outbox_metrics = create_outbox_metrics(metrics_registry)
     database: Database | None = None
     # The worker's own agent token guards the admin endpoints inbound. Loaded in
     # the lifespan (same secret used outbound by the dispatcher), so the auth
@@ -174,9 +176,18 @@ def create_app(
                     overrides=settings.dispatch_url_overrides,
                 ),
                 agent_token,
+                metrics=outbox_metrics,
             )
-            poller = Poller(database, DispatchProcessor(database, dispatcher))
-            reaper = Reaper(database, interval_seconds=settings.reaper_interval_seconds)
+            poller = Poller(
+                database,
+                DispatchProcessor(database, dispatcher, metrics=outbox_metrics),
+                metrics=outbox_metrics,
+            )
+            reaper = Reaper(
+                database,
+                interval_seconds=settings.reaper_interval_seconds,
+                metrics=outbox_metrics,
+            )
             tasks.append(asyncio.create_task(poller.run()))
             tasks.append(asyncio.create_task(reaper.run()))
             readiness.mark_ready()

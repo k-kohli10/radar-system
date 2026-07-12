@@ -37,6 +37,7 @@ from radar_database import (
     mark_dispatched,
     mark_failed,
 )
+from radar_telemetry import OutboxMetrics
 
 from radar_outbox_worker.dispatcher import EventDispatcher
 
@@ -46,9 +47,16 @@ log = get_logger("outbox-worker.retry")
 class DispatchProcessor:
     """Dispatch one claimed event and record the outcome. The poller's handler."""
 
-    def __init__(self, database: Database, dispatcher: EventDispatcher) -> None:
+    def __init__(
+        self,
+        database: Database,
+        dispatcher: EventDispatcher,
+        *,
+        metrics: OutboxMetrics | None = None,
+    ) -> None:
         self._database = database
         self._dispatcher = dispatcher
+        self._metrics = metrics
 
     async def __call__(self, event: OutboxEvent) -> None:
         result = await self._dispatcher.dispatch(event)
@@ -64,6 +72,7 @@ class DispatchProcessor:
                 log.info("outbox.record.delivered", event_id=str(event.event_id))
             elif result.permanent:
                 await dead_letter_now(session, row, error=result.detail)
+                self._count_dead_letter()
                 log.error(
                     "outbox.dispatch.dead_lettered",
                     event_id=str(event.event_id),
@@ -73,6 +82,7 @@ class DispatchProcessor:
             else:
                 dead_lettered = await mark_failed(session, row, error=result.detail)
                 if dead_lettered:
+                    self._count_dead_letter()
                     log.error(
                         "outbox.retry.exhausted",
                         event_id=str(event.event_id),
@@ -80,6 +90,8 @@ class DispatchProcessor:
                         reason=result.reason,
                     )
                 else:
+                    # A retry was actually scheduled (not exhausted).
+                    self._count_retry(row.event_type)
                     log.warning(
                         "outbox.retry.scheduled",
                         event_id=str(event.event_id),
@@ -88,3 +100,11 @@ class DispatchProcessor:
                         process_after=row.process_after.isoformat(),
                     )
             await session.commit()
+
+    def _count_retry(self, event_type: str) -> None:
+        if self._metrics is not None:
+            self._metrics.retry_total.labels(event_type).inc()
+
+    def _count_dead_letter(self) -> None:
+        if self._metrics is not None:
+            self._metrics.dead_letter_total.inc()

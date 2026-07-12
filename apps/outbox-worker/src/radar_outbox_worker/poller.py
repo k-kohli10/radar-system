@@ -36,7 +36,16 @@ import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 
 from radar_common import bind_correlation_id, clear_context, get_logger
-from radar_database import DEFAULT_BATCH_SIZE, Database, OutboxEvent, claim_outbox_batch
+from radar_database import (
+    DEFAULT_BATCH_SIZE,
+    STATUS_PENDING,
+    STATUS_PROCESSING,
+    Database,
+    OutboxEvent,
+    claim_outbox_batch,
+)
+from radar_telemetry import OutboxMetrics
+from sqlalchemy import func, select
 
 #: A claimed event is handed to this callable, which owns its own transaction for
 #: dispatch + marking. Kept injectable so the poller stays decoupled from the
@@ -71,11 +80,13 @@ class Poller:
         *,
         batch_size: int = DEFAULT_BATCH_SIZE,
         poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
+        metrics: OutboxMetrics | None = None,
     ) -> None:
         self._database = database
         self._handle_event = handle_event
         self._batch_size = batch_size
         self._poll_interval = poll_interval_seconds
+        self._metrics = metrics
         self._stop = asyncio.Event()
 
     def stop(self) -> None:
@@ -96,6 +107,7 @@ class Poller:
             poll_interval_seconds=self._poll_interval,
         )
         while not self._stop.is_set():
+            await self._sample_gauges()
             try:
                 events = await self._claim_batch()
             except Exception as exc:
@@ -147,6 +159,28 @@ class Poller:
                 )
             finally:
                 clear_context()
+
+    async def _sample_gauges(self) -> None:
+        """Sample outbox depth once per loop (decision: pending + processing).
+
+        One grouped count over the partial index. Metrics failures are isolated —
+        a gauge sample must never break the loop or mask a real poll error.
+        """
+        if self._metrics is None:
+            return
+        try:
+            stmt = (
+                select(OutboxEvent.status, func.count())
+                .where(OutboxEvent.status.in_([STATUS_PENDING, STATUS_PROCESSING]))
+                .group_by(OutboxEvent.status)
+            )
+            async with self._database.session() as session:
+                rows = (await session.execute(stmt)).all()
+            counts = {status: n for status, n in rows}
+            self._metrics.depth.set(counts.get(STATUS_PENDING, 0))
+            self._metrics.processing.set(counts.get(STATUS_PROCESSING, 0))
+        except Exception as exc:
+            log.error("outbox.gauge_sample_failed", error_type=type(exc).__name__)
 
     async def _sleep_or_stop(self, seconds: float) -> None:
         """Sleep for ``seconds``, waking early if :meth:`stop` is signalled.

@@ -45,6 +45,7 @@ from radar_database import (
     claim_stuck_processing,
     mark_failed,
 )
+from radar_telemetry import OutboxMetrics
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,10 +72,12 @@ class Reaper:
         *,
         interval_seconds: int = DEFAULT_REAPER_INTERVAL_SECONDS,
         batch_size: int = DEFAULT_BATCH_SIZE,
+        metrics: OutboxMetrics | None = None,
     ) -> None:
         self._database = database
         self._interval = interval_seconds
         self._batch_size = batch_size
+        self._metrics = metrics
         self._stop = asyncio.Event()
 
     def stop(self) -> None:
@@ -106,6 +109,8 @@ class Reaper:
                         session, event, error=REAP_ERROR, immediate=True
                     )
                     if dead:
+                        if self._metrics is not None:
+                            self._metrics.dead_letter_total.inc()
                         log.error(
                             "outbox.reaper.dead_lettered",
                             event_id=str(event.event_id),

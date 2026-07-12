@@ -33,6 +33,7 @@ agents' ``/events`` endpoints exist to share it.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
@@ -41,6 +42,7 @@ import httpx
 from pydantic import SecretStr
 from radar_common import AGENT_TOKEN_HEADER, ConfigurationError, get_logger
 from radar_database import OutboxEvent
+from radar_telemetry import OutboxMetrics
 
 #: Hard per-dispatch wall-clock budget. Enforced with ``asyncio.timeout`` around
 #: the whole request so a slow-drip response cannot outlast it the way httpx's
@@ -147,11 +149,13 @@ class EventDispatcher:
         agent_token: SecretStr,
         *,
         timeout_seconds: float = DISPATCH_TIMEOUT_SECONDS,
+        metrics: OutboxMetrics | None = None,
     ) -> None:
         self._client = client
         self._resolver = resolver
         self._agent_token = agent_token
         self._timeout_seconds = timeout_seconds
+        self._metrics = metrics
 
     async def dispatch(self, event: OutboxEvent) -> DispatchResult:
         """POST one event to its target and return the classified outcome."""
@@ -164,6 +168,7 @@ class EventDispatcher:
         }
         headers = {AGENT_TOKEN_HEADER: self._agent_token.get_secret_value()}
 
+        started = time.perf_counter()
         try:
             async with asyncio.timeout(self._timeout_seconds):
                 response = await self._client.post(url, json=body, headers=headers)
@@ -185,6 +190,11 @@ class EventDispatcher:
         else:
             result = self._classify(response.status_code, event.target_service)
 
+        if self._metrics is not None:
+            # Duration of the whole attempt (incl. timeouts), by target service.
+            self._metrics.dispatch_duration_seconds.labels(
+                event.target_service
+            ).observe(time.perf_counter() - started)
         self._log(result, event)
         return result
 
