@@ -30,14 +30,23 @@ alongside the poll loop, so both drain together within the budget.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
+from datetime import datetime
+from uuid import UUID
 
 from radar_common import bind_correlation_id, clear_context, get_logger
 from radar_database import (
     DEFAULT_BATCH_SIZE,
+    STATUS_DEAD_LETTER,
+    STATUS_PENDING,
+    AuditLog,
     Database,
+    OutboxEvent,
     claim_stuck_processing,
     mark_failed,
 )
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 DEFAULT_REAPER_INTERVAL_SECONDS = 60
 
@@ -120,3 +129,65 @@ class Reaper:
             await asyncio.wait_for(self._stop.wait(), timeout=seconds)
         except TimeoutError:
             pass  # normal path: the interval elapsed without a stop signal
+
+
+async def list_dead_letters(
+    session: AsyncSession, *, limit: int, offset: int
+) -> Sequence[OutboxEvent]:
+    """Return a page of dead-lettered events, most-recently-dead-lettered first."""
+    stmt = (
+        select(OutboxEvent)
+        .where(OutboxEvent.status == STATUS_DEAD_LETTER)
+        .order_by(OutboxEvent.updated_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
+async def requeue_dead_letter(
+    session: AsyncSession, event_id: UUID
+) -> OutboxEvent | None:
+    """Requeue the dead-lettered event with ``event_id`` for another attempt.
+
+    Resets it to ``pending`` with ``attempts=0`` and ``process_after=NOW()`` so
+    the poller claims it immediately, keeping ``last_error`` for forensics, and
+    writes an ``outbox.requeued`` ``audit_log`` row snapshotting the prior
+    attempts and error. Returns the row, or ``None`` if no ``dead_letter`` event
+    has that ``event_id`` (the caller answers 404). Does not commit — the caller
+    controls the transaction. ``event_id`` is the stable business key operators
+    see in the dead-letter list and audit trail, not the internal row id.
+    """
+    result = await session.execute(
+        select(OutboxEvent).where(
+            OutboxEvent.event_id == event_id,
+            OutboxEvent.status == STATUS_DEAD_LETTER,
+        )
+    )
+    event = result.scalar_one_or_none()
+    if event is None:
+        return None
+
+    now = await session.scalar(select(func.now()))
+    assert isinstance(now, datetime)  # NOW() always returns one timestamptz row
+    # Audit the prior state before resetting it.
+    session.add(
+        AuditLog(
+            event_type="outbox.requeued",
+            entity_type="outbox_event",
+            entity_id=event.id,
+            correlation_id=event.correlation_id,
+            actor="admin",
+            payload={
+                "event_id": str(event.event_id),
+                "previous_attempts": event.attempts,
+                "previous_last_error": event.last_error,
+            },
+        )
+    )
+    event.status = STATUS_PENDING
+    event.attempts = 0
+    event.process_after = now
+    event.updated_at = now
+    return event

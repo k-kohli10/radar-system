@@ -31,13 +31,21 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
+from uuid import UUID
 
 import httpx
-from fastapi import FastAPI, Request, Response, status
+from fastapi import Depends, FastAPI, Request, Response, status
 from prometheus_client import REGISTRY, CollectorRegistry
-from radar_common import ConfigurationError, RadarSettings, bootstrap, read_secret
+from radar_common import (
+    AgentTokenAuth,
+    ConfigurationError,
+    RadarSettings,
+    bootstrap,
+    read_secret,
+)
 from radar_common.bootstrap import AGENT_TOKEN_SECRET
-from radar_database import Database
+from radar_database import Database, OutboxEvent
 from radar_telemetry import (
     create_request_metrics,
     instrument_fastapi,
@@ -45,10 +53,19 @@ from radar_telemetry import (
     setup_tracing,
 )
 
-from radar_outbox_worker.dead_letter import DEFAULT_REAPER_INTERVAL_SECONDS, Reaper
+from radar_outbox_worker.dead_letter import (
+    DEFAULT_REAPER_INTERVAL_SECONDS,
+    Reaper,
+    list_dead_letters,
+    requeue_dead_letter,
+)
 from radar_outbox_worker.dispatcher import EventDispatcher, TargetResolver
 from radar_outbox_worker.poller import Poller
 from radar_outbox_worker.retry import DispatchProcessor
+from radar_outbox_worker.security import AdminAuth
+
+DEAD_LETTER_LIST_MAX = 200
+DEAD_LETTER_LIST_DEFAULT = 50
 
 #: Max time the shutdown drain waits for in-flight work before cancelling.
 DRAIN_TIMEOUT_SECONDS = 30.0
@@ -102,6 +119,20 @@ class Readiness:
         return self._reason
 
 
+def _dead_letter_view(event: OutboxEvent) -> dict[str, Any]:
+    """Serialize a dead-lettered event for the admin list response (no payload)."""
+    return {
+        "event_id": str(event.event_id),
+        "event_type": event.event_type,
+        "target_service": event.target_service,
+        "correlation_id": str(event.correlation_id),
+        "attempts": event.attempts,
+        "last_error": event.last_error,
+        "created_at": event.created_at.isoformat(),
+        "updated_at": event.updated_at.isoformat(),
+    }
+
+
 def create_app(
     *,
     metrics_registry: CollectorRegistry = REGISTRY,
@@ -117,10 +148,14 @@ def create_app(
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
     database: Database | None = None
+    # The worker's own agent token guards the admin endpoints inbound. Loaded in
+    # the lifespan (same secret used outbound by the dispatcher), so the auth
+    # dependency late-binds it via the AdminAuth accessor below.
+    agent_auth: AgentTokenAuth | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal database
+        nonlocal database, agent_auth
         client: httpx.AsyncClient | None = None
         poller: Poller | None = None
         reaper: Reaper | None = None
@@ -129,6 +164,7 @@ def create_app(
             dsn = load_postgres_dsn()
             agent_token = read_secret(AGENT_TOKEN_SECRET)
             assert agent_token is not None  # required=True: raised if absent
+            agent_auth = AgentTokenAuth([agent_token])
             database = Database(dsn)
             client = httpx.AsyncClient()
             dispatcher = EventDispatcher(
@@ -202,6 +238,49 @@ def create_app(
     async def metrics() -> Response:
         payload, content_type = render_latest(metrics_registry)
         return Response(content=payload, media_type=content_type)
+
+    require_agent_token = AdminAuth(lambda: agent_auth).require()
+
+    @app.get("/admin/dead-letters", dependencies=[Depends(require_agent_token)])
+    async def list_dead_letters_endpoint(
+        response: Response,
+        limit: int = DEAD_LETTER_LIST_DEFAULT,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        limit = max(1, min(limit, DEAD_LETTER_LIST_MAX))
+        offset = max(0, offset)
+        if database is None:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {"detail": "database unavailable"}
+        async with database.session() as session:
+            rows = await list_dead_letters(session, limit=limit, offset=offset)
+        return {
+            "limit": limit,
+            "offset": offset,
+            "count": len(rows),
+            "events": [_dead_letter_view(row) for row in rows],
+        }
+
+    @app.post(
+        "/admin/dead-letters/{event_id}/requeue",
+        dependencies=[Depends(require_agent_token)],
+    )
+    async def requeue_endpoint(event_id: UUID, response: Response) -> dict[str, Any]:
+        if database is None:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {"detail": "database unavailable"}
+        async with database.session() as session:
+            event = await requeue_dead_letter(session, event_id)
+            if event is None:
+                response.status_code = status.HTTP_404_NOT_FOUND
+                return {"detail": "no dead-letter event with that id"}
+            view = {
+                "status": "requeued",
+                "event_id": str(event.event_id),
+                "target_service": event.target_service,
+            }
+            await session.commit()
+        return view
 
     @app.middleware("http")
     async def record_request_metrics(
