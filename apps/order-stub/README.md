@@ -1,8 +1,8 @@
 # radar-order-stub
 
 A local-only simulator of an e-commerce `order-service`. Prometheus scrapes its
-`/metrics`, evaluates the e-commerce alert rules against it, and — when a chaos
-endpoint spikes a rate past a threshold — alertmanager fires a webhook at RADAR
+`/metrics` and evaluates the e-commerce alert rules against it. When a chaos
+endpoint spikes a rate past a threshold, alertmanager fires a webhook at RADAR
 ingestion. Driving that alert path end to end is the stub's only job.
 
 **This is a POC target, not a RADAR service.** It is never deployed to
@@ -45,7 +45,7 @@ read zero at rest.
 `rate` (0.0–1.0) is pinned onto the target gauge for `duration_seconds`, then
 the gauge returns to its `0.0` baseline. There is no background reset task: a
 spike stores a monotonic **deadline** and the gauge value is computed from it at
-scrape time — active while `now < deadline`, baseline afterwards. `POST
+scrape time: active while `now < deadline`, baseline afterwards. `POST
 /chaos/reset` clears both spikes immediately.
 
 ## Run locally

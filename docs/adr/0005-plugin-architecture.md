@@ -42,7 +42,7 @@ depend only on the protocol type, never on a concrete vendor import.
   or loads them from config. Their conformance (`issubclass` + registry registration) and
   behavior (per-plugin unit tests) are proven, but no running service constructs them from
   config yet. This is deliberate build-ahead, consistent with the one-implementation-per-
-  category stance above — not an oversight.
+  category stance above, not an oversight.
 - OPEN QUESTION (`MetricsBackend`): it has no planned consumer. Services emit metrics
   directly through `radar_telemetry` (typed `RequestMetrics`/`LLMMetrics`/`OutboxMetrics`/
   `IncidentMetrics` over `prometheus_client`), which does not sit on `MetricsBackend`. A

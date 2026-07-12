@@ -6,7 +6,7 @@ deduplicates them into incidents, and hands the pipeline its first outbox event.
 
 **Ingestion is not an agent** (see [ADR 0011](../../docs/adr/0011-inbound-webhook-token.md)).
 Inbound `/alerts/*` authenticate with a per-source `X-Radar-Webhook-Token` loaded
-from Vault — never the internal `X-Radar-Agent-Token` — and there is no
+from Vault (never the internal `X-Radar-Agent-Token`), and there is no
 `POST /events`: ingestion *produces* outbox events, it does not consume them.
 
 ## Endpoints
@@ -41,8 +41,8 @@ attaches to the open incident; at 5m01s it opens a new one.
 Each POST carries exactly one alert and produces at most one incident. Prometheus
 alertmanager batches alerts into a single webhook by default, so RADAR configures
 alertmanager to **fan out** one alert per POST (a receiver whose `group_by` puts each
-alert in its own group). A body that still arrives batched — one carrying an `alerts`
-array — is rejected with **422**, never truncated to the first alert and never a crash
+alert in its own group). A body that still arrives batched, one carrying an `alerts`
+array, is rejected with **422**, never truncated to the first alert and never a crash
 (see [ADR 0011](../../docs/adr/0011-inbound-webhook-token.md)). Any malformed or
 incomplete payload is a 422 the same way.
 
@@ -66,14 +66,14 @@ mock        a minimal test body (fired_at optional, defaults to now):
 
 `severity` is a **canonical, closed set**: `critical | high | medium | low | info`.
 Every source must emit one of these; an unknown value (e.g. `warning`, `page`, `P1`)
-is a **422**, never mapped or floored — so the same severity always compares equal
+is a **422**, never mapped or floored, so the same severity always compares equal
 downstream (watcher escalation) and produces a stable dedup fingerprint.
 
 ## Webhook authentication
 
 Every `/alerts/*` request must carry an `X-Radar-Webhook-Token` header, validated
 **per source** ([ADR 0011](../../docs/adr/0011-inbound-webhook-token.md)): the
-Prometheus endpoint accepts only the Prometheus token, and so on — a token valid
+Prometheus endpoint accepts only the Prometheus token, and so on. A token valid
 for one source presented to another's endpoint is rejected. A missing or wrong
 token is **401**. Because auth is a trust boundary, 401 beats 422: a bad token
 with a malformed body returns 401, not 422 (only authenticated callers get body

@@ -14,6 +14,9 @@ truncated before each test.
 
 from __future__ import annotations
 
+# NOTE: duplicated from packages/database/tests/conftest.py (DSN resolution,
+# schema build, per-test truncation). Two consumers is fine; extract into a
+# shared testing helper when a 3rd consumer appears.
 import asyncio
 import os
 from collections.abc import AsyncIterator

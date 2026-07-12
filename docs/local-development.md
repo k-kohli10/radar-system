@@ -1,6 +1,6 @@
 # 🧑‍💻 Local Development
 
-From a clean laptop to six running services in about **ten minutes** — most of
+From a clean laptop to six running services in about **ten minutes**, most of
 that spent pulling Docker images while you grab a coffee. One script does the
 setup, one command starts the stack, and nothing secret ever touches the repo.
 
@@ -22,7 +22,7 @@ under the hood, and how to dig yourself out when something goes sideways.
 ## 🧰 Prerequisites
 
 Install these three yourself first. The bootstrap script **checks** for each one
-and tells you precisely what's missing — but it won't install them for you
+and tells you precisely what's missing, but it won't install them for you
 (they need a GUI or root, which a repo script has no business doing silently).
 
 | Tool | Version | Check it |
@@ -31,12 +31,12 @@ and tells you precisely what's missing — but it won't install them for you
 | 🐳 **Docker** | any recent | Docker Desktop (macOS) · Docker Engine (Linux) |
 | 📦 **Docker Compose** | v2 plugin | `docker compose version` |
 
-Everything else — `uv`, and the entire Python dev toolchain — is installed for
+Everything else (`uv` and the entire Python dev toolchain) is installed for
 you in the steps below.
 
 ---
 
-## 🚀 Step 1 — Bootstrap
+## 🚀 Step 1: Bootstrap
 
 From the repository root:
 
@@ -48,20 +48,20 @@ Here's what happens, in order:
 
 | # | Action | Detail |
 |---|---|---|
-| 1️⃣ | **Verify prerequisites** | Python ≥ 3.12, Docker, Compose v2 — fails early with instructions if anything is missing |
+| 1️⃣ | **Verify prerequisites** | Python ≥ 3.12, Docker, Compose v2; fails early with instructions if anything is missing |
 | 2️⃣ | **Install `uv`** | via the official Astral installer into `~/.local/bin`, only if not already present |
-| 3️⃣ | **Generate `.env`** | random per-machine secrets for Postgres, Vault, and Grafana — mode `600`, gitignored, never overwritten |
+| 3️⃣ | **Generate `.env`** | random per-machine secrets for Postgres, Vault, and Grafana; mode `600`, gitignored, never overwritten |
 | 4️⃣ | **Run `make setup`** | `uv sync` builds `.venv/` from `uv.lock`, then `pre-commit install` wires up the git hooks |
 
 > 💡 **Idempotent by design.** Re-run `scripts/bootstrap.sh` as often as you
-> like — it never clobbers an existing `.env` and skips anything already done.
+> like. It never clobbers an existing `.env` and skips anything already done.
 
 ---
 
-## 🔑 Step 2 — Add your external credentials
+## 🔑 Step 2: Add your external credentials
 
 Bootstrap generates every *internal* secret for you. Three *external* ones are
-yours to supply — open `.env` and replace the `__SET_ME__` placeholders:
+yours to supply. Open `.env` and replace the `__SET_ME__` placeholders:
 
 ```bash
 OPENAI_API_KEY=...      # your OpenAI API key
@@ -69,7 +69,7 @@ SLACK_BOT_TOKEN=...     # xoxb-...  from your Slack app   (needed from Phase 9)
 SLACK_APP_TOKEN=...     # xapp-...  for Socket Mode       (needed from Phase 9)
 ```
 
-You don't need these to boot the local stack — only the phases that actually
+You don't need these to boot the local stack; only the phases that actually
 call an LLM or Slack do.
 
 > 🔒 **Never commit `.env` or paste its contents anywhere.** Every generated
@@ -78,14 +78,14 @@ call an LLM or Slack do.
 
 ---
 
-## 🟢 Step 3 — Start the stack
+## 🟢 Step 3: Start the stack
 
 ```bash
 make dev
 ```
 
 Six containers come up via Docker Compose. Every port binds to `127.0.0.1`
-**only** — the dev stack is never exposed to your network.
+**only**, so the dev stack is never exposed to your network.
 
 | Service | Version | URL | Credentials |
 |---|---|---|---|
@@ -130,7 +130,7 @@ Stack-wide:
 | `make test` | run pytest |
 | `make setup` | re-sync dependencies and reinstall hooks |
 
-Single service — pass `s=<service>` where `<service>` is one of `postgres`,
+Single service: pass `s=<service>` where `<service>` is one of `postgres`,
 `elasticsearch`, `kibana`, `prometheus`, `grafana`, `vault`:
 
 | Command | What it does |
@@ -138,7 +138,7 @@ Single service — pass `s=<service>` where `<service>` is one of `postgres`,
 | `make start s=postgres` | start (or create) one service |
 | `make stop-one s=kibana` | stop one service, leave the rest running |
 | `make restart s=grafana` | restart one service |
-| `make logs s=vault` | follow one service's logs — `make logs` for all |
+| `make logs s=vault` | follow one service's logs (`make logs` for all) |
 
 > 💾 **Your data is safe across restarts.** Postgres tables, Elasticsearch
 > indices, and Grafana state survive `make stop` → `make dev`. Only
@@ -189,15 +189,15 @@ missing):
 | `gateway_tokens` | YAML map: `tokens: {<64-hex>: {service, allowed_mode}}` | `secret/radar/llm-gateway` |
 
 Store the secrets in the dev Vault (`vault kv put`), then pull each field to a
-file — the same flow the Kubernetes init-container performs (ADR 0007). Rotate
+file, the same flow the Kubernetes init-container performs (ADR 0007). Rotate
 by updating Vault, re-pulling the file, and restarting the gateway.
 
 Smoke-test it:
 
 ```bash
-curl -s localhost:8081/readyz                    # {"status":"ready"} — 503 means a secret or config is missing
+curl -s localhost:8081/readyz                    # {"status":"ready"}; 503 means a secret or config is missing
 curl -s localhost:8081/v1/complete \
-  -H "X-Radar-Agent-Token: <a token from gateway_tokens — no trailing colon!>" \
+  -H "X-Radar-Agent-Token: <a token from gateway_tokens, no trailing colon!>" \
   -H "Content-Type: application/json" \
   -d '{"mode":"fast","messages":[{"role":"user","content":"hello"}]}'
 ```
@@ -213,9 +213,9 @@ curl -s localhost:8081/v1/complete \
 `pre-commit` runs automatically on every commit, so bad things never make it
 into history:
 
-- 🔦 **gitleaks** — blocks any commit that smells like a secret
-- 🎨 **ruff** (lint + format) — auto-fixes style on the way in
-- 🧹 **hygiene** — trailing whitespace, YAML/TOML syntax, oversized files,
+- 🔦 **gitleaks**: blocks any commit that smells like a secret
+- 🎨 **ruff** (lint + format): auto-fixes style on the way in
+- 🧹 **hygiene**: trailing whitespace, YAML/TOML syntax, oversized files,
   private keys, stray merge-conflict markers
 
 The first commit after setup is slow while pre-commit builds its isolated hook
@@ -233,7 +233,7 @@ uv run pre-commit run --all-files
 <summary><strong><code>make dev</code> says ".env not found"</strong></summary>
 
 Run `scripts/bootstrap.sh` first. Compose refuses to start without generated
-credentials — there are no hardcoded defaults to fall back on.
+credentials; there are no hardcoded defaults to fall back on.
 </details>
 
 <details>
