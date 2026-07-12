@@ -70,7 +70,8 @@ class Alert(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     incident_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("incidents.id")
+        UUID(as_uuid=True),
+        ForeignKey("incidents.id", deferrable=True, initially="DEFERRED"),
     )
     correlation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
@@ -131,7 +132,9 @@ class InvestigationPlan(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text(_GEN_UUID)
     )
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("incidents.id", deferrable=True, initially="DEFERRED"),
+        nullable=False,
     )
     correlation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
@@ -162,10 +165,14 @@ class Recommendation(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text(_GEN_UUID)
     )
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("incidents.id", deferrable=True, initially="DEFERRED"),
+        nullable=False,
     )
     plan_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("investigation_plans.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("investigation_plans.id", deferrable=True, initially="DEFERRED"),
+        nullable=False,
     )
     correlation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
@@ -208,10 +215,14 @@ class Feedback(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text(_GEN_UUID)
     )
     recommendation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("recommendations.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("recommendations.id", deferrable=True, initially="DEFERRED"),
+        nullable=False,
     )
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("incidents.id", deferrable=True, initially="DEFERRED"),
+        nullable=False,
     )
     correlation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False

@@ -53,6 +53,15 @@ gateway: gateway-check
 gateway-secrets: env-check
 	RADAR_SECRETS_DIR="$(GATEWAY_SECRETS_DIR)" uv run python scripts/dev-gateway-secrets.py
 
+# --- Ingestion (local dev) ---------------------------------------------------
+# Re-pull ingestion webhook tokens from the dev Vault into RADAR_SECRETS_DIR,
+# one file PER SOURCE (independent rotation, ADR 0011). Run after changing a
+# token in Vault, then restart ingestion.
+INGESTION_SECRETS_DIR ?= $(HOME)/.radar-dev/secrets
+
+ingestion-secrets: env-check
+	RADAR_SECRETS_DIR="$(INGESTION_SECRETS_DIR)" uv run python scripts/dev-ingestion-secrets.py
+
 # --- Database migrations (Alembic) -------------------------------------------
 # alembic.ini lives in packages/database and env.py reads POSTGRES_DSN, which we
 # load from the repo-root .env (../../.env once inside the package directory).

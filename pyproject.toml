@@ -72,4 +72,4 @@ disallow_untyped_calls = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "packages", "apps"]
+testpaths = ["tests", "packages", "apps", "plugins"]

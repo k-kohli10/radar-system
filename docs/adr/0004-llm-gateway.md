@@ -64,7 +64,7 @@ platform's config/secret boundary (ADR 0007):
 - **Mode routing** (`modes` + `fallback`) is non-secret YAML, checked in at
   `apps/llm-gateway/config/gateway.yaml` and mounted as a ConfigMap in
   production. Path override: `RADAR_GATEWAY_CONFIG_PATH`. Changing a mode's
-  provider/model is an edit to this file plus a restart — never a code change.
+  provider/model is an edit to this file plus a restart, never a code change.
 - **The token→mode map** lives in a single Vault secret, `gateway_tokens`
   (path `secret/radar/llm-gateway`), holding a YAML map of
   `token → {service, allowed_mode}`. The init-container writes it to
@@ -77,7 +77,7 @@ platform's config/secret boundary (ADR 0007):
 
 Both config and token map are loaded once at startup, so rotation follows the
 platform rule: change in Vault, restart the pod. Because `gateway_tokens` is a
-map, rotation can be zero-downtime — add the new token alongside the old,
+map, rotation can be zero-downtime: add the new token alongside the old,
 restart, move the caller, remove the old token, restart.
 
 The gateway is also the one service bootstrapped with `with_agent_auth=False`:
