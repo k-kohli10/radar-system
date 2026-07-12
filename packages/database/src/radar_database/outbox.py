@@ -96,6 +96,38 @@ async def claim_outbox_batch(
     return result.scalars().all()
 
 
+async def claim_stuck_processing(
+    session: AsyncSession,
+    *,
+    older_than_seconds: int,
+    limit: int = DEFAULT_BATCH_SIZE,
+) -> Sequence[OutboxEvent]:
+    """Lock events stranded in ``processing`` for the reaper to recover.
+
+    A worker that dies between claiming (``processing``, committed) and marking
+    leaves rows that the pending-only :func:`claim_outbox_batch` never
+    re-selects. This selects up to ``limit`` such rows whose ``updated_at`` is
+    older than ``older_than_seconds`` — a **server-side** age threshold
+    (``NOW() - interval``), the same clock as everything else — and locks them
+    ``FOR UPDATE SKIP LOCKED`` so concurrent reapers recover disjoint sets. The
+    caller re-drives each via :func:`mark_failed` (``immediate=True``) in the
+    same transaction; the row locks are held until it commits.
+    """
+    threshold = func.now() - timedelta(seconds=older_than_seconds)
+    stmt = (
+        select(OutboxEvent)
+        .where(
+            OutboxEvent.status == STATUS_PROCESSING,
+            OutboxEvent.updated_at < threshold,
+        )
+        .order_by(OutboxEvent.updated_at.asc())
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
 async def mark_dispatched(session: AsyncSession, event: OutboxEvent) -> None:
     """Remove a successfully dispatched event from the outbox."""
     await session.delete(event)
@@ -114,25 +146,63 @@ async def _server_now(session: AsyncSession) -> datetime:
     return value
 
 
+def _promote_to_dead_letter(
+    session: AsyncSession, event: OutboxEvent, *, error: str, trigger: str
+) -> None:
+    """Set ``event`` to ``dead_letter`` and append its ``audit_log`` record.
+
+    The single promotion path: attempts-exhausted retries (including reaper-driven
+    ones) and permanent dispatch failures all funnel here, so every dead-letter is
+    recorded identically. ``trigger`` names WHY — ``"exhausted"`` or
+    ``"permanent"`` — so a permanent failure (e.g. a broken worker token) stays
+    distinguishable from an exhausted retry in the audit trail; a reaper-recovered
+    event that later exhausts is ``"exhausted"``, with the reaping visible in
+    ``last_error``. Caller has already incremented ``attempts`` and set
+    ``last_error``/``updated_at``.
+    """
+    event.status = STATUS_DEAD_LETTER
+    session.add(
+        AuditLog(
+            event_type="outbox.dead_letter",
+            entity_type="outbox_event",
+            entity_id=event.id,
+            correlation_id=event.correlation_id,
+            payload={
+                "event_id": str(event.event_id),
+                "event_type": event.event_type,
+                "target_service": event.target_service,
+                "attempts": event.attempts,
+                "last_error": error,
+                "trigger": trigger,
+            },
+        )
+    )
+
+
 async def mark_failed(
     session: AsyncSession,
     event: OutboxEvent,
     *,
     error: str,
     now: datetime | None = None,
+    immediate: bool = False,
 ) -> bool:
     """Record a failed dispatch, then reschedule or dead-letter the event.
 
     Increments the attempt count and stores ``error``. Under ``MAX_ATTEMPTS``
-    failures the event is set back to ``pending`` with backoff; on the final
-    failure it is set to ``dead_letter`` and an ``audit_log`` row is written in
-    the same transaction. Returns ``True`` if the event was dead-lettered (so
-    the caller can emit the dead-letter metric).
+    failures the event is set back to ``pending``; on the final failure it is
+    promoted to ``dead_letter`` with an ``audit_log`` row (via the shared
+    :func:`_promote_to_dead_letter`), in the same transaction. Returns ``True``
+    if the event was dead-lettered (so the caller can emit the metric).
 
-    The backoff base is the Postgres server clock (:func:`_server_now`), so it
-    agrees with the server-side ``process_after <= NOW()`` eligibility check —
-    one clock, immune to app/DB host skew. ``now`` overrides it for deterministic
-    tests.
+    Rescheduling normally uses growing backoff off the Postgres server clock
+    (:func:`_server_now`), so it agrees with the server-side
+    ``process_after <= NOW()`` eligibility check — one clock, immune to app/DB
+    host skew. ``now`` overrides the clock for deterministic tests. ``immediate``
+    re-pends with ``process_after = NOW()`` and no backoff — the reaper uses it,
+    since a stuck event is a crash (not the target's fault) and should retry at
+    once; it still counts the attempt, so a poison event still reaches
+    ``dead_letter``.
     """
     moment = now if now is not None else await _server_now(session)
     event.attempts += 1
@@ -140,25 +210,29 @@ async def mark_failed(
     event.updated_at = moment
 
     if event.attempts >= MAX_ATTEMPTS:
-        event.status = STATUS_DEAD_LETTER
-        session.add(
-            AuditLog(
-                event_type="outbox.dead_letter",
-                entity_type="outbox_event",
-                entity_id=event.id,
-                correlation_id=event.correlation_id,
-                payload={
-                    "event_id": str(event.event_id),
-                    "event_type": event.event_type,
-                    "target_service": event.target_service,
-                    "attempts": event.attempts,
-                    "last_error": error,
-                },
-            )
-        )
+        _promote_to_dead_letter(session, event, error=error, trigger="exhausted")
         return True
 
-    delay = RETRY_DELAYS_SECONDS[event.attempts + 1]
     event.status = STATUS_PENDING
-    event.process_after = moment + timedelta(seconds=delay)
+    if immediate:
+        event.process_after = moment
+    else:
+        delay = RETRY_DELAYS_SECONDS[event.attempts + 1]
+        event.process_after = moment + timedelta(seconds=delay)
     return False
+
+
+async def dead_letter_now(
+    session: AsyncSession, event: OutboxEvent, *, error: str
+) -> None:
+    """Dead-letter an event immediately, regardless of attempt count.
+
+    For permanent dispatch failures (4xx) that will never succeed on retry.
+    Counts the failed attempt, then promotes through the shared path
+    (:func:`_promote_to_dead_letter`) with ``trigger="permanent"`` — the same
+    audit record as an exhausted retry, only the trigger differs.
+    """
+    event.attempts += 1
+    event.last_error = error
+    event.updated_at = await _server_now(session)
+    _promote_to_dead_letter(session, event, error=error, trigger="permanent")

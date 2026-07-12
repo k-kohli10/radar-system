@@ -46,6 +46,8 @@ from .outbox import (
     STATUS_PENDING,
     STATUS_PROCESSING,
     claim_outbox_batch,
+    claim_stuck_processing,
+    dead_letter_now,
     mark_dispatched,
     mark_failed,
     write_outbox_event,
@@ -87,6 +89,8 @@ __all__ = [
     # outbox
     "write_outbox_event",
     "claim_outbox_batch",
+    "claim_stuck_processing",
+    "dead_letter_now",
     "mark_dispatched",
     "mark_failed",
     "STATUS_PENDING",
