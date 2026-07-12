@@ -5,9 +5,16 @@ The poller claims and commits a batch (model A), then hands each event here.
 and then, in a *fresh* transaction, records the outcome —
 
 - **delivered** → :func:`~radar_database.mark_dispatched` removes the row;
-- **failed** → :func:`~radar_database.mark_failed` reschedules it with growing
-  backoff (``process_after`` set off the server clock), and promotes it to
-  ``dead_letter`` with an ``audit_log`` record once the final attempt is spent.
+- **permanent failure** (4xx that will never succeed on retry) →
+  :func:`~radar_database.dead_letter_now` dead-letters it immediately, regardless
+  of attempts, with an ``audit_log`` record;
+- **transient failure** → :func:`~radar_database.mark_failed` reschedules it with
+  growing backoff (``process_after`` off the server clock), and promotes it to
+  ``dead_letter`` once the final attempt is spent.
+
+The retryable-vs-permanent split comes from the dispatcher's classification,
+which mirrors the gateway policy (timeouts/connection/429/5xx retry;
+400/401/403/422 and other non-2xx are permanent).
 
 Because the claim transaction already committed, the claimed ``OutboxEvent`` is
 **detached**. We re-fetch it by id inside the recording transaction so the DELETE
@@ -18,16 +25,18 @@ claim query never re-selects), so the re-fetch races no one.
 If recording raises (e.g. the database is briefly unreachable), the exception
 propagates to the poller, which logs it and leaves the row in ``processing`` for
 the reaper to recover — never a lost or double-delivered event.
-
-NOTE (commit 4): permanent failures (4xx) currently take the same backoff path as
-transient ones. Splitting them onto an immediate dead-letter path, plus the
-stuck-``processing`` reaper, lands with the dead-letter commit.
 """
 
 from __future__ import annotations
 
 from radar_common import get_logger
-from radar_database import Database, OutboxEvent, mark_dispatched, mark_failed
+from radar_database import (
+    Database,
+    OutboxEvent,
+    dead_letter_now,
+    mark_dispatched,
+    mark_failed,
+)
 
 from radar_outbox_worker.dispatcher import EventDispatcher
 
@@ -53,6 +62,14 @@ class DispatchProcessor:
             if result.delivered:
                 await mark_dispatched(session, row)
                 log.info("outbox.record.delivered", event_id=str(event.event_id))
+            elif result.permanent:
+                await dead_letter_now(session, row, error=result.detail)
+                log.error(
+                    "outbox.dispatch.dead_lettered",
+                    event_id=str(event.event_id),
+                    reason=result.reason,
+                    status_code=result.status_code,
+                )
             else:
                 dead_lettered = await mark_failed(session, row, error=result.detail)
                 if dead_lettered:
