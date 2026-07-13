@@ -37,3 +37,24 @@ The "Locked Decisions" in the implementation plan (no Redis, no Jaeger, no agent
 frameworks, Postgres-outbox-only agent comms, Slack-only notifications, Vault
 init-container-only secrets, etc.) hold for every phase. A phase does not get to
 reintroduce something the plan already ruled out.
+
+## Carried Debt
+
+Recorded when incurred, paid in the phase named. A phase does not get to quietly
+inherit these.
+
+| Owed by | Item |
+|---|---|
+| Phase 11 (CI/CD) | **CI must re-enforce the pre-commit checks.** Phase 6 added a repo-wide strict `mypy .` pre-commit hook (alongside ruff and gitleaks) after a type error in a `tests/` file survived five commits — narrower per-package mypy commands were being run by hand while the Makefile's correct `mypy .` target went uninvoked. But there is no CI yet, so **that hook is currently the only automated guard**: `--no-verify` is off-limits on this repo until CI exists. Phase 11's CI must run `mypy .` + `pytest` + `ruff` on PRs, so the checks are enforced at the CI layer and not merely locally. Belt-and-suspenders only becomes real then. |
+
+## Notes for Later Phases
+
+- **`packages/testing` scales to the agents.** Phase 6 extracted the duplicated
+  real-Postgres pytest fixtures into a `radar-testing` workspace package, consumed
+  as a dev dependency so test-only code never enters a runtime import surface.
+  Phase 7's watcher, planner, and reasoner agents need the same fixtures: add
+  `radar-testing` to their dev dependencies and import `database_url` / `db` from
+  `radar_testing.postgres`. Do not copy the block a fourth time. (The dev-dependency
+  cycle — `packages/database`'s dev deps pull in `radar-testing`, which depends on
+  `radar-database` — resolves cleanly in uv, since dev deps are not in the runtime
+  graph.)
