@@ -77,10 +77,12 @@ DISPATCH_TARGETS = (
 )
 
 #: Gateway grants: service -> its single allowed mode. One token, one mode, per
-#: the Locked Decision. dev-postman is the human smoke-test token.
+#: the Locked Decision. This table is AUTHORITATIVE: a service not listed here has
+#: no business calling the gateway, and its token is pruned from the map on the
+#: next run. Otherwise deleting a grant would be cosmetic — the credential would
+#: keep working, which is the opposite of what deleting it is supposed to mean.
 GATEWAY_GRANTS = {
     "reasoner-agent": "extended",
-    "dev-postman": "fast",
 }
 
 #: Inbound webhook tokens, one per alert source (ADR 0011): each source's token is
@@ -192,6 +194,17 @@ def mint_gateway_tokens(vault: Vault, *, rotate: str | None) -> None:
     raw = gateway.get("gateway_tokens")
     doc = yaml.safe_load(raw) if raw else {}
     tokens: dict[str, dict[str, str]] = (doc or {}).get("tokens") or {}
+
+    # Prune first: a token whose service is no longer granted is revoked, not
+    # merely un-refreshed. GATEWAY_GRANTS is the source of truth for who may call
+    # the gateway, so removing a line from it must actually take the key away.
+    for token, grant in list(tokens.items()):
+        if grant["service"] not in GATEWAY_GRANTS:
+            tokens.pop(token)
+            print(
+                f"  {grant['service']:<16} gateway_token PRUNED  {brief(token)} "
+                f"(no longer granted)"
+            )
 
     by_service = {grant["service"]: tok for tok, grant in tokens.items()}
 

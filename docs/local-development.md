@@ -144,6 +144,13 @@ Single service: pass `s=<service>` where `<service>` is one of `postgres`,
 > indices, and Grafana state survive `make stop` → `make dev`. Only
 > `make clean` wipes them.
 
+> ⚠️ **Vault is the exception.** It runs `server -dev`, which is **in-memory**:
+> every secret is gone the moment its container restarts — no volume, no
+> `make clean` required. This is not a problem, it is the reason `make seed` and
+> `make tokens` exist: they rebuild Vault from nothing. If a service suddenly
+> reports `/readyz` 503 on a missing secret, an emptied Vault is the first thing
+> to suspect. See [Tokens and secrets](#-tokens-and-secrets) below.
+
 Database migrations (Alembic, against the compose Postgres):
 
 | Command | What it does |
@@ -153,12 +160,184 @@ Database migrations (Alembic, against the compose Postgres):
 | `make migrate-down` | roll back the most recent migration |
 | `make revision m="add foo table"` | autogenerate a new migration from model changes |
 
+Tokens and secrets — see [Tokens and secrets](#-tokens-and-secrets) for what these
+mean and when you need them:
+
+| Command | What it does |
+|---|---|
+| `make seed` | write the human-supplied secrets (DSN, API key) from `.env` into Vault |
+| `make tokens` | mint every platform token into Vault (idempotent — keeps what exists) |
+| `make rotate SERVICE=reasoner-agent` | replace one service's tokens, and the worker's map entry for it |
+| `make agent-secrets` | pull each agent's secrets into `~/.radar-dev/secrets/<service>/` |
+| `make gateway-secrets` | pull the gateway's API key and token map |
+| `make ingestion-secrets` | pull the per-source webhook tokens |
+
+---
+
+## 🔐 Tokens and secrets
+
+RADAR services authenticate to each other with tokens, and read every secret from
+a **file** — never an environment variable, locally or in production (ADR 0007).
+Locally, `make` plays the part the Kubernetes init-container plays in the cluster.
+
+### The two token systems
+
+They share a header name (`X-Radar-Agent-Token`) and nothing else. Confusing them
+is the most common way to get a mystifying 401.
+
+| | **Agent token** | **Gateway token** |
+|---|---|---|
+| Guards | a service's `POST /events` (and the worker's `/admin/*`) | the LLM gateway's `/v1/complete` |
+| Who has one | every service — **a different value each** | only services that call an LLM |
+| Validated against | that service's own token | a token→grant map (`service` + one `allowed_mode`) |
+| Wrong token | 401 | 401 |
+| Right token, wrong mode | — | **403** |
+
+A service that does both (the reasoner) holds **two different values**: an
+`agent_token` (its identity on the event bus) and a `gateway_token` (its authority
+to spend `extended`). They rotate independently, because they are authority over
+different things.
+
+The outbox-worker is the only caller of any `/events` endpoint, so it holds
+`dispatch_tokens` — a map of *every target's* token — and sends **the target's**,
+never its own.
+
+### The four commands
+
+```bash
+make seed      # what a HUMAN supplies:   postgres_dsn, openai_api_key (from .env)
+make tokens    # what the PLATFORM mints: agent tokens, dispatch map,
+               #                          gateway grants, webhook tokens
+make agent-secrets      # pull -> ~/.radar-dev/secrets/<service>/
+make gateway-secrets    # pull -> ~/.radar-dev/secrets/  (gateway + api key)
+make ingestion-secrets  # pull -> ~/.radar-dev/secrets/  (webhook_token_*)
+```
+
+`seed` and `tokens` **write to Vault**; the `*-secrets` targets **read from it**
+into files. That split is deliberate: seeding only copies values that already exist
+in `.env`, so it can never invent or invalidate a credential; minting generates
+them, and **never clobbers** — an existing token is kept, so `make tokens` is safe
+to run on a clean machine, a half-configured one, or twice in a row.
+
+`make tokens` is also **convergent**: it rebuilds `dispatch_tokens` from the
+per-service tokens on every run. The map is *derived*, never authored, so it cannot
+drift from the secrets it points at. That matters more than it sounds — a drifted
+map means every dispatch to that target 401s, and the worker treats a 401 as
+*permanent*: the event is dead-lettered immediately, with no retry.
+
+### Where the files land
+
+One directory per service, mirroring its per-pod Vault mount in production:
+
+```
+~/.radar-dev/secrets/
+├── watcher-agent/    agent_token, postgres_dsn
+├── planner-agent/    agent_token, postgres_dsn
+├── reasoner-agent/   agent_token, gateway_token, postgres_dsn
+├── outbox-worker/    agent_token, dispatch_tokens, postgres_dsn
+├── openai_api_key         ┐
+├── gateway_tokens         ├─ flat: the gateway and ingestion still read these
+└── webhook_token_*        ┘
+```
+
+Each service launches with `RADAR_SECRETS_DIR` pointed at **its own** directory.
+It has to be per-service: every service reads its token from a file with a fixed
+name (`agent_token`), so two services sharing a directory would share one file and
+therefore one token — silently collapsing per-service tokens back into the shared
+secret they exist to replace.
+
+### Rotating one service's tokens
+
+```bash
+make rotate SERVICE=reasoner-agent   # fresh agent token + gateway token
+make agent-secrets                   # pull the new files
+# restart reasoner-agent AND outbox-worker
+```
+
+Rotation performs **two writes**: the service's own token, and the worker's
+`dispatch_tokens` entry pointing at it. The second is what makes the first useful —
+without it the worker keeps sending a token the target no longer accepts.
+
+> ⚠️ **Rotation is not hot.** Between the two services restarting, the worker sends
+> the old token and the target rejects it — and a 401 is permanent, so those events
+> are **dead-lettered, not retried**. Rotate on a drained pipeline: check outbox
+> depth first. (Two-phase `[old, new]` acceptance is the fix if hot rotation is ever
+> needed; see the carried-debt table in [roadmap.md](roadmap.md).)
+
+Recovering a dead-lettered event afterwards:
+
+```bash
+curl -s -H "X-Radar-Agent-Token: $(cat ~/.radar-dev/secrets/outbox-worker/agent_token)" \
+  localhost:8080/admin/dead-letters
+curl -s -X POST -H "X-Radar-Agent-Token: $(cat ~/.radar-dev/secrets/outbox-worker/agent_token)" \
+  localhost:8080/admin/dead-letters/<event_id>/requeue
+```
+
+### Rotating the Vault root token
+
+`VAULT_DEV_ROOT_TOKEN` opens *everything* in the dev Vault, so it's the one worth
+knowing how to replace by hand.
+
+**1.** Generate a value and put it in `.env` (replacing `VAULT_DEV_ROOT_TOKEN=`):
+
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+**2.** **Recreate** the container — do **not** `make restart s=vault`:
+
+```bash
+docker compose --env-file .env -f deploy/compose/docker-compose.yml \
+  up -d --force-recreate vault
+```
+
+> 🪤 **The trap.** Compose injects the token as `VAULT_DEV_ROOT_TOKEN_ID`, and
+> environment is bound when a container is **created**. `docker compose restart`
+> restarts the *same* container with the *same* environment — you would get a green
+> Vault still honoring the old token, and believe you had rotated it. Only a
+> recreate re-reads `.env`.
+
+**3.** Prove it took. The `403` is the proof; the `404` means "authenticated, but
+nothing stored yet" — Vault is empty, because recreating it wiped it:
+
+```bash
+curl -s -o /dev/null -w "old -> %{http_code}\n" -H "X-Vault-Token: <OLD>" \
+  http://localhost:8200/v1/secret/metadata/radar    # expect 403
+curl -s -o /dev/null -w "new -> %{http_code}\n" \
+  -H "X-Vault-Token: $(grep '^VAULT_DEV_ROOT_TOKEN=' .env | cut -d= -f2-)" \
+  http://localhost:8200/v1/secret/metadata/radar    # expect 404
+```
+
+**4.** Rebuild and pull:
+
+```bash
+make seed && make tokens
+make agent-secrets && make gateway-secrets && make ingestion-secrets
+```
+
+**5.** Verify: a second `make tokens` should print `kept` for everything and mint
+nothing.
+
+Every token in Vault is regenerated by the wipe, so anything holding an old value
+(a saved `curl`, a webhook caller) needs the new one from `~/.radar-dev/secrets/`.
+
+### Rebuilding a wiped Vault
+
+Same as steps 4–5 above — `make seed && make tokens`, then pull. This is the answer
+whenever Vault comes back empty, which it does on every container recreate.
+
+> 🤫 **These tools never print a secret value** — only service names and 6-character
+> prefixes, enough to compare two tokens without exposing either. Follow the same
+> rule by hand: a redaction you haven't tested is a redaction that will fail
+> silently, and a value pasted into a terminal, a chat, or a PR comment is exposed
+> even if you delete it afterwards. Rotate rather than reason about it.
+
 ---
 
 ## 🤖 Run the LLM gateway
 
 From Phase 4 onward you can run the LLM gateway as a real local server and hit
-it with curl or Postman:
+it with curl:
 
 ```bash
 make gateway
@@ -188,19 +367,31 @@ missing):
 | `openai_api_key` | your OpenAI API key, one line | `secret/radar/llm` |
 | `gateway_tokens` | YAML map: `tokens: {<64-hex>: {service, allowed_mode}}` | `secret/radar/llm-gateway` |
 
-Store the secrets in the dev Vault (`vault kv put`), then pull each field to a
-file, the same flow the Kubernetes init-container performs (ADR 0007). Rotate
-by updating Vault, re-pulling the file, and restarting the gateway.
+Both are put into Vault by `make seed` (the API key, from `.env`) and `make tokens`
+(the token map, minted), then pulled to files by `make gateway-secrets` — the same
+flow the Kubernetes init-container performs (ADR 0007). Rotate with
+`make rotate SERVICE=<service>`, re-pull, and restart the gateway.
 
 Smoke-test it:
 
 ```bash
 curl -s localhost:8081/readyz                    # {"status":"ready"}; 503 means a secret or config is missing
+
+# Every gateway token grants exactly ONE mode, so the token you send decides the
+# mode you may ask for. reasoner-agent is granted `extended`; asking it for any
+# other mode is a 403, not a 401 — the token is valid, the mode is not.
+TOKEN=$(cat ~/.radar-dev/secrets/reasoner-agent/gateway_token)
 curl -s localhost:8081/v1/complete \
-  -H "X-Radar-Agent-Token: <a token from gateway_tokens, no trailing colon!>" \
+  -H "X-Radar-Agent-Token: $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"mode":"fast","messages":[{"role":"user","content":"hello"}]}'
+  -d '{"mode":"extended","messages":[{"role":"user","content":"hello"}]}'
 ```
+
+> 🔑 **Tokens come from a service's own directory.** Each service reads its secrets
+> from `~/.radar-dev/secrets/<service>/`, mirroring its per-pod Vault mount in
+> production. There is no general-purpose "dev token" that can call anything — a
+> token exists because a service needs it, and it can do exactly what that service
+> is allowed to do.
 
 > 📡 **Harmless noise:** `Transient error … exporting traces to localhost:4317`
 > means the OTel Collector isn't running locally. It arrives with the
