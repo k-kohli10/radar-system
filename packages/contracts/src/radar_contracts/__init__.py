@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from .alerts import NormalizedAlert, Severity
 from .bot import BotCommand, BotCommandType, BotResponse
-from .events import OutboxEvent, ProcessedEvent
+from .events import EventEnvelope, OutboxEvent, ProcessedEvent
 from .feedback import FeedbackEvent
 from .incidents import (
     Confidence,
@@ -59,6 +59,7 @@ __all__ = [
     "Recommendation",
     "RecommendedAction",
     # events
+    "EventEnvelope",
     "OutboxEvent",
     "ProcessedEvent",
     # llm

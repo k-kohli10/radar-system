@@ -13,6 +13,7 @@ from radar_contracts import (
     BotCommandType,
     BotResponse,
     Confidence,
+    EventEnvelope,
     FeedbackEvent,
     GatewayStreamEvent,
     Incident,
@@ -295,3 +296,47 @@ def test_feedback_event_optional_fields_default_none() -> None:
     assert fb.correction_text is None
     assert fb.slack_user_id is None
     assert fb.slack_message_ts is None
+
+
+def test_event_envelope_requires_every_contract_field() -> None:
+    """All four fields are mandatory — none has a default to silently paper over."""
+    for missing in ("event_id", "event_type", "correlation_id", "payload"):
+        body = {
+            "event_id": str(uuid4()),
+            "event_type": "alert.normalized",
+            "correlation_id": str(uuid4()),
+            "payload": {},
+        }
+        del body[missing]
+        with pytest.raises(ValidationError):
+            EventEnvelope.model_validate(body)
+
+
+def test_event_envelope_forbids_extra_fields() -> None:
+    """An unknown field is a malformed delivery (422), never silently dropped.
+
+    This is what stops the outbox row's private bookkeeping from being accepted
+    as if it were part of the contract.
+    """
+    with pytest.raises(ValidationError):
+        EventEnvelope.model_validate(
+            {
+                "event_id": str(uuid4()),
+                "event_type": "alert.normalized",
+                "correlation_id": str(uuid4()),
+                "payload": {},
+                "attempts": 3,
+            }
+        )
+
+
+def test_event_envelope_payload_stays_open() -> None:
+    """The envelope is generic transport: each agent judges its own payload shape."""
+    envelope = EventEnvelope(
+        event_id=uuid4(),
+        event_type="alert.normalized",
+        correlation_id=uuid4(),
+        payload={"incident_id": str(uuid4()), "deduplicated": True, "nested": {"a": 1}},
+    )
+    assert envelope.payload["deduplicated"] is True
+    assert envelope.payload["nested"] == {"a": 1}

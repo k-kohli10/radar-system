@@ -23,11 +23,12 @@ will fail *every* dispatch to that service — whereas a ``422`` means one malfo
 event. Operationally different, so they must be distinguishable in logs and (a
 later commit) metrics.
 
-The delivery body is the documented ``POST /events`` contract — exactly
+The delivery body is :class:`~radar_contracts.EventEnvelope` — exactly
 ``event_id``, ``event_type``, ``correlation_id``, ``payload`` — not the full
-outbox row (whose internal ``status``/``attempts``/row ``id`` must never cross the
-wire). A shared delivery-envelope contract belongs in Phase 7, when the receiving
-agents' ``/events`` endpoints exist to share it.
+outbox row, whose internal ``status``/``attempts``/row ``id`` must never cross the
+wire. The envelope is the *shared* contract: the receiving agents parse the same
+model this builds, so a producer/consumer drift is a type error here rather than a
+422 in production.
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ from typing import Final
 import httpx
 from pydantic import SecretStr
 from radar_common import AGENT_TOKEN_HEADER, ConfigurationError, get_logger
+from radar_contracts import EventEnvelope
 from radar_database import OutboxEvent
 from radar_telemetry import OutboxMetrics
 
@@ -160,12 +162,16 @@ class EventDispatcher:
     async def dispatch(self, event: OutboxEvent) -> DispatchResult:
         """POST one event to its target and return the classified outcome."""
         url = self._resolver.resolve(event.target_service)
-        body = {
-            "event_id": str(event.event_id),
-            "event_type": event.event_type,
-            "correlation_id": str(event.correlation_id),
-            "payload": event.payload,
-        }
+        # The row -> wire projection. Building the envelope (rather than a dict)
+        # is what keeps the outbox row's private bookkeeping off the wire: any
+        # field not on the contract cannot be sent, because it is not on the model.
+        envelope = EventEnvelope(
+            event_id=event.event_id,
+            event_type=event.event_type,
+            correlation_id=event.correlation_id,
+            payload=event.payload,
+        )
+        body = envelope.model_dump(mode="json")
         headers = {AGENT_TOKEN_HEADER: self._agent_token.get_secret_value()}
 
         started = time.perf_counter()
