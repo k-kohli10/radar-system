@@ -48,7 +48,7 @@ from datetime import datetime
 from uuid import UUID
 
 from radar_common import new_id, utcnow
-from radar_contracts import NormalizedAlert
+from radar_contracts import AlertNormalizedPayload, NormalizedAlert
 from radar_database import Alert, Incident, write_outbox_event
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,20 +111,26 @@ async def _publish(
 ) -> None:
     """Add the ``alert.normalized`` outbox event for ``alert`` (no commit).
 
-    The payload is the normalized alert plus ``incident_id`` and
-    ``deduplicated`` — the two facts the watcher needs and only ingestion knows.
-    Both branches publish the same event type: the watcher's idempotency is keyed
-    on ``event_id``, and ``deduplicated`` is a property of the alert, not a
-    different kind of thing happening.
+    The payload is the shared :class:`~radar_contracts.AlertNormalizedPayload` — the
+    normalized alert plus ``incident_id`` and ``deduplicated``, the two facts the
+    watcher needs and only ingestion knows. It is *constructed*, not hand-assembled
+    into a dict: the watcher parses the same model, so producer and consumer cannot
+    drift into disagreeing about the shape.
+
+    Both branches publish the same event type. The watcher's idempotency is keyed on
+    ``event_id``, and ``deduplicated`` is a property of the alert, not a different
+    kind of thing happening.
     """
-    payload = alert.model_dump(mode="json")
-    payload["incident_id"] = str(incident_id)
-    payload["deduplicated"] = deduplicated
+    payload = AlertNormalizedPayload(
+        **alert.model_dump(),
+        incident_id=incident_id,
+        deduplicated=deduplicated,
+    )
     await write_outbox_event(
         session,
         event_type=ALERT_NORMALIZED_EVENT,
         target_service=WATCHER_TARGET,
-        payload=payload,
+        payload=payload.model_dump(mode="json"),
         correlation_id=alert.correlation_id,
     )
 

@@ -25,6 +25,7 @@ the case a secrets-only probe gets wrong.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -34,7 +35,8 @@ import pytest
 import pytest_asyncio
 from prometheus_client import CollectorRegistry
 from radar_common import AGENT_TOKEN_HEADER
-from radar_database import Database, ProcessedEvent
+from radar_contracts import AlertNormalizedPayload, NormalizedAlert, Severity
+from radar_database import Database, Incident, ProcessedEvent
 from radar_watcher_agent.config import SERVICE_NAME
 from radar_watcher_agent.main import create_app
 from sqlalchemy import func, select
@@ -84,18 +86,55 @@ async def client(
             yield http
 
 
-def _event(event_id: UUID | None = None, **overrides: Any) -> dict[str, Any]:
+@pytest_asyncio.fixture
+async def incident_id(db: Database) -> UUID:
+    """An open incident, as ingestion would have written it.
+
+    The handler now RESOLVES the incident its payload names — an event pointing at an
+    incident that does not exist is a 422 (see test_correlation). So the gate and auth
+    tests here need a real one to act on.
+    """
+    incident = Incident(
+        id=uuid4(),
+        correlation_id=uuid4(),
+        fingerprint="f" * 64,
+        service_name="order-service",
+        title="order-service OrderProcessingFailureRate",
+        severity="high",
+        status="open",
+        alert_count=1,
+    )
+    async with db.session() as session:
+        session.add(incident)
+        await session.commit()
+    return incident.id
+
+
+def _event(
+    event_id: UUID | None = None,
+    incident_id: UUID | None = None,
+    **overrides: Any,
+) -> dict[str, Any]:
     """A well-formed alert.normalized delivery envelope."""
+    alert = NormalizedAlert(
+        source="mock",
+        fingerprint="f" * 64,
+        service_name="order-service",
+        alert_name="OrderProcessingFailureRate",
+        severity=Severity.HIGH,
+        raw_payload={},
+        fired_at=datetime.now(UTC),
+    )
+    payload = AlertNormalizedPayload(
+        **alert.model_dump(),
+        incident_id=incident_id or uuid4(),
+        deduplicated=False,
+    )
     body: dict[str, Any] = {
         "event_id": str(event_id or uuid4()),
         "event_type": "alert.normalized",
         "correlation_id": str(uuid4()),
-        "payload": {
-            "service_name": "order-service",
-            "alert_name": "OrderProcessingFailureRate",
-            "incident_id": str(uuid4()),
-            "deduplicated": False,
-        },
+        "payload": payload.model_dump(mode="json"),
     }
     body.update(overrides)
     return body
@@ -229,12 +268,14 @@ async def test_extra_envelope_field_is_rejected(client: httpx.AsyncClient) -> No
 
 
 async def test_event_is_processed_and_marked(
-    client: httpx.AsyncClient, db: Database
+    client: httpx.AsyncClient, db: Database, incident_id: UUID
 ) -> None:
     event_id = uuid4()
 
     response = await client.post(
-        "/events", json=_event(event_id), headers={AGENT_TOKEN_HEADER: TOKEN}
+        "/events",
+        json=_event(event_id, incident_id),
+        headers={AGENT_TOKEN_HEADER: TOKEN},
     )
 
     assert response.status_code == 200
@@ -244,14 +285,16 @@ async def test_event_is_processed_and_marked(
     assert marker is not None, "the handler must record what it handled"
 
 
-async def test_redelivery_is_a_no_op(client: httpx.AsyncClient, db: Database) -> None:
+async def test_redelivery_is_a_no_op(
+    client: httpx.AsyncClient, db: Database, incident_id: UUID
+) -> None:
     """The gate: the same event delivered twice is handled once.
 
     The worker delivers at-least-once, so this is not a hypothetical — a dispatch
     that times out after the handler committed is redelivered verbatim. The second
     delivery must return 200 (so the worker stops retrying) while doing no work.
     """
-    body = _event()
+    body = _event(incident_id=incident_id)
 
     first = await client.post("/events", json=body, headers={AGENT_TOKEN_HEADER: TOKEN})
     second = await client.post(

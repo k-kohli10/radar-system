@@ -24,6 +24,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .alerts import NormalizedAlert, Severity
+
 
 class OutboxEvent(BaseModel):
     """A durable, at-least-once event awaiting dispatch.
@@ -116,6 +118,56 @@ class EventEnvelope(BaseModel):
         description="Trace-wide correlation id threaded through the pipeline.",
     )
     payload: dict[str, Any] = Field(description="Event body, shaped by event_type.")
+
+
+class AlertNormalizedPayload(NormalizedAlert):
+    """The body of an ``alert.normalized`` event: the alert, plus what ingestion knows.
+
+    Ingestion *constructs* this and the watcher *parses* it, so the two cannot drift.
+    A hand-rolled dict on one side and a hand-rolled model on the other is the same
+    class of bug as two copies of the fingerprint field list: it looks fine until one
+    side changes, and then nothing tells you.
+
+    The two added fields are the facts only ingestion has, because only ingestion
+    decides them:
+
+    - ``incident_id`` — which incident this alert landed on. The watcher resolves the
+      incident by this id rather than re-deriving it, which would mean re-implementing
+      ingestion's dedup and hoping the two agree.
+    - ``deduplicated`` — whether that incident already existed. The watcher branches on
+      it: a NEW incident gets an investigation plan requested; a duplicate does not
+      (the incident is already being planned) and feeds escalation instead.
+
+    Inherits ``extra="forbid"`` from :class:`NormalizedAlert`, so a widened payload is
+    a 422 at the watcher rather than a silently ignored field.
+    """
+
+    incident_id: UUID = Field(
+        description="The incident this alert was attached to, decided by ingestion.",
+    )
+    deduplicated: bool = Field(
+        description="True if the alert attached to an incident that already existed.",
+    )
+
+
+class PlanRequestedPayload(BaseModel):
+    """The body of an ``incident.plan_requested`` event: watcher -> planner.
+
+    The planner matches its YAML template on ``service_name:alert_name``, so both are
+    carried explicitly. ``alert_name`` in particular cannot be recovered from the
+    incident row — the ``incidents`` table has no such column — so the watcher must
+    pass it on from the alert that triggered the request.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: UUID = Field(description="The incident to plan an investigation for.")
+    service_name: str = Field(max_length=128, description="The affected service.")
+    alert_name: str = Field(max_length=256, description="The alert that fired.")
+    severity: Severity = Field(description="The incident's severity, after escalation.")
+    alert_count: int = Field(
+        ge=1, description="How many alerts have landed on this incident so far."
+    )
 
 
 class ProcessedEvent(BaseModel):

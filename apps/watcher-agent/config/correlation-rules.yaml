@@ -60,6 +60,12 @@ correlation:
   # The cooldown must exceed ingestion's 5-minute dedup window to do anything: an
   # alert inside that window attaches to the open incident instead of opening a
   # new one, and never reaches this rule.
+  #
+  # TO DISABLE: delete the alert's entry (or empty the whole `suppression:` list).
+  # An unlisted alert is never suppressed. Do NOT set the cooldown to 0 — that is
+  # rejected at startup, because "0 minutes" is ambiguous between "off" and
+  # "suppress for no time at all", and a config that can be read two ways is a
+  # config that will be.
   suppression:
     - alert_name: OrderServiceHighMemory
       suppress_follow_on_minutes: 10
