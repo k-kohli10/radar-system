@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from radar_common import utcnow
@@ -97,6 +97,7 @@ async def test_mark_failed_defaults_to_server_clock(db: Database) -> None:
         dead = await mark_failed(session, event, error="boom")
         assert dead is False
         server_now = await session.scalar(select(func.now()))
+        assert isinstance(server_now, datetime)  # NOW() returns one timestamptz row
         assert event.process_after == server_now + timedelta(
             seconds=RETRY_DELAYS_SECONDS[2]
         )
