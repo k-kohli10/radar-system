@@ -7,6 +7,13 @@ all-or-nothing. These pin both directions: on commit all three land (linked and
 consistent), and on a failure induced mid-transaction — after the rows are
 flushed to the database but before commit — the whole trio rolls back, leaving
 no orphan incident, alert, or outbox event.
+
+Attaching to an existing incident is the same guarantee over a different unit: an
+alert row, the ``alert_count`` bump on the matched incident, and its own
+``alert.normalized`` event. That unit must be atomic too — an event that escaped
+without its counter bump would tell the watcher an alert arrived while the
+incident still claims not to have received it, and the watcher's escalation rule
+reads exactly that counter's alerts.
 """
 
 from __future__ import annotations
@@ -16,7 +23,7 @@ from uuid import UUID, uuid4
 import pytest
 from radar_contracts import NormalizedAlert
 from radar_database import Alert, Database, Incident, OutboxEvent
-from radar_ingestion.normalizer import AlertSource, normalize
+from radar_ingestion.normalizer import AlertSource, compute_fingerprint, normalize
 from radar_ingestion.publisher import ALERT_NORMALIZED_EVENT, persist_alert
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -106,6 +113,54 @@ async def test_new_incident_trio_rolls_back_together_on_failure(db: Database) ->
 
     # Nothing survives: no orphan incident, alert, or outbox event.
     assert await _counts(db) == (0, 0, 0)
+
+
+async def _seed_matching_open_incident(db: Database) -> UUID:
+    """Commit an open incident that ``_alert()`` deduplicates onto. Returns its id.
+
+    ``opened_at`` defaults to the server's ``now()``, so the alert's ``received_at``
+    falls inside the dedup window and :func:`persist_alert` takes the attach path.
+    """
+    incident = Incident(
+        id=uuid4(),
+        correlation_id=uuid4(),
+        fingerprint=compute_fingerprint("order-service", "OrderFailure", "critical"),
+        service_name="order-service",
+        title="Orders failing",
+        severity="critical",
+        status="open",
+        alert_count=1,
+    )
+    async with db.session() as session:
+        session.add(incident)
+        await session.commit()
+    return incident.id
+
+
+async def test_dedup_attach_pair_rolls_back_together(db: Database) -> None:
+    """The attached alert, its event, and the alert_count bump are one unit."""
+    incident_id = await _seed_matching_open_incident(db)
+    alert = _alert()
+
+    with pytest.raises(_InducedError):
+        async with db.session() as session:
+            result = await persist_alert(session, alert)
+            assert result.deduplicated is True
+            # Flush so the alert row, the event, and the bumped counter all reach
+            # the database inside this transaction — then fail before commit.
+            await session.flush()
+            raise _InducedError
+
+    # The seeded incident survives (it was committed before), but nothing the
+    # attach path wrote does — and crucially the counter is back at 1, so no event
+    # can outlive the bump that justifies it.
+    incidents, alerts, events = await _counts(db)
+    assert (incidents, alerts, events) == (1, 0, 0)
+    async with db.session() as session:
+        alert_count = await session.scalar(
+            select(Incident.alert_count).where(Incident.id == incident_id)
+        )
+    assert alert_count == 1
 
 
 async def test_induced_integrity_error_rolls_back_the_whole_trio(db: Database) -> None:

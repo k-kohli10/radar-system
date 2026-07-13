@@ -2,8 +2,8 @@
 
 The heart of ingestion's write path. Given a normalized alert, :func:`persist_alert`
 either attaches it to an already-open incident or opens a new one — and does so
-in a single transaction the caller commits, so the incident, the alert, and (for
-a new incident) the outbox event are all-or-nothing.
+in a single transaction the caller commits, so the incident, the alert, and the
+outbox event are all-or-nothing.
 
 New incident (no open match within the dedup window):
 
@@ -13,17 +13,32 @@ New incident (no open match within the dedup window):
 
 Duplicate (an open incident matched):
 
-- INSERT the alert linked to that incident and bump its ``alert_count`` /
-  ``updated_at``. **No outbox event** — the pipeline already started for this
-  incident on the first alert, and duplicates never reach the watcher, so this
-  is the only place their arrival is recorded.
+- INSERT the alert linked to that incident, bump its ``alert_count`` /
+  ``updated_at``, and INSERT an ``alert.normalized`` outbox event **as well**.
+
+**Every alert produces an event, duplicates included.** Ingestion owns incident
+identity (it opens the incident and dedups on the fingerprint); the watcher owns
+correlation *policy* — suppression and escalation — and it cannot enforce either
+against alerts it never sees. Escalation in particular is a statement about
+arrival rate ("3 alerts within 2 minutes"), so a watcher fed only first-of-kind
+alerts could never observe the condition and the rule would be dead by
+construction. Duplicates therefore reach the watcher too, tagged as such.
+
+The payload is the normalized alert plus the two facts only ingestion knows —
+``incident_id`` (which incident this alert landed on) and ``deduplicated``
+(whether that incident already existed). Carrying them makes the event
+self-describing: the watcher branches on ``deduplicated`` rather than inferring
+"was this new?" from a correlation-id comparison, and it resolves the incident by
+id rather than re-querying the alerts table on the strength of an implicit
+guarantee about what this transaction wrote.
 
 This module does not flush for ordering and does not commit: it adds the rows and
 the route owns the ``commit()`` boundary, so the incident, alert, and outbox event
 are issued and FK-checked as one atomic unit (a failure rolls the whole unit
-back). No manual flush ordering is needed — the parent->child FKs are deferrable
-(checked at commit), so the alert may be written before its incident within the
-transaction.
+back). That holds on the duplicate path too — the alert and its event commit
+together or not at all. No manual flush ordering is needed: the parent->child FKs
+are deferrable (checked at commit), so the alert may be written before its
+incident within the transaction.
 """
 
 from __future__ import annotations
@@ -63,9 +78,10 @@ async def persist_alert(
     """Attach ``alert`` to an open incident or open a new one, transactionally.
 
     ``as_of`` is the dedup reference time (defaults to the alert's
-    ``received_at``). Adds rows but does not commit — the caller commits so the
-    incident, alert, and outbox event are one atomic unit. Insert order is
-    irrelevant because the FKs are deferrable.
+    ``received_at``). Either way an ``alert.normalized`` event is published, so
+    the watcher sees every alert. Adds rows but does not commit — the caller
+    commits so the incident, alert, and outbox event are one atomic unit. Insert
+    order is irrelevant because the FKs are deferrable.
     """
     reference = as_of if as_of is not None else alert.received_at
     existing = await find_open_incident(
@@ -76,19 +92,41 @@ async def persist_alert(
         existing.alert_count += 1
         existing.updated_at = utcnow()
         session.add(_alert_row(alert, existing.id))
+        await _publish(session, alert, existing.id, deduplicated=True)
         return PublishResult(incident_id=existing.id, deduplicated=True)
 
     incident_id = new_id()
     session.add(_new_incident(alert, incident_id))
     session.add(_alert_row(alert, incident_id))
+    await _publish(session, alert, incident_id, deduplicated=False)
+    return PublishResult(incident_id=incident_id, deduplicated=False)
+
+
+async def _publish(
+    session: AsyncSession,
+    alert: NormalizedAlert,
+    incident_id: UUID,
+    *,
+    deduplicated: bool,
+) -> None:
+    """Add the ``alert.normalized`` outbox event for ``alert`` (no commit).
+
+    The payload is the normalized alert plus ``incident_id`` and
+    ``deduplicated`` — the two facts the watcher needs and only ingestion knows.
+    Both branches publish the same event type: the watcher's idempotency is keyed
+    on ``event_id``, and ``deduplicated`` is a property of the alert, not a
+    different kind of thing happening.
+    """
+    payload = alert.model_dump(mode="json")
+    payload["incident_id"] = str(incident_id)
+    payload["deduplicated"] = deduplicated
     await write_outbox_event(
         session,
         event_type=ALERT_NORMALIZED_EVENT,
         target_service=WATCHER_TARGET,
-        payload=alert.model_dump(mode="json"),
+        payload=payload,
         correlation_id=alert.correlation_id,
     )
-    return PublishResult(incident_id=incident_id, deduplicated=False)
 
 
 def _new_incident(alert: NormalizedAlert, incident_id: UUID) -> Incident:
