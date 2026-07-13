@@ -21,3 +21,26 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  # Repo-wide strict mypy on every commit.
+  #
+  # `pass_filenames: false` + `always_run` are deliberate: this is a monorepo with
+  # cross-package imports, so checking only the changed files would miss errors in
+  # UNCHANGED files that depend on a changed interface. It must be the whole repo,
+  # every time.
+  #
+  # A `local`/`system` hook (rather than mirrors-mypy) so it runs inside the uv
+  # workspace venv, where the radar_* packages are actually importable.
+  #
+  # This is the structural guard for a blind spot that was behavioural: the
+  # Makefile's `lint` target already ran `mypy .`, but a type error in a tests/
+  # file survived five commits because narrower per-package mypy commands were run
+  # by hand instead. A hook cannot be forgotten.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (repo-wide, strict)
+        entry: uv run mypy .
+        language: system
+        pass_filenames: false
+        always_run: true

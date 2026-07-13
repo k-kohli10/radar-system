@@ -15,6 +15,7 @@ members = [
     "radar-ingestion",
     "radar-llm-gateway",
     "radar-order-stub",
+    "radar-outbox-worker",
     "radar-plugin-llm-anthropic",
     "radar-plugin-llm-gemini",
     "radar-plugin-llm-openai",
@@ -23,6 +24,7 @@ members = [
     "radar-plugin-sdk",
     "radar-system",
     "radar-telemetry",
+    "radar-testing",
 ]
 
 [[package]]
@@ -2124,6 +2126,7 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "radar-testing" },
 ]
 
 [package.metadata]
@@ -2140,6 +2143,7 @@ dev = [
     { name = "mypy", specifier = "==2.1.0" },
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-testing", editable = "packages/testing" },
 ]
 
 [[package]]
@@ -2165,6 +2169,7 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "radar-testing" },
 ]
 
 [package.metadata]
@@ -2187,6 +2192,7 @@ dev = [
     { name = "mypy", specifier = "==2.1.0" },
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-testing", editable = "packages/testing" },
 ]
 
 [[package]]
@@ -2278,6 +2284,53 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "mypy", specifier = "==2.1.0" }]
+
+[[package]]
+name = "radar-outbox-worker"
+version = "0.6.0"
+source = { editable = "apps/outbox-worker" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "prometheus-client" },
+    { name = "pydantic" },
+    { name = "radar-common" },
+    { name = "radar-contracts" },
+    { name = "radar-database" },
+    { name = "radar-telemetry" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "radar-testing" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = "==0.115.0" },
+    { name = "httpx", specifier = "==0.28.0" },
+    { name = "prometheus-client", specifier = "==0.21.0" },
+    { name = "pydantic", specifier = "==2.13.4" },
+    { name = "radar-common", editable = "packages/common" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+    { name = "radar-database", editable = "packages/database" },
+    { name = "radar-telemetry", editable = "packages/telemetry" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.51" },
+    { name = "uvicorn", extras = ["standard"], specifier = "==0.32.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-testing", editable = "packages/testing" },
+]
 
 [[package]]
 name = "radar-plugin-llm-anthropic"
@@ -2514,6 +2567,33 @@ dev = [
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
 ]
+
+[[package]]
+name = "radar-testing"
+version = "0.6.0"
+source = { editable = "packages/testing" }
+dependencies = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "radar-database" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-database", editable = "packages/database" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.51" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "mypy", specifier = "==2.1.0" }]
 
 [[package]]
 name = "requests"

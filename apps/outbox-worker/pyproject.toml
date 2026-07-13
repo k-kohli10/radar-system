@@ -1,7 +1,7 @@
 [project]
-name = "radar-ingestion"
-version = "0.5.0"
-description = "RADAR ingestion: the platform entry point. Receives Prometheus, Kibana, and mock alerts on per-source webhook endpoints, normalizes them to the vendor-neutral NormalizedAlert contract, deduplicates by fingerprint within a time window, and transactionally creates incidents while publishing an alert.normalized outbox event. Not an agent: no POST /events, no agent token."
+name = "radar-outbox-worker"
+version = "0.6.0"
+description = "RADAR outbox worker: the transport between agents. Polls outbox_events, claims due pending rows with FOR UPDATE SKIP LOCKED so no two workers claim the same event, and dispatches each via POST /events to its target_service with a hard timeout, bounded backoff retry, dead-letter promotion, and crash recovery. A consumer, not an agent: no POST /events of its own, only /healthz, /readyz, /metrics, and token-guarded dead-letter admin endpoints."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,9 +12,8 @@ dependencies = [
     "fastapi==0.115.0",
     "uvicorn[standard]==0.32.0",
     "pydantic==2.13.4",
-    "pydantic-settings==2.6.0",
     "sqlalchemy[asyncio]==2.0.51",
-    "structlog==24.4.0",
+    "httpx==0.28.0",
     "prometheus-client==0.21.0",
 ]
 
@@ -38,7 +37,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/radar_ingestion"]
+packages = ["src/radar_outbox_worker"]
 
 [tool.mypy]
 strict = true
