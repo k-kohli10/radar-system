@@ -24,6 +24,7 @@ members = [
     "radar-plugin-sdk",
     "radar-system",
     "radar-telemetry",
+    "radar-testing",
 ]
 
 [[package]]
@@ -2125,6 +2126,7 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "radar-testing" },
 ]
 
 [package.metadata]
@@ -2141,6 +2143,7 @@ dev = [
     { name = "mypy", specifier = "==2.1.0" },
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-testing", editable = "packages/testing" },
 ]
 
 [[package]]
@@ -2166,6 +2169,7 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "radar-testing" },
 ]
 
 [package.metadata]
@@ -2188,6 +2192,7 @@ dev = [
     { name = "mypy", specifier = "==2.1.0" },
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-testing", editable = "packages/testing" },
 ]
 
 [[package]]
@@ -2302,6 +2307,7 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "radar-testing" },
 ]
 
 [package.metadata]
@@ -2323,6 +2329,7 @@ dev = [
     { name = "mypy", specifier = "==2.1.0" },
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-testing", editable = "packages/testing" },
 ]
 
 [[package]]
@@ -2560,6 +2567,33 @@ dev = [
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
 ]
+
+[[package]]
+name = "radar-testing"
+version = "0.6.0"
+source = { editable = "packages/testing" }
+dependencies = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "radar-database" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-database", editable = "packages/database" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.51" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "mypy", specifier = "==2.1.0" }]
 
 [[package]]
 name = "requests"
