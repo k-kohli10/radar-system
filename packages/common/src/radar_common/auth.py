@@ -9,29 +9,60 @@ and the agent-token security decision in the implementation plan.
 
 Comparison is constant-time and tokens are never logged.
 
-Usage::
+Two layers, because agents need both:
 
-    auth = AgentTokenAuth([settings_agent_token])
+- :class:`AgentTokenAuth` — the raw check. Given the accepted token(s), is this
+  request's header one of them?
+- :class:`EventsAuth` + :func:`install_guarded_events_handler` — the *agent*
+  ``POST /events`` guard, shared by every agent (watcher, planner, reasoner). It adds
+  the two things each of them needs and each of them would otherwise get wrong:
 
-    @app.post("/events", dependencies=[Depends(auth)])
-    async def receive_event(...): ...
+  1. **Late binding.** The token is loaded from Vault during startup, not at import.
+     A missing secret must leave ``/readyz`` answering 503, not crash the module
+     before a probe can reach it. So the dependency is built over an accessor and
+     reads the current value per request: 503 until the token loads, 401 after, for
+     a bad one. (503 also matters to the caller: the outbox worker treats 503 as
+     retryable and backs off, but 401 as PERMANENT — it would dead-letter the event
+     over what is only a slow start.)
+
+  2. **401 beats 422.** This is narrower than it looks, and the obvious version of it
+     is vacuous. FastAPI resolves route dependencies before *schema* validation, so
+     valid-JSON-with-the-wrong-shape is already a 401 without any help. But a JSON
+     *parse* failure happens during body decoding, BEFORE any dependency runs — so
+     without this handler, unparseable bytes are answered 422, and an unauthenticated
+     caller has just learned the server read their body and can map the contract by
+     probing it. The handler intercepts validation errors on the guarded path and
+     answers 401 first when the token is absent or wrong. An authenticated caller
+     still gets their 422.
+
+Usage in an agent's ``main.py``::
+
+    events_auth = EventsAuth(get_agent_auth, service_name="planner-agent")
+    install_guarded_events_handler(app, events_auth)
+    app.include_router(create_events_router(events_auth=events_auth, ...))
 """
 
-# NOTE: no ``from __future__ import annotations`` here. This class is used as a
-# FastAPI dependency *instance* (``Depends(auth)``); FastAPI resolves a
+# NOTE: no ``from __future__ import annotations`` here. These classes are used as
+# FastAPI dependency *instances* (``Depends(auth)``); FastAPI resolves a
 # dependency's annotations via ``call.__globals__``, which an instance does not
 # have, so stringized annotations would leave ``Header()`` unresolved and the
 # token would never be read. Real (non-stringized) annotations avoid that.
 
 import hmac
-from collections.abc import Iterable
-from typing import Annotated
+from collections.abc import Callable, Coroutine, Iterable
+from typing import Annotated, Any
 
-from fastapi import Header, HTTPException, status
+from fastapi import FastAPI, Header, HTTPException, Request, Response, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import SecretStr
 
 AGENT_TOKEN_HEADER = "X-Radar-Agent-Token"
 """Header name carrying the agent token on every internal request."""
+
+EVENTS_PATH = "/events"
+"""The guarded agent route. Health and metrics endpoints stay open."""
 
 
 def _unwrap(token: str | SecretStr) -> str:
@@ -67,3 +98,92 @@ class AgentTokenAuth:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or missing agent token",
             )
+
+
+class EventsAuth:
+    """Late-binding ``X-Radar-Agent-Token`` guard for an agent's ``POST /events``.
+
+    Constructed with an *accessor* rather than the token itself, because the token is
+    loaded from Vault during startup: a secret that has not loaded yet must answer 503
+    (retryable) rather than 401 (permanent, dead-letters the event) or crash the app at
+    import, which is the failure ``/readyz`` exists to turn into a 503.
+    """
+
+    def __init__(
+        self,
+        get_auth: Callable[[], AgentTokenAuth | None],
+        *,
+        service_name: str,
+    ) -> None:
+        self._get_auth = get_auth
+        self._service_name = service_name
+
+    @property
+    def not_ready_detail(self) -> str:
+        return f"{self._service_name} is not ready"
+
+    def current_auth(self) -> AgentTokenAuth | None:
+        """The live auth, or ``None`` if the token has not loaded yet.
+
+        Used by :func:`install_guarded_events_handler` to enforce 401-before-422.
+        """
+        return self._get_auth()
+
+    def require(self) -> Callable[..., Coroutine[Any, Any, None]]:
+        """Return the FastAPI dependency enforcing the agent token."""
+        get_auth = self._get_auth
+        detail = self.not_ready_detail
+
+        async def dependency(
+            x_radar_agent_token: Annotated[str | None, Header()] = None,
+        ) -> None:
+            auth = get_auth()
+            if auth is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail
+                )
+            if not auth.verify(x_radar_agent_token):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or missing agent token",
+                )
+
+        return dependency
+
+
+def install_guarded_events_handler(
+    app: FastAPI, events_auth: EventsAuth, *, path: str = EVENTS_PATH
+) -> None:
+    """Make 401 win over 422 on the agent's ``/events`` route.
+
+    Without this, unparseable JSON is rejected (422) before the token is ever checked —
+    which tells an unauthenticated caller that the server got as far as reading their
+    body, and lets them map the contract by probing it. With it, a bad token is 401
+    whatever the body looks like, and only an authenticated caller learns their payload
+    was malformed.
+
+    The 422 for a *legitimate* caller is deliberately preserved: the outbox worker
+    treats 422 as permanent and dead-letters the event, which is the right answer for a
+    body it can never send correctly. Turning that into a 401 would send it chasing a
+    credential problem it does not have.
+    """
+
+    @app.exception_handler(RequestValidationError)
+    async def _guarded_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> Response:
+        if request.url.path == path:
+            auth = events_auth.current_auth()
+            if auth is None:
+                # Raising inside an exception handler bubbles as a 500; respond
+                # directly.
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={"detail": events_auth.not_ready_detail},
+                )
+            if not auth.verify(request.headers.get(AGENT_TOKEN_HEADER)):
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Invalid or missing agent token"},
+                )
+        return await request_validation_exception_handler(request, exc)

@@ -44,7 +44,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, status
 from prometheus_client import REGISTRY, CollectorRegistry
-from radar_common import AgentTokenAuth, ConfigurationError, bootstrap, read_secret
+from radar_common import (
+    AgentTokenAuth,
+    ConfigurationError,
+    EventsAuth,
+    bootstrap,
+    install_guarded_events_handler,
+    read_secret,
+)
 from radar_common.bootstrap import AGENT_TOKEN_SECRET
 from radar_database import Database
 from radar_telemetry import (
@@ -54,10 +61,9 @@ from radar_telemetry import (
     setup_tracing,
 )
 
-from radar_watcher_agent.config import WatcherSettings, load_postgres_dsn
+from radar_watcher_agent.config import SERVICE_NAME, WatcherSettings, load_postgres_dsn
 from radar_watcher_agent.routes import create_events_router
 from radar_watcher_agent.rules import CorrelationRules, load_correlation_rules
-from radar_watcher_agent.security import EventsAuth, install_guarded_validation_handler
 
 
 class Readiness:
@@ -159,12 +165,12 @@ def create_app(
         # dependency answers 503 while not ready and 401 once it is.
         return agent_auth
 
-    events_auth = EventsAuth(get_agent_auth)
+    events_auth = EventsAuth(get_agent_auth, service_name=SERVICE_NAME)
 
     app = FastAPI(title="radar-watcher-agent", lifespan=lifespan)
     # Make 401 beat 422 on /events: a malformed body must not mask a bad token, and
     # an unauthenticated caller must not learn the shape of the contract.
-    install_guarded_validation_handler(app, events_auth)
+    install_guarded_events_handler(app, events_auth)
     app.include_router(
         create_events_router(
             get_database=get_database,

@@ -333,7 +333,6 @@ async def test_a_new_incident_emits_exactly_one_plan_requested(
     assert plan.incident_id == incident_id
     assert plan.service_name == SERVICE
     assert plan.alert_name == ALERT
-    assert plan.severity is Severity.HIGH
 
     audits = await _audits(db)
     assert [a.event_type for a in audits] == [AUDIT_PLAN_REQUESTED]

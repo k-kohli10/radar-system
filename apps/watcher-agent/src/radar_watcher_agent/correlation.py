@@ -365,19 +365,20 @@ async def _request_plan(
 ) -> None:
     """Add the ``incident.plan_requested`` outbox event (no commit).
 
-    ``severity`` is read from the INCIDENT, not the alert: escalation may have raised
-    it, and the planner and the engineer should see the incident's severity now, not
-    the severity of whichever alert happened to trigger the request.
+    The payload carries what the planner needs to match its template and nothing more.
+    It deliberately does NOT carry severity or alert_count: those are mutable incident
+    state, the ``incidents`` row owns them, and an event payload is frozen at the
+    instant it is written. An incident planned while ``high`` and escalated to
+    ``critical`` a second later would carry ``high`` here forever — so nothing
+    downstream may read it from here. See PlanRequestedPayload.
 
     ``alert_name`` comes from the alert, because the ``incidents`` table has no such
-    column — and the planner matches its template on ``service_name:alert_name``.
+    column — the watcher is the last stage that has it.
     """
     body = PlanRequestedPayload(
         incident_id=incident.id,
         service_name=incident.service_name,
         alert_name=payload.alert_name,
-        severity=Severity(incident.severity),
-        alert_count=incident.alert_count,
     )
     await write_outbox_event(
         session,

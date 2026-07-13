@@ -22,7 +22,13 @@ level::
 
 from __future__ import annotations
 
-from .auth import AGENT_TOKEN_HEADER, AgentTokenAuth
+from .auth import (
+    AGENT_TOKEN_HEADER,
+    EVENTS_PATH,
+    AgentTokenAuth,
+    EventsAuth,
+    install_guarded_events_handler,
+)
 from .bootstrap import ServiceRuntime, bootstrap
 from .config import (
     DEFAULT_SECRETS_DIR,
@@ -63,7 +69,10 @@ __all__ = [
     "get_logger",
     # auth
     "AGENT_TOKEN_HEADER",
+    "EVENTS_PATH",
     "AgentTokenAuth",
+    "EventsAuth",
+    "install_guarded_events_handler",
     # bootstrap
     "ServiceRuntime",
     "bootstrap",

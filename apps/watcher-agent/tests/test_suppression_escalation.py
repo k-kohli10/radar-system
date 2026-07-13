@@ -528,15 +528,21 @@ async def test_escalation_raises_a_low_incident_all_the_way_up(
     assert audit.payload["escalated_to"] == Severity.CRITICAL.value
 
 
-async def test_the_escalated_severity_is_the_one_the_plan_carries(
+async def test_plan_requested_carries_no_mutable_incident_state(
     client: httpx.AsyncClient, db: Database
 ) -> None:
-    """Escalation runs BEFORE the plan is requested, so the planner sees the truth.
+    """The plan event must NOT carry severity, alert_count, or status. Ever.
 
-    A new incident whose alerts already justify escalation must request its plan at the
-    ESCALATED severity — not at the severity it was opened with. Ordering the other way
-    would hand the planner and the engineer a stale severity for the incident they are
-    about to investigate.
+    Those are mutable incident state and the incidents row is their single source of
+    truth. An event payload is frozen at the instant it is written: this incident is
+    planned while LOW and escalated to CRITICAL in the same breath, so a payload
+    carrying severity would say "low" forever — and a reasoner, a Slack card, or the
+    bot reading it would show an engineer a stale severity on a live critical incident.
+
+    Leaving the fields out is enforcement, not documentation: a stale read becomes
+    unrepresentable rather than merely discouraged. This test exists so that the day
+    someone finds it convenient to add severity back to the payload, they have to delete
+    an assertion that tells them why not.
     """
     incident = await _seed_incident(
         db, alert_name=PLAIN_ALERT, opened_at=T0, severity=Severity.LOW, alert_count=3
@@ -567,7 +573,13 @@ async def test_the_escalated_severity_is_the_one_the_plan_carries(
             .scalars()
             .one()
         )
-    assert event.payload["severity"] == Severity.CRITICAL.value, (
-        "the plan carried the pre-escalation severity — the planner would investigate "
-        "a 'low' incident that the watcher had just declared critical"
-    )
+
+    # The incident really did escalate — so a payload with a severity field would be
+    # carrying a value that is already wrong by the time the event is dispatched.
+    assert await _severity(db, incident) == Severity.CRITICAL.value
+    assert set(event.payload) == {"incident_id", "service_name", "alert_name"}
+    for mutable in ("severity", "alert_count", "status"):
+        assert mutable not in event.payload, (
+            f"{mutable} is mutable incident state; the incidents row owns it. A "
+            "snapshot in an event payload is a stale read waiting to happen."
+        )

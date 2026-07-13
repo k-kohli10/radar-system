@@ -24,7 +24,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .alerts import NormalizedAlert, Severity
+from .alerts import NormalizedAlert
 
 
 class OutboxEvent(BaseModel):
@@ -153,10 +153,25 @@ class AlertNormalizedPayload(NormalizedAlert):
 class PlanRequestedPayload(BaseModel):
     """The body of an ``incident.plan_requested`` event: watcher -> planner.
 
-    The planner matches its YAML template on ``service_name:alert_name``, so both are
-    carried explicitly. ``alert_name`` in particular cannot be recovered from the
-    incident row — the ``incidents`` table has no such column — so the watcher must
-    pass it on from the alert that triggered the request.
+    Exactly what the planner needs to do its job, and deliberately NOTHING ELSE.
+
+    ``service_name`` and ``alert_name`` because the planner matches its YAML template on
+    ``service_name:alert_name`` — and ``alert_name`` in particular cannot be recovered
+    downstream, because the ``incidents`` table has no such column. The watcher is the
+    last stage that has it.
+
+    **No severity. No alert_count. No status.** Those are MUTABLE incident state, and
+    the ``incidents`` row is their single source of truth. An event payload is a frozen
+    snapshot of the instant it was written: an incident planned while ``high`` and
+    escalated to ``critical`` a second later would carry ``high`` in this payload
+    forever. Anything reading severity from here — a reasoner building context, a
+    feedback card, the bot — would show an engineer a stale severity on a live incident.
+
+    Leaving the fields out is not documentation, it is enforcement: a downstream reader
+    cannot take a stale value from an event that does not carry one. They have to go to
+    the incident row, which is always current. (Note ``investigation_plans`` has no
+    severity column either, so the database plan row was never the hazard — this payload
+    was the only place a stale value could hide.)
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -164,10 +179,6 @@ class PlanRequestedPayload(BaseModel):
     incident_id: UUID = Field(description="The incident to plan an investigation for.")
     service_name: str = Field(max_length=128, description="The affected service.")
     alert_name: str = Field(max_length=256, description="The alert that fired.")
-    severity: Severity = Field(description="The incident's severity, after escalation.")
-    alert_count: int = Field(
-        ge=1, description="How many alerts have landed on this incident so far."
-    )
 
 
 class ProcessedEvent(BaseModel):
