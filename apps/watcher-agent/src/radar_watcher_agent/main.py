@@ -149,6 +149,11 @@ def create_app(
         # the handler answers 503 rather than touching a missing database.
         return database
 
+    def get_rules() -> CorrelationRules | None:
+        # Late-bound like the rest: None until the ConfigMap loads, so the handler
+        # answers 503 rather than correlating against policy nobody configured.
+        return rules
+
     def get_agent_auth() -> AgentTokenAuth | None:
         # Same late-binding: None until the Vault secret loads, so the auth
         # dependency answers 503 while not ready and 401 once it is.
@@ -161,7 +166,11 @@ def create_app(
     # an unauthenticated caller must not learn the shape of the contract.
     install_guarded_validation_handler(app, events_auth)
     app.include_router(
-        create_events_router(get_database=get_database, events_auth=events_auth)
+        create_events_router(
+            get_database=get_database,
+            get_rules=get_rules,
+            events_auth=events_auth,
+        )
     )
 
     @app.get("/healthz")

@@ -45,6 +45,7 @@ from radar_database import Database, is_already_processed, mark_processed
 
 from radar_watcher_agent.config import SERVICE_NAME
 from radar_watcher_agent.correlation import IncidentNotFoundError, correlate
+from radar_watcher_agent.rules import CorrelationRules
 from radar_watcher_agent.security import EventsAuth
 
 log = get_logger("watcher.routes")
@@ -56,6 +57,7 @@ ALERT_NORMALIZED_EVENT = "alert.normalized"
 def create_events_router(
     *,
     get_database: Callable[[], Database | None],
+    get_rules: Callable[[], CorrelationRules | None],
     events_auth: EventsAuth,
 ) -> APIRouter:
     """Build the ``POST /events`` surface.
@@ -75,7 +77,11 @@ def create_events_router(
         bind_correlation_id(envelope.correlation_id)
 
         database = get_database()
-        if database is None:
+        rules = get_rules()
+        if database is None or rules is None:
+            # Correlation without rules would be correlation with silent defaults —
+            # so a watcher whose ConfigMap did not load refuses the work rather than
+            # inventing policy. 503 is retryable: the worker backs off and redelivers.
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="watcher-agent is not ready",
@@ -116,6 +122,7 @@ def create_events_router(
                 # failure would be permanent and silent. Hence one commit, not two.
                 outcome = await correlate(
                     session,
+                    rules=rules,
                     correlation_id=envelope.correlation_id,
                     payload=payload,
                 )
@@ -138,6 +145,8 @@ def create_events_router(
             event_type=envelope.event_type,
             incident_id=str(outcome.incident_id),
             plan_requested=outcome.plan_requested,
+            suppressed=outcome.suppressed,
+            escalated_to=outcome.escalated_to.value if outcome.escalated_to else None,
         )
         return {"status": "processed"}
 

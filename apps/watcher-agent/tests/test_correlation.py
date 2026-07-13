@@ -67,6 +67,7 @@ from radar_watcher_agent.correlation import (
     correlate,
 )
 from radar_watcher_agent.main import create_app
+from radar_watcher_agent.rules import load_correlation_rules
 from sqlalchemy import func, select
 
 TOKEN = "w" * 64
@@ -76,6 +77,8 @@ ALERT = "OrderProcessingFailureRate"
 #: computed (ADR 0013). So this suite needs no dependency on the ingestion package;
 #: any 64-char stand-in serves, and using one keeps the services decoupled.
 FINGERPRINT = "f" * 64
+#: The rules the shipped ConfigMap declares — the same policy production runs.
+RULES = load_correlation_rules(Path("apps/watcher-agent/config/correlation-rules.yaml"))
 
 
 class _InducedError(Exception):
@@ -290,7 +293,9 @@ async def test_plan_requested_marker_and_audit_commit_together(db: Database) -> 
 
     with pytest.raises(_InducedError):
         async with db.session() as session:
-            await correlate(session, correlation_id=ingress, payload=payload)
+            await correlate(
+                session, rules=RULES, correlation_id=ingress, payload=payload
+            )
             await mark_processed(session, event_id, SERVICE_NAME)
             # Flush so all three rows really exist inside this transaction, then fail.
             await session.flush()
@@ -448,6 +453,7 @@ async def test_correlate_raises_for_a_missing_incident(db: Database) -> None:
         with pytest.raises(IncidentNotFoundError):
             await correlate(
                 session,
+                rules=RULES,
                 correlation_id=uuid4(),
                 payload=_payload(uuid4(), uuid4(), deduplicated=False),
             )

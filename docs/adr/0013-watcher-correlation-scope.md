@@ -82,6 +82,32 @@ control something it does not, the watcher **refuses to start** if
 likely to be edited in the belief that it changes behaviour therefore cannot diverge
 in silence: it fails loudly.
 
+## Why the idempotency marker is not itself in the correlation chain
+
+The load-bearing property of this phase is that **one** correlation id — the value
+minted at ingress — appears on every row the pipeline writes, so Phase 10 can trace an
+incident by that value alone. The chain the tests assert is:
+
+```
+ingress UUID == incidents.correlation_id      (written by ingestion)
+             == audit_log.correlation_id      (written by the watcher)
+             == outbox_events.correlation_id  (the plan_requested event)
+```
+
+`processed_events` is deliberately **not** a link in that chain. It has no
+`correlation_id` column: the table is keyed `(event_id, processed_by)` and holds
+nothing else (Phase 3 schema). The marker is therefore anchored by the `event_id` of
+the very envelope that carried the ingress correlation id — the same event whose
+handling produced the audit and outbox rows above.
+
+We considered adding a `correlation_id` column to `processed_events` to make the
+assertion read more cleanly in one line, and rejected it. The marker's job is
+idempotency — "has this service handled this event id?" — and that question needs
+exactly two columns. Adding a third so a test can assert on it is reshaping the schema
+to fit the test, and it would put a *denormalized copy* of the correlation id in a table
+that has no use for it. The chain is complete without it; the marker is evidence that
+the event was handled, not evidence about the trace.
+
 ## Consequences
 
 **Good.** Zero change to a shipped, tested phase's write path. The e2e test's
