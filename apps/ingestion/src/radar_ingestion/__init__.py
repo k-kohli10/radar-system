@@ -4,10 +4,12 @@ Detection happens outside RADAR (Prometheus alertmanager, Kibana Watcher).
 Ingestion is where those pre-fired alerts enter the system: it receives them on
 per-source webhook endpoints, normalizes each vendor payload to the
 vendor-neutral :class:`radar_contracts.NormalizedAlert`, deduplicates by
-fingerprint within a time window, and — for a genuinely new alert —
-transactionally opens an incident and writes an ``alert.normalized`` outbox
-event for the watcher agent. A duplicate attaches to the open incident and
-writes no event.
+fingerprint within a time window, and transactionally attaches the alert to an
+open incident or opens a new one — writing an ``alert.normalized`` outbox event
+for the watcher agent either way. Duplicates are published too, tagged
+``deduplicated``: the watcher owns suppression and escalation, and escalation is a
+claim about arrival rate ("3 alerts within 2 minutes") that it cannot enforce
+against alerts it is never shown.
 
 Ingestion is NOT an agent (see the phase scope note and ADR 0011):
 
