@@ -24,7 +24,6 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 import httpx
-from pydantic import SecretStr
 from radar_database import (
     MAX_ATTEMPTS,
     RETRY_DELAYS_SECONDS,
@@ -39,6 +38,7 @@ from radar_database import (
 from radar_outbox_worker.dispatcher import EventDispatcher, TargetResolver
 from radar_outbox_worker.retry import DispatchProcessor
 from sqlalchemy import func, select, update
+from tokens import token_map
 
 DEAD_LETTER_AUDIT = "outbox.dead_letter"
 
@@ -50,7 +50,7 @@ def _processor(
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda request: httpx.Response(status_code))
     )
-    dispatcher = EventDispatcher(client, TargetResolver(), SecretStr("t" * 64))
+    dispatcher = EventDispatcher(client, TargetResolver(), token_map())
     return DispatchProcessor(db, dispatcher), client
 
 

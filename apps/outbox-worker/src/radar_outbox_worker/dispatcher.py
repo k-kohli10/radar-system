@@ -18,10 +18,20 @@ failures consistently:
   ``401``, ``403``, ``422`` (and any other non-2xx we did not mark retryable).
 
 ``401`` and ``422`` are tagged with *distinct* reasons on purpose: a ``401`` means
-the worker's own agent token is rejected by the target — a misconfiguration that
+the token the worker presented was rejected by the target — a misconfiguration that
 will fail *every* dispatch to that service — whereas a ``422`` means one malformed
 event. Operationally different, so they must be distinguishable in logs and (a
 later commit) metrics.
+
+**The worker presents the TARGET's token, not its own.** Every agent has its own
+agent token, so there is no single credential that opens all of them; the worker
+resolves each event's target to that target's token via the
+:class:`~radar_outbox_worker.security.DispatchTokenMap`. A target absent from the
+map is refused *before* the request is made (``no_dispatch_token``, permanent)
+rather than dispatched with no token and dead-lettered on a ``401`` from the far
+end — same outcome, but one of them says what is actually wrong. That is the
+expected fate of an event bound for a service that does not exist yet (Phase 9's
+feedback-service), and of one bound for a target whose token was never minted.
 
 The delivery body is :class:`~radar_contracts.EventEnvelope` — exactly
 ``event_id``, ``event_type``, ``correlation_id``, ``payload`` — not the full
@@ -40,11 +50,12 @@ from enum import StrEnum
 from typing import Final
 
 import httpx
-from pydantic import SecretStr
 from radar_common import AGENT_TOKEN_HEADER, ConfigurationError, get_logger
 from radar_contracts import EventEnvelope
 from radar_database import OutboxEvent
 from radar_telemetry import OutboxMetrics
+
+from radar_outbox_worker.security import DispatchTokenMap
 
 #: Hard per-dispatch wall-clock budget. Enforced with ``asyncio.timeout`` around
 #: the whole request so a slow-drip response cannot outlast it the way httpx's
@@ -148,19 +159,33 @@ class EventDispatcher:
         self,
         client: httpx.AsyncClient,
         resolver: TargetResolver,
-        agent_token: SecretStr,
+        tokens: DispatchTokenMap,
         *,
         timeout_seconds: float = DISPATCH_TIMEOUT_SECONDS,
         metrics: OutboxMetrics | None = None,
     ) -> None:
         self._client = client
         self._resolver = resolver
-        self._agent_token = agent_token
+        self._tokens = tokens
         self._timeout_seconds = timeout_seconds
         self._metrics = metrics
 
     async def dispatch(self, event: OutboxEvent) -> DispatchResult:
         """POST one event to its target and return the classified outcome."""
+        # Fail closed, before any I/O: without the target's own token this dispatch
+        # cannot authenticate, and sending it anyway would only buy a 401 that says
+        # less about the cause than this does.
+        token = self._tokens.get(event.target_service)
+        if token is None:
+            result = DispatchResult(
+                DispatchStatus.PERMANENT,
+                "no_dispatch_token",
+                None,
+                f"no dispatch token configured for {event.target_service}",
+            )
+            self._log(result, event)
+            return result
+
         url = self._resolver.resolve(event.target_service)
         # The row -> wire projection. Building the envelope (rather than a dict)
         # is what keeps the outbox row's private bookkeeping off the wire: any
@@ -172,7 +197,7 @@ class EventDispatcher:
             payload=event.payload,
         )
         body = envelope.model_dump(mode="json")
-        headers = {AGENT_TOKEN_HEADER: self._agent_token.get_secret_value()}
+        headers = {AGENT_TOKEN_HEADER: token.get_secret_value()}
 
         started = time.perf_counter()
         try:

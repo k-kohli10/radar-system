@@ -9,11 +9,15 @@ and a shared ``httpx.AsyncClient``, and launches two background tasks — the
 is missing, readiness stays false and ``/readyz`` answers 503 instead of crashing
 the import the probe never sees.
 
-The agent token is loaded once and serves both directions: the dispatcher sends
-it outbound as ``X-Radar-Agent-Token`` to targets, and (a later commit) the admin
-dead-letter endpoints validate it inbound. This worker has NO ``POST /events`` —
-it is a consumer, not an agent endpoint; only ``/healthz``, ``/readyz``,
-``/metrics`` are exposed here.
+Two distinct sets of credentials, and conflating them is the bug this service is
+most likely to have: the worker's OWN ``agent_token`` validates callers of its
+admin dead-letter endpoints (inbound), while the ``dispatch_tokens`` map holds each
+target's token, which the dispatcher sends *to that target* (outbound). Each agent
+has its own token, so there is no one credential that opens them all — the worker
+presents the target's, never its own. Both are Vault secrets; a missing either
+keeps ``/readyz`` at 503. This worker has NO ``POST /events`` — it is a consumer,
+not an agent endpoint; only ``/healthz``, ``/readyz``, ``/metrics``, and
+``/admin/*`` are exposed here.
 
 Graceful shutdown (the phase contract: SIGTERM → stop polling → wait ≤30s for
 in-flight → exit): uvicorn turns SIGTERM into a lifespan shutdown, which marks
@@ -63,7 +67,7 @@ from radar_outbox_worker.dead_letter import (
 from radar_outbox_worker.dispatcher import EventDispatcher, TargetResolver
 from radar_outbox_worker.poller import Poller
 from radar_outbox_worker.retry import DispatchProcessor
-from radar_outbox_worker.security import AdminAuth
+from radar_outbox_worker.security import AdminAuth, load_dispatch_tokens
 
 DEAD_LETTER_LIST_MAX = 200
 DEAD_LETTER_LIST_DEFAULT = 50
@@ -167,6 +171,10 @@ def create_app(
             agent_token = read_secret(AGENT_TOKEN_SECRET)
             assert agent_token is not None  # required=True: raised if absent
             agent_auth = AgentTokenAuth([agent_token])
+            # The worker's OWN token guards its admin endpoints (above); the tokens
+            # it SENDS are the targets' (below). Two different things, and the whole
+            # point of per-service tokens is that they are not interchangeable.
+            dispatch_tokens = load_dispatch_tokens()
             database = Database(dsn)
             client = httpx.AsyncClient()
             dispatcher = EventDispatcher(
@@ -175,7 +183,7 @@ def create_app(
                     url_template=settings.dispatch_url_template,
                     overrides=settings.dispatch_url_overrides,
                 ),
-                agent_token,
+                dispatch_tokens,
                 metrics=outbox_metrics,
             )
             poller = Poller(
@@ -194,6 +202,8 @@ def create_app(
             log.info(
                 "outbox_worker.ready",
                 reaper_interval_seconds=settings.reaper_interval_seconds,
+                # Target NAMES only — the map never logs a token value.
+                dispatch_targets=dispatch_tokens.targets,
             )
         except ConfigurationError as exc:
             # Config-layer messages are written to be secret-free.
