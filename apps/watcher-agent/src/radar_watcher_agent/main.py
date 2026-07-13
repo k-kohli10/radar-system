@@ -2,8 +2,11 @@
 
 The first stage of the incident pipeline. Everything it needs is loaded inside the
 lifespan — nothing at import time: the Postgres DSN and the watcher's own
-``agent_token`` come from Vault, and a missing secret leaves readiness false so
-``/readyz`` answers 503 instead of crashing an import that no probe will ever see.
+``agent_token`` come from Vault, the correlation rules from their ConfigMap, and a
+missing or invalid one of any of them leaves readiness false so ``/readyz`` answers
+503 instead of crashing an import that no probe will ever see. A bad rules file does
+NOT fall back to defaults — a watcher enforcing policy nobody configured is worse
+than one that will not start, because the first one looks healthy.
 ``Database`` construction is lazy (no connection yet), so a database that is down at
 startup does not fail startup — ``/readyz`` live-pings it and recovers when it
 returns.
@@ -53,6 +56,7 @@ from radar_telemetry import (
 
 from radar_watcher_agent.config import WatcherSettings, load_postgres_dsn
 from radar_watcher_agent.routes import create_events_router
+from radar_watcher_agent.rules import CorrelationRules, load_correlation_rules
 from radar_watcher_agent.security import EventsAuth, install_guarded_validation_handler
 
 
@@ -97,18 +101,31 @@ def create_app(
     request_metrics = create_request_metrics(metrics_registry)
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
+    rules: CorrelationRules | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal database, agent_auth
+        nonlocal database, agent_auth, rules
         try:
             dsn = load_postgres_dsn()
             agent_token = read_secret(AGENT_TOKEN_SECRET)
             assert agent_token is not None  # required=True: raised if absent
             agent_auth = AgentTokenAuth([agent_token])
+            # A bad rules file is a startup failure, not a fallback to defaults: a
+            # watcher silently running policy nobody configured is worse than one
+            # that will not start, because the first one looks fine.
+            rules = load_correlation_rules(settings.correlation_rules_path)
             database = Database(dsn)
             readiness.mark_ready()
-            log.info("watcher.ready")
+            log.info(
+                "watcher.ready",
+                # Say out loud which policy is actually in force — a rule count of
+                # zero here is the fastest way to spot a ConfigMap that did not
+                # mount, which otherwise looks exactly like "nothing to suppress".
+                suppression_rules=len(rules.suppression),
+                escalation_rules=len(rules.escalation),
+                rules_path=str(settings.correlation_rules_path),
+            )
         except ConfigurationError as exc:
             # Config-layer messages are written to be secret-free.
             readiness.mark_not_ready(str(exc))

@@ -18,6 +18,19 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+FINGERPRINT_FIELDS: tuple[str, ...] = ("service_name", "alert_name", "severity")
+"""The alert fields the correlation fingerprint hashes, in order.
+
+``fingerprint = sha256("<service_name>:<alert_name>:<severity>")``.
+
+This lives in the contracts package because **two services must agree on it and
+cannot import each other**: ingestion *computes* the fingerprint from these fields,
+and the watcher *trusts* the value and validates that its correlation-rules ConfigMap
+still declares the same list. One definition, so the two cannot drift — reorder this
+tuple and ingestion's hash changes with it, rather than the two quietly disagreeing
+about what a fingerprint means.
+"""
+
 
 class Severity(StrEnum):
     """Canonical alert/incident severity.

@@ -18,7 +18,7 @@ level::
 
 from __future__ import annotations
 
-from .alerts import NormalizedAlert, Severity
+from .alerts import FINGERPRINT_FIELDS, NormalizedAlert, Severity
 from .bot import BotCommand, BotCommandType, BotResponse
 from .events import EventEnvelope, OutboxEvent, ProcessedEvent
 from .feedback import FeedbackEvent
@@ -49,6 +49,7 @@ __version__ = "0.3.0"
 
 __all__ = [
     # alerts
+    "FINGERPRINT_FIELDS",
     "NormalizedAlert",
     "Severity",
     # incidents

@@ -35,6 +35,11 @@ class WatcherSettings(RadarSettings):
     """Non-secret watcher settings, read from ``RADAR_*`` env vars."""
 
     service_name: str = SERVICE_NAME
+    #: The correlation-rules YAML. A ConfigMap mount in production; this repo path
+    #: locally. Override with ``RADAR_CORRELATION_RULES_PATH``.
+    correlation_rules_path: Path = Path(
+        "apps/watcher-agent/config/correlation-rules.yaml"
+    )
 
 
 def load_postgres_dsn(*, directory: Path | None = None) -> str:

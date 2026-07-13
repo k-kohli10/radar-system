@@ -51,7 +51,7 @@ from typing import Any
 from uuid import UUID
 
 from radar_common import InvalidPayloadError, ensure_utc, utcnow
-from radar_contracts import NormalizedAlert, Severity
+from radar_contracts import FINGERPRINT_FIELDS, NormalizedAlert, Severity
 
 
 class AlertSource(StrEnum):
@@ -65,11 +65,23 @@ class AlertSource(StrEnum):
 def compute_fingerprint(service_name: str, alert_name: str, severity: str) -> str:
     """Return the correlation fingerprint for an alert.
 
-    ``sha256(service_name + ":" + alert_name + ":" + severity)`` as a 64-char
-    hex digest, matching the ``alerts.fingerprint`` column and the watcher's
-    correlation key.
+    ``sha256(service_name + ":" + alert_name + ":" + severity)`` as a 64-char hex
+    digest, matching the ``alerts.fingerprint`` column and the watcher's correlation
+    key.
+
+    The field list and its order come from the shared
+    :data:`radar_contracts.FINGERPRINT_FIELDS`, and the digest is *built* from it —
+    not merely documented by it. The watcher validates its correlation-rules
+    ConfigMap against that same constant, so the two services cannot come to disagree
+    about what a fingerprint is: there is one definition, and changing it changes this
+    hash.
     """
-    raw = f"{service_name}:{alert_name}:{severity}"
+    values = {
+        "service_name": service_name,
+        "alert_name": alert_name,
+        "severity": severity,
+    }
+    raw = ":".join(values[field] for field in FINGERPRINT_FIELDS)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
