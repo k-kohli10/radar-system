@@ -180,6 +180,54 @@ RADAR services authenticate to each other with tokens, and read every secret fro
 a **file** — never an environment variable, locally or in production (ADR 0007).
 Locally, `make` plays the part the Kubernetes init-container plays in the cluster.
 
+### Who presents what, to whom
+
+Every arrow that crosses a service boundary carries a credential. There is no
+ambient trust and no shared master token: each arrow below is a *different* secret.
+
+```mermaid
+flowchart LR
+    SRC["Prometheus / Kibana<br/><i>outside the trust boundary</i>"]:::ext
+    ING["ingestion"]:::svc
+    OW["outbox-worker"]:::svc
+    WA["watcher-agent"]:::agent
+    PA["planner-agent"]:::agent
+    RA["reasoner-agent"]:::agent
+    GW["llm-gateway"]:::gw
+    PG[("Postgres<br/>outbox_events")]:::db
+
+    SRC -->|"<b>X-Radar-Webhook-Token</b><br/>one per source"| ING
+    ING -.->|"writes event"| PG
+    PG -.->|"claims<br/>FOR UPDATE SKIP LOCKED"| OW
+
+    OW -->|"<b>X-Radar-Agent-Token</b><br/>= <i>watcher's</i> token"| WA
+    OW -->|"= <i>planner's</i> token"| PA
+    OW -->|"= <i>reasoner's</i> token"| RA
+
+    RA -->|"<b>X-Radar-Agent-Token</b><br/>= its <i>gateway_token</i><br/>grant: mode=extended"| GW
+
+    WA -.->|"writes event"| PG
+    PA -.->|"writes event"| PG
+    RA -.->|"writes event"| PG
+
+    classDef ext fill:#fdf2e9,stroke:#c47f17,color:#000
+    classDef svc fill:#e8f0fe,stroke:#3b6fd6,color:#000
+    classDef agent fill:#e9f7ef,stroke:#2e8b57,color:#000
+    classDef gw fill:#f4e9fb,stroke:#7d3fa8,color:#000
+    classDef db fill:#eceff1,stroke:#5b6b73,color:#000
+```
+
+Two things this picture is making precise:
+
+- **The worker sends the *target's* token, not its own.** It is the only caller of
+  any `/events` endpoint, so it holds all three. That is not a hole in the
+  per-service model — it is forced by it, and the worker can already forge any event
+  it likes. What per-service tokens buy is still real: a token leaked from the
+  watcher opens the watcher, and nothing else.
+- **Solid arrows are authenticated HTTP; dashed arrows are the outbox.** Agents never
+  call each other. A handoff is a row in Postgres, written in the same transaction as
+  the state change that caused it (ADR 0003).
+
 ### The two token systems
 
 They share a header name (`X-Radar-Agent-Token`) and nothing else. Confusing them
@@ -218,6 +266,36 @@ into files. That split is deliberate: seeding only copies values that already ex
 in `.env`, so it can never invent or invalidate a credential; minting generates
 them, and **never clobbers** — an existing token is kept, so `make tokens` is safe
 to run on a clean machine, a half-configured one, or twice in a row.
+
+```mermaid
+flowchart TB
+    ENV[".env<br/><b>you supply</b><br/>POSTGRES_DSN · OPENAI_API_KEY"]:::human
+    HEX["secrets.token_hex(32)<br/><b>the platform mints</b><br/>agent · gateway · webhook tokens"]:::mint
+
+    VAULT[("<b>Vault</b> · secret/radar/*<br/>⚠️ server -dev — in-memory<br/>wiped on every container restart")]:::vault
+
+    ENV -->|"make seed"| VAULT
+    HEX -->|"make tokens<br/><i>idempotent · convergent</i>"| VAULT
+
+    VAULT -->|"make agent-secrets"| PSD["<b>~/.radar-dev/secrets/&lt;service&gt;/</b><br/>agent_token · postgres_dsn<br/>gateway_token <i>(reasoner)</i><br/>dispatch_tokens <i>(worker)</i>"]:::files
+    VAULT -->|"make gateway-secrets"| GWD["<b>~/.radar-dev/secrets/</b><br/>openai_api_key · gateway_tokens"]:::files
+    VAULT -->|"make ingestion-secrets"| IND["<b>~/.radar-dev/secrets/</b><br/>webhook_token_*"]:::files
+
+    PSD --> READ["Service reads <b>FILES ONLY</b><br/>RADAR_SECRETS_DIR=&lt;its own dir&gt;<br/><i>never an env var — ADR 0007</i>"]:::read
+    GWD --> READ
+    IND --> READ
+
+    classDef human fill:#fdf2e9,stroke:#c47f17,color:#000
+    classDef mint fill:#e9f7ef,stroke:#2e8b57,color:#000
+    classDef vault fill:#f4e9fb,stroke:#7d3fa8,color:#000
+    classDef files fill:#e8f0fe,stroke:#3b6fd6,color:#000
+    classDef read fill:#eceff1,stroke:#5b6b73,color:#000
+```
+
+The two write-paths never overlap, and that is what makes them safe to re-run: `seed`
+can only copy what already exists, `tokens` can only add what is missing. Between
+them, an **empty Vault is fully recoverable** — which matters, because it empties
+itself every time its container restarts.
 
 `make tokens` is also **convergent**: it rebuilds `dispatch_tokens` from the
 per-service tokens on every run. The map is *derived*, never authored, so it cannot
@@ -258,11 +336,36 @@ Rotation performs **two writes**: the service's own token, and the worker's
 `dispatch_tokens` entry pointing at it. The second is what makes the first useful —
 without it the worker keeps sending a token the target no longer accepts.
 
-> ⚠️ **Rotation is not hot.** Between the two services restarting, the worker sends
-> the old token and the target rejects it — and a 401 is permanent, so those events
-> are **dead-lettered, not retried**. Rotate on a drained pipeline: check outbox
-> depth first. (Two-phase `[old, new]` acceptance is the fix if hot rotation is ever
-> needed; see the carried-debt table in [roadmap.md](roadmap.md).)
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant V as 🔐 Vault
+    participant W as outbox-worker
+    participant R as reasoner-agent
+
+    You->>V: make rotate SERVICE=reasoner-agent
+    Note over V: WRITE 1 — secret/radar/reasoner-agent<br/>agent_token := fresh token_hex(32)
+    Note over V: WRITE 2 — secret/radar/outbox-worker<br/>dispatch_tokens[reasoner-agent] := the same value
+    Note right of V: One write without the other is worse than<br/>neither: the worker would send a token the<br/>target no longer accepts.
+
+    You->>V: make agent-secrets
+    V-->>W: dispatch_tokens (new)
+    V-->>R: agent_token (new)
+
+    You->>R: restart
+    rect rgb(253, 235, 235)
+        Note over W,R: ⚠️ THE WINDOW — worker still holds the OLD token<br/>dispatch → 401 → classified PERMANENT → dead-lettered, never retried
+    end
+    You->>W: restart
+    Note over W,R: converged — dispatch authenticates again
+```
+
+> ⚠️ **Rotation is not hot.** That red window is real: a 401 is *permanent*, so
+> events dispatched during it are **dead-lettered, not retried**. Rotate on a
+> drained pipeline — check outbox depth first. (Two-phase `[old, new]` acceptance
+> closes the window if hot rotation is ever needed; see the carried-debt table in
+> [roadmap.md](roadmap.md).)
 
 Recovering a dead-lettered event afterwards:
 
