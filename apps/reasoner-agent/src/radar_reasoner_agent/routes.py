@@ -44,12 +44,18 @@ from pydantic import ValidationError
 from radar_common import EventsAuth, bind_correlation_id, get_logger
 from radar_contracts import EventEnvelope, ReasoningRequestedPayload
 from radar_database import Database, is_already_processed, mark_processed
+from sqlalchemy.exc import IntegrityError
 
 from radar_reasoner_agent.config import SERVICE_NAME
 from radar_reasoner_agent.context import ContextNotAvailableError, build_context_bundle
 from radar_reasoner_agent.fallback import resolve
 from radar_reasoner_agent.llm import GatewayClient
-from radar_reasoner_agent.storage import store_recommendation
+from radar_reasoner_agent.storage import (
+    IncidentNotFoundError,
+    ReferencedRowMissingError,
+    race_audit,
+    store_recommendation,
+)
 
 log = get_logger("reasoner.routes")
 
@@ -165,22 +171,70 @@ def create_events_router(
             # event, the audit row, and the marker. The marker lands WITH the
             # recommendation or not at all — a marker that committed first would leave
             # a redelivery no-op'ing over an incident that has no RCA.
-            recommendation_id = await store_recommendation(
-                session,
-                correlation_id=envelope.correlation_id,
-                incident_id=payload.incident_id,
-                plan_id=payload.plan_id,
-                outcome=outcome,
+            try:
+                stored = await store_recommendation(
+                    session,
+                    correlation_id=envelope.correlation_id,
+                    incident_id=payload.incident_id,
+                    plan_id=payload.plan_id,
+                    outcome=outcome,
+                )
+                await mark_processed(session, envelope.event_id, SERVICE_NAME)
+                await session.commit()
+            except ReferencedRowMissingError as exc:
+                # The incident or the plan was deleted while we were waiting on the
+                # LLM. Checked explicitly in storage (see its docstring) precisely so
+                # it can never arrive here disguised as the duplicate race and be
+                # absorbed with a 200. 422 dead-letters it; NO marker, because nothing
+                # was written and the event must not look handled.
+                #
+                # WHICH row vanished is preserved in the detail — a missing incident
+                # and a missing plan point at different upstream bugs, and the operator
+                # needs to know which one to go looking for.
+                log.error(
+                    "recommendation.referenced_row_missing",
+                    event_id=str(envelope.event_id),
+                    incident_id=str(payload.incident_id),
+                    plan_id=str(payload.plan_id),
+                    missing="incident"
+                    if isinstance(exc, IncidentNotFoundError)
+                    else "plan",
+                    detail=str(exc),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+                ) from exc
+            except IntegrityError:
+                # THE RACE, and by now it can be NOTHING ELSE. Both foreign keys were
+                # checked above, so the only constraint left to violate is the unique
+                # index on recommendations.incident_id: two deliveries interleaved
+                # between the pre-check and the insert, and this one lost.
+                #
+                # The other transaction wrote the RCA, so the work IS done — this
+                # delivery simply has nothing left to do. A 500 would have the worker
+                # retry a race it would only lose again.
+                await session.rollback()
+                return await _absorb_race(database, envelope=envelope, payload=payload)
+
+        if stored.duplicate:
+            # The SEQUENTIAL duplicate: the pre-check found an existing recommendation.
+            # Its audit row committed with the marker above; the log is here, so both
+            # duplicate paths are equally visible.
+            log.warning(
+                "reasoner.duplicate_recommendation_ignored",
+                event_id=str(envelope.event_id),
+                incident_id=str(payload.incident_id),
+                existing_recommendation_id=str(stored.recommendation_id),
+                detected_by="pre_check",
             )
-            await mark_processed(session, envelope.event_id, SERVICE_NAME)
-            await session.commit()
+            return {"status": "already_recommended"}
 
         log.info(
             "recommendation.created",
             event_id=str(envelope.event_id),
             event_type=envelope.event_type,
             incident_id=str(payload.incident_id),
-            recommendation_id=str(recommendation_id),
+            recommendation_id=str(stored.recommendation_id),
             is_fallback=outcome.is_fallback,
             confidence=outcome.confidence.value,
             llm_provider=outcome.llm_provider,
@@ -188,6 +242,43 @@ def create_events_router(
         return {"status": "processed"}
 
     return router
+
+
+async def _absorb_race(
+    database: Database,
+    *,
+    envelope: EventEnvelope,
+    payload: ReasoningRequestedPayload,
+) -> dict[str, str]:
+    """Record the lost race in a FRESH transaction, and answer 200.
+
+    The original transaction was rolled back by the ``IntegrityError``, so its marker
+    and audit row went with it. They have to be rewritten here — otherwise the worker
+    redelivers this event forever, losing the same race every time.
+
+    The marker is re-checked first: the ``IntegrityError`` could also have come from two
+    deliveries of the SAME event racing on the ``processed_events`` primary key, in
+    which case the marker is already there and writing it again would fail again.
+    """
+    log.warning(
+        "reasoner.duplicate_recommendation_ignored",
+        event_id=str(envelope.event_id),
+        incident_id=str(payload.incident_id),
+        detected_by="unique_index",
+    )
+    async with database.session() as recovery:
+        if await is_already_processed(recovery, envelope.event_id, SERVICE_NAME):
+            # The other racer was this same event: it is already recorded.
+            return {"status": "already_processed"}
+        recovery.add(
+            race_audit(
+                incident_id=payload.incident_id,
+                correlation_id=envelope.correlation_id,
+            )
+        )
+        await mark_processed(recovery, envelope.event_id, SERVICE_NAME)
+        await recovery.commit()
+    return {"status": "already_recommended"}
 
 
 def _parse_payload(envelope: EventEnvelope) -> ReasoningRequestedPayload:

@@ -164,7 +164,7 @@ async def _commit_outcome(
 ) -> UUID:
     """The write path exactly as the handler runs it: store + marker + ONE commit."""
     async with db.session() as session:
-        recommendation_id = await store_recommendation(
+        stored = await store_recommendation(
             session,
             correlation_id=correlation_id,
             incident_id=incident_id,
@@ -173,7 +173,7 @@ async def _commit_outcome(
         )
         await mark_processed(session, event_id or new_id(), "reasoner-agent")
         await session.commit()
-    return recommendation_id
+    return stored.recommendation_id
 
 
 async def _row(db: Database, recommendation_id: UUID) -> Recommendation:
