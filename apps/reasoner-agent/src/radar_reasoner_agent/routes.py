@@ -49,6 +49,7 @@ from radar_reasoner_agent.config import SERVICE_NAME
 from radar_reasoner_agent.context import ContextNotAvailableError, build_context_bundle
 from radar_reasoner_agent.fallback import resolve
 from radar_reasoner_agent.llm import GatewayClient
+from radar_reasoner_agent.storage import store_recommendation
 
 log = get_logger("reasoner.routes")
 
@@ -160,18 +161,29 @@ def create_events_router(
         # redelivery does the work again — at the cost of one repeated LLM call, which
         # is the price of not holding a transaction across a call to OpenAI.
         async with database.session() as session:
-            # R7 lands the recommendation row and the recommendation.created outbox
-            # event HERE, in this same transaction as the marker. `outcome` already
-            # holds every column they need.
+            # ONE transaction: the recommendation, the recommendation.created outbox
+            # event, the audit row, and the marker. The marker lands WITH the
+            # recommendation or not at all — a marker that committed first would leave
+            # a redelivery no-op'ing over an incident that has no RCA.
+            recommendation_id = await store_recommendation(
+                session,
+                correlation_id=envelope.correlation_id,
+                incident_id=payload.incident_id,
+                plan_id=payload.plan_id,
+                outcome=outcome,
+            )
             await mark_processed(session, envelope.event_id, SERVICE_NAME)
             await session.commit()
 
         log.info(
-            "event.processed",
+            "recommendation.created",
             event_id=str(envelope.event_id),
             event_type=envelope.event_type,
+            incident_id=str(payload.incident_id),
+            recommendation_id=str(recommendation_id),
             is_fallback=outcome.is_fallback,
             confidence=outcome.confidence.value,
+            llm_provider=outcome.llm_provider,
         )
         return {"status": "processed"}
 
