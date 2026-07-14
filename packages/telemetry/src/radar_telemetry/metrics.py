@@ -175,6 +175,8 @@ class IncidentMetrics:
     incidents_total: Counter
     incident_duration_seconds: Histogram
     recommendations_total: Counter
+    #: Labelled by ``reason`` — see the factory below. The plan specifies this counter
+    #: unlabelled; that would make it unactionable.
     recommendations_fallback_total: Counter
     feedback_total: Counter
 
@@ -200,7 +202,34 @@ def create_incident_metrics(registry: CollectorRegistry = REGISTRY) -> IncidentM
         ),
         recommendations_fallback_total=Counter(
             "radar_recommendations_fallback_total",
-            "Total recommendations produced by template fallback.",
+            "Total recommendations produced by template fallback, by reason.",
+            # WHY THIS COUNTER IS LABELLED WHEN THE PLAN SAYS IT IS NOT
+            #
+            # A bare total answers "are we falling back?" — which is the question you
+            # ask second. The first one is "is this OUR fault?", and it decides who gets
+            # woken up:
+            #
+            #   gateway_unavailable / timeout  -> the LLM is down or slow. RADAR is
+            #                                     fine. Wait it out, or page whoever
+            #                                     owns the provider.
+            #   rejected                       -> OUR misconfiguration: a bad token, a
+            #                                     mode this token may not use. It fails
+            #                                     identically on EVERY incident until a
+            #                                     human fixes the config.
+            #   not_json / schema_invalid      -> the model answered and the answer was
+            #                                     unusable. A prompt or model-quality
+            #                                     problem, not an outage.
+            #
+            # `rejected` is the one that hides. A steady 100% fallback rate carrying it
+            # means the reasoner has NEVER ONCE used the LLM — every incident silently
+            # getting a checklist instead of an analysis — while every dashboard shows a
+            # healthy service answering 200s. An unlabelled counter cannot tell that
+            # apart from a provider having a bad afternoon, so nobody investigates.
+            #
+            # The label vocabulary is the reasoner's FallbackReason. It is not imported
+            # here — telemetry sits below the apps and must not depend on one — so the
+            # coupling is by convention, and the reasoner's own tests pin the values.
+            ["reason"],
             registry=registry,
         ),
         feedback_total=Counter(
