@@ -184,10 +184,16 @@ async def test_the_inbound_token_is_not_the_gateway_token(
 async def test_event_is_processed_and_marked(
     client: httpx.AsyncClient, db: Database
 ) -> None:
+    # The handler now RESOLVES the incident and plan its payload names — an event
+    # naming rows that do not exist is a 422 (see below). So the gate tests need a
+    # real pair to act on.
+    incident_id, plan_id = await _seed_incident_and_plan(db)
     event_id = uuid4()
+    body = _event(event_id)
+    body["payload"] = {"incident_id": str(incident_id), "plan_id": str(plan_id)}
 
     response = await client.post(
-        "/events", json=_event(event_id), headers={AGENT_TOKEN_HEADER: TOKEN}
+        "/events", json=body, headers={AGENT_TOKEN_HEADER: TOKEN}
     )
 
     assert response.status_code == 200
@@ -203,7 +209,9 @@ async def test_redelivery_is_a_no_op(client: httpx.AsyncClient, db: Database) ->
     The watcher and planner write rows; a duplicate wastes a transaction. The reasoner
     calls an LLM — a duplicate is a second bill and a second, contradictory RCA.
     """
+    incident_id, plan_id = await _seed_incident_and_plan(db)
     body = _event()
+    body["payload"] = {"incident_id": str(incident_id), "plan_id": str(plan_id)}
     headers = {AGENT_TOKEN_HEADER: TOKEN}
 
     first = await client.post("/events", json=body, headers=headers)
@@ -331,3 +339,121 @@ async def test_events_is_503_before_the_secrets_load(
             )
 
     assert response.status_code == 503
+
+
+# --- refusing to reason about something that is not there ----------------------
+
+
+async def _seed_incident_and_plan(db: Database) -> tuple[UUID, UUID]:
+    """An incident with an alert, and its plan — as the pipeline leaves them."""
+    from datetime import UTC, datetime
+
+    from radar_database import Alert, Incident, InvestigationPlan
+
+    incident = Incident(
+        id=uuid4(),
+        correlation_id=uuid4(),
+        fingerprint="f" * 64,
+        service_name="order-service",
+        title="order-service OrderProcessingFailureRate",
+        severity="high",
+        status="open",
+        alert_count=1,
+    )
+    plan = InvestigationPlan(
+        id=uuid4(),
+        incident_id=incident.id,
+        correlation_id=incident.correlation_id,
+        steps=[{"order": 1, "description": "Check recent deployments"}],
+        template_key="order-service:OrderProcessingFailureRate",
+        status="pending",
+    )
+    async with db.session() as session:
+        session.add(incident)
+        session.add(
+            Alert(
+                id=uuid4(),
+                source="mock",
+                fingerprint="f" * 64,
+                service_name="order-service",
+                alert_name="OrderProcessingFailureRate",
+                severity="high",
+                status="firing",
+                raw_payload={},
+                fired_at=datetime.now(UTC),
+                received_at=datetime.now(UTC),
+                incident_id=incident.id,
+                correlation_id=uuid4(),
+            )
+        )
+        session.add(plan)
+        await session.commit()
+    return incident.id, plan.id
+
+
+async def test_a_plan_belonging_to_another_incident_is_422_not_a_silent_skip(
+    client: httpx.AsyncClient, db: Database
+) -> None:
+    """The mismatched pair from the context builder must SURFACE, not be swallowed.
+
+    An event pairing incident A with incident B's plan would produce an RCA about A
+    using B's checklist. The reasoner refuses — and the refusal must reach the operator:
+
+      - 422, which the outbox worker treats as PERMANENT and dead-letters, so it lands
+        in /admin/dead-letters where a human sees it
+      - NO processed_events marker, because nothing was decided. A marker would mean the
+        event looked handled, the worker would stop retrying, and the incident would
+        silently never get an RCA at all.
+
+    A "silent skip" — 200 with a marker and no recommendation — is the failure this
+    test exists to prevent, and it is the one that would be invisible in production.
+    """
+    incident_a, _ = await _seed_incident_and_plan(db)
+    _, plan_of_b = await _seed_incident_and_plan(db)
+
+    body = _event()
+    body["payload"] = {"incident_id": str(incident_a), "plan_id": str(plan_of_b)}
+
+    response = await client.post(
+        "/events", json=body, headers={AGENT_TOKEN_HEADER: TOKEN}
+    )
+
+    assert response.status_code == 422, "a mismatched pair must not be reasoned over"
+    assert "belongs to incident" in response.json()["detail"]
+    assert await _processed_count(db) == 0, (
+        "NO marker. A marker here would tell the worker the event was handled, it "
+        "would stop redelivering, and the incident would never get an RCA — silently."
+    )
+
+
+async def test_a_missing_plan_is_422_with_no_marker(
+    client: httpx.AsyncClient, db: Database
+) -> None:
+    incident_id, _ = await _seed_incident_and_plan(db)
+
+    body = _event()
+    body["payload"] = {"incident_id": str(incident_id), "plan_id": str(uuid4())}
+
+    response = await client.post(
+        "/events", json=body, headers={AGENT_TOKEN_HEADER: TOKEN}
+    )
+
+    assert response.status_code == 422
+    assert await _processed_count(db) == 0
+
+
+async def test_a_well_formed_event_builds_its_context(
+    client: httpx.AsyncClient, db: Database
+) -> None:
+    """The happy path still lands: a matched pair is accepted and marked."""
+    incident_id, plan_id = await _seed_incident_and_plan(db)
+
+    body = _event()
+    body["payload"] = {"incident_id": str(incident_id), "plan_id": str(plan_id)}
+
+    response = await client.post(
+        "/events", json=body, headers={AGENT_TOKEN_HEADER: TOKEN}
+    )
+
+    assert response.status_code == 200
+    assert await _processed_count(db) == 1

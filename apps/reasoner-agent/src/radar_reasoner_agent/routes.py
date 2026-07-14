@@ -40,11 +40,14 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import ValidationError
 from radar_common import EventsAuth, bind_correlation_id, get_logger
-from radar_contracts import EventEnvelope
+from radar_contracts import EventEnvelope, ReasoningRequestedPayload
 from radar_database import Database, is_already_processed, mark_processed
 
 from radar_reasoner_agent.config import SERVICE_NAME
+from radar_reasoner_agent.context import ContextNotAvailableError, build_context_bundle
+from radar_reasoner_agent.llm import GatewayClient
 
 log = get_logger("reasoner.routes")
 
@@ -55,6 +58,7 @@ REASONING_REQUESTED_EVENT = "incident.reasoning_requested"
 def create_events_router(
     *,
     get_database: Callable[[], Database | None],
+    get_gateway: Callable[[], GatewayClient | None],
     events_auth: EventsAuth,
 ) -> APIRouter:
     """Build the ``POST /events`` surface.
@@ -72,7 +76,8 @@ def create_events_router(
         bind_correlation_id(envelope.correlation_id)
 
         database = get_database()
-        if database is None:
+        gateway = get_gateway()
+        if database is None or gateway is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="reasoner-agent is not ready",
@@ -103,8 +108,39 @@ def create_events_router(
                 await session.commit()
                 return {"status": "ignored"}
 
-            # The context bundle, the LLM call, the fallback, and the transactional
-            # write land HERE over the next five commits.
+            payload = _parse_payload(envelope)
+
+            try:
+                bundle = await build_context_bundle(
+                    session,
+                    incident_id=payload.incident_id,
+                    plan_id=payload.plan_id,
+                )
+            except ContextNotAvailableError as exc:
+                # A missing incident, a missing plan, or — the one that matters — a
+                # plan belonging to a DIFFERENT incident than the event claims.
+                # Reasoning over a mismatched pair would produce an RCA about one
+                # incident using another's checklist, so it is refused rather than
+                # skipped: 422 (permanent -> dead-letter -> a human), and NO marker,
+                # because nothing was decided and the event must not look handled.
+                log.error(
+                    "context.unavailable",
+                    event_id=str(envelope.event_id),
+                    detail=str(exc),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+                ) from exc
+
+            # The LLM call, the fallback, and the transactional write land HERE over
+            # the next three commits. The call happens OUTSIDE this transaction.
+            log.info(
+                "context.built",
+                incident_id=str(bundle.incident_id),
+                severity=bundle.severity.value,
+                alert_count=bundle.alert_count,
+                steps=len(bundle.investigation_steps),
+            )
             await mark_processed(session, envelope.event_id, SERVICE_NAME)
             await session.commit()
 
@@ -116,3 +152,25 @@ def create_events_router(
         return {"status": "processed"}
 
     return router
+
+
+def _parse_payload(envelope: EventEnvelope) -> ReasoningRequestedPayload:
+    """Validate the event body against the shape the planner promised to send.
+
+    The planner *constructs* this same model, so a mismatch is a real malformation
+    rather than a difference of opinion: 422, which the worker treats as permanent and
+    dead-letters rather than retrying a body that will never parse.
+    """
+    try:
+        return ReasoningRequestedPayload.model_validate(envelope.payload)
+    except ValidationError as exc:
+        log.warning(
+            "event.malformed_payload",
+            event_id=str(envelope.event_id),
+            event_type=envelope.event_type,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"malformed {envelope.event_type} payload: "
+            f"{exc.error_count()} field error(s)",
+        ) from exc

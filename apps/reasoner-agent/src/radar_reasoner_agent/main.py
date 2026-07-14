@@ -65,6 +65,7 @@ from radar_reasoner_agent.config import (
     load_gateway_token,
     load_postgres_dsn,
 )
+from radar_reasoner_agent.llm import GatewayClient
 from radar_reasoner_agent.routes import create_events_router
 
 
@@ -110,10 +111,11 @@ def create_app(
     agent_auth: AgentTokenAuth | None = None
     gateway_token: SecretStr | None = None
     gateway_client: httpx.AsyncClient | None = None
+    gateway: GatewayClient | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal database, agent_auth, gateway_token, gateway_client
+        nonlocal database, agent_auth, gateway_token, gateway_client, gateway
         try:
             dsn = load_postgres_dsn()
             agent_token = read_secret(AGENT_TOKEN_SECRET)
@@ -123,9 +125,20 @@ def create_app(
             # readiness: without it every LLM call is a 401 and every incident
             # silently takes the fallback path, which looks perfectly healthy.
             gateway_token = load_gateway_token()
-            # One client for the process, owned by the lifespan: the connection pool
-            # is shared across requests rather than rebuilt per LLM call.
-            gateway_client = httpx.AsyncClient(base_url=settings.gateway_url)
+            # One client for the process, owned by the lifespan: the connection
+            # pool is shared across requests rather than rebuilt per LLM call.
+            #
+            # timeout=None is DELIBERATE and load-bearing. httpx defaults to FIVE
+            # SECONDS — an extended-mode LLM call routinely takes longer, so a client
+            # left on the default would kill every call at 5s, every incident would
+            # fall back to a template RCA, and the service would look perfectly
+            # healthy while never once using the model it exists to use. There would
+            # be no error to find. asyncio.timeout owns the clock (see llm.py), and
+            # GatewayClient refuses to be built with a client that could undercut it.
+            gateway_client = httpx.AsyncClient(
+                base_url=settings.gateway_url, timeout=None
+            )
+            gateway = GatewayClient(gateway_client, gateway_token)
             database = Database(dsn)
             readiness.mark_ready()
             log.info("reasoner.ready", gateway_url=settings.gateway_url)
@@ -154,6 +167,12 @@ def create_app(
         # handler answers 503 rather than touching a missing database.
         return database
 
+    def get_gateway() -> GatewayClient | None:
+        # Late-bound like the rest. None until the token loads and the client is
+        # built; the handler answers 503 rather than reasoning without an LLM it
+        # could not even attempt to reach.
+        return gateway
+
     def get_agent_auth() -> AgentTokenAuth | None:
         # Late-bound: None until the Vault secret loads, so the auth dependency
         # answers 503 while not ready and 401 once it is.
@@ -166,7 +185,11 @@ def create_app(
     # an unauthenticated caller must not learn the shape of the contract.
     install_guarded_events_handler(app, events_auth)
     app.include_router(
-        create_events_router(get_database=get_database, events_auth=events_auth)
+        create_events_router(
+            get_database=get_database,
+            get_gateway=get_gateway,
+            events_auth=events_auth,
+        )
     )
 
     @app.get("/healthz")
