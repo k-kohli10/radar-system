@@ -56,6 +56,10 @@ from .logging import (
     get_logger,
 )
 from .time import ensure_utc, utcnow
+from .timeouts import (
+    REASONER_DISPATCH_TIMEOUT_SECONDS,
+    REASONER_LLM_BUDGET_SECONDS,
+)
 
 __version__ = "0.3.0"
 
@@ -96,6 +100,9 @@ __all__ = [
     "new_event_id",
     "new_correlation_id",
     "parse_uuid",
+    # timeouts
+    "REASONER_DISPATCH_TIMEOUT_SECONDS",
+    "REASONER_LLM_BUDGET_SECONDS",
     # time
     "utcnow",
     "ensure_utc",

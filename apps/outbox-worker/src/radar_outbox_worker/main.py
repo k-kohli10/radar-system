@@ -42,6 +42,7 @@ import httpx
 from fastapi import Depends, FastAPI, Request, Response, status
 from prometheus_client import REGISTRY, CollectorRegistry
 from radar_common import (
+    REASONER_DISPATCH_TIMEOUT_SECONDS,
     AgentTokenAuth,
     ConfigurationError,
     RadarSettings,
@@ -64,7 +65,11 @@ from radar_outbox_worker.dead_letter import (
     list_dead_letters,
     requeue_dead_letter,
 )
-from radar_outbox_worker.dispatcher import EventDispatcher, TargetResolver
+from radar_outbox_worker.dispatcher import (
+    EventDispatcher,
+    TargetResolver,
+    TimeoutPolicy,
+)
 from radar_outbox_worker.poller import Poller
 from radar_outbox_worker.retry import DispatchProcessor
 from radar_outbox_worker.security import AdminAuth, load_dispatch_tokens
@@ -100,6 +105,14 @@ class OutboxWorkerSettings(RadarSettings):
     dispatch_url_template: str = "http://{service}.radar.svc.cluster.local:8080/events"
     #: Per-target URL overrides (JSON in the env var), for dev/compose/tests.
     dispatch_url_overrides: dict[str, str] = {}
+    #: Per-target dispatch timeouts, in seconds. Config, not a special case in code:
+    #: the reasoner needs far longer than 10s because it calls an LLM before it can
+    #: answer, and the value MUST exceed the reasoner's own LLM budget or the worker
+    #: gives up mid-call and redelivers, paying OpenAI twice (radar_common.timeouts).
+    #: Defaulted here so a deployment that forgets to set it still works.
+    dispatch_timeout_overrides: dict[str, float] = {
+        "reasoner-agent": REASONER_DISPATCH_TIMEOUT_SECONDS
+    }
 
 
 class Readiness:
@@ -177,6 +190,7 @@ def create_app(
             dispatch_tokens = load_dispatch_tokens()
             database = Database(dsn)
             client = httpx.AsyncClient()
+            timeouts = TimeoutPolicy(overrides=settings.dispatch_timeout_overrides)
             dispatcher = EventDispatcher(
                 client,
                 TargetResolver(
@@ -184,6 +198,7 @@ def create_app(
                     overrides=settings.dispatch_url_overrides,
                 ),
                 dispatch_tokens,
+                timeouts=timeouts,
                 metrics=outbox_metrics,
             )
             poller = Poller(
@@ -204,6 +219,9 @@ def create_app(
                 reaper_interval_seconds=settings.reaper_interval_seconds,
                 # Target NAMES only — the map never logs a token value.
                 dispatch_targets=dispatch_tokens.targets,
+                # Which targets get a non-default budget, out loud. A reasoner
+                # missing from this map would time out at 10s mid-LLM-call.
+                dispatch_timeouts=timeouts.targets,
             )
         except ConfigurationError as exc:
             # Config-layer messages are written to be secret-free.

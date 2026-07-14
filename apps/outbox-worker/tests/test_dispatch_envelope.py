@@ -24,21 +24,31 @@ config errors can expose a token value.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from radar_common import AGENT_TOKEN_HEADER, ConfigurationError
+from radar_common import (
+    AGENT_TOKEN_HEADER,
+    REASONER_DISPATCH_TIMEOUT_SECONDS,
+    REASONER_LLM_BUDGET_SECONDS,
+    ConfigurationError,
+)
 from radar_contracts import EventEnvelope
 from radar_database import OutboxEvent
 from radar_outbox_worker.dispatcher import (
+    DISPATCH_TIMEOUT_SECONDS,
     DispatchStatus,
     EventDispatcher,
     TargetResolver,
+    TimeoutPolicy,
 )
+from radar_outbox_worker.main import OutboxWorkerSettings
 from radar_outbox_worker.security import DispatchTokenMap, load_dispatch_tokens
 from tokens import token_for
 
@@ -255,3 +265,90 @@ def test_load_dispatch_tokens_rejects_a_non_mapping(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigurationError):
         load_dispatch_tokens(directory=tmp_path)
+
+
+# --- per-target dispatch timeouts ---------------------------------------------
+
+
+def test_the_timeout_is_resolved_per_target_from_config() -> None:
+    """Config, not a special case in code.
+
+    ``if target == "reasoner-agent": 90`` would be a rule nobody can change without
+    a deploy and nobody can see in a ConfigMap — and it would have to be written
+    again for the next slow target. The reasoner is not special; it is merely the
+    first target that calls an LLM before it can answer.
+    """
+    policy = TimeoutPolicy(overrides={"reasoner-agent": 90.0})
+
+    assert policy.resolve("reasoner-agent") == 90.0
+    assert policy.resolve("watcher-agent") == DISPATCH_TIMEOUT_SECONDS
+    assert policy.resolve("a-service-nobody-configured") == DISPATCH_TIMEOUT_SECONDS
+
+
+def test_the_worker_waits_longer_than_the_reasoner_takes() -> None:
+    """THE invariant. Both numbers live in radar_common, ordered against each other.
+
+    If the worker's timeout were the shorter of the two, it would give up while the
+    reasoner is still talking to OpenAI, classify the dispatch retryable, and
+    redeliver — and the redelivery would start a SECOND LLM call, because the first
+    transaction has not committed its processed_events marker yet. The platform pays
+    twice and two recommendations race for one incident.
+
+    The idempotency gate cannot prevent that: it guards redelivery AFTER a commit,
+    not during an in-flight call. Only the order of these two numbers does.
+    """
+    assert REASONER_DISPATCH_TIMEOUT_SECONDS > REASONER_LLM_BUDGET_SECONDS
+
+    # And the worker's shipped default really does use it — a deployment that forgets
+    # to set the override still gets a reasoner that is not cut off mid-call.
+    settings = OutboxWorkerSettings()
+    policy = TimeoutPolicy(overrides=settings.dispatch_timeout_overrides)
+    assert policy.resolve("reasoner-agent") == REASONER_DISPATCH_TIMEOUT_SECONDS
+    assert policy.resolve("reasoner-agent") > REASONER_LLM_BUDGET_SECONDS
+
+
+@pytest.mark.parametrize("bad", [0.0, -1.0])
+def test_a_nonpositive_timeout_is_refused(bad: float) -> None:
+    """A zero timeout would fail every dispatch instantly. Refuse at startup."""
+    with pytest.raises(ConfigurationError):
+        TimeoutPolicy(overrides={"reasoner-agent": bad})
+    with pytest.raises(ConfigurationError):
+        TimeoutPolicy(default_seconds=bad)
+
+
+async def test_a_slow_target_times_out_at_its_own_budget_not_the_default(
+    target: CapturingTarget,
+) -> None:
+    """A target with a long budget is not cut off at the 10s default.
+
+    Driven against a transport that never answers, with the clock compressed: the
+    default would fire at 0.05s and the override at 0.3s. The dispatch must survive
+    past the default, which is the whole point of the override existing.
+    """
+    slow = _NeverAnswers()
+    dispatcher = EventDispatcher(
+        httpx.AsyncClient(transport=slow),
+        TargetResolver(overrides={"reasoner-agent": "http://reasoner/events"}),
+        DispatchTokenMap({"reasoner-agent": token_for("reasoner-agent")}),
+        timeouts=TimeoutPolicy(default_seconds=0.05, overrides={"reasoner-agent": 0.3}),
+    )
+
+    started = time.perf_counter()
+    result = await dispatcher.dispatch(_row("reasoner-agent"))
+    elapsed = time.perf_counter() - started
+
+    assert result.retryable
+    assert result.reason == "timeout"
+    assert elapsed > 0.05 * 2, (
+        "the dispatch was cut off at the DEFAULT timeout — the per-target override "
+        "was not applied, and a real reasoner would be killed mid-LLM-call"
+    )
+    assert "0.3s" in result.detail, "the error names the budget that actually applied"
+
+
+class _NeverAnswers(httpx.AsyncBaseTransport):
+    """A target that accepts the connection and never responds."""
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(3600)
+        raise AssertionError("unreachable")

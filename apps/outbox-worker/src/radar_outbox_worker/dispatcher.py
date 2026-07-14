@@ -1,12 +1,20 @@
 """The outbound dispatcher: deliver one claimed event via ``POST /events``.
 
 The poller hands each claimed event here. The dispatcher resolves the target
-service to a URL, POSTs the delivery envelope with the worker's own
-``X-Radar-Agent-Token``, enforces a hard 10-second wall-clock bound, and returns
-a :class:`DispatchResult` classifying the outcome. It does **not** touch the
-database or schedule retries — it only performs the HTTP call and reports what
-happened; the poller's handler acts on the result (mark delivered, reschedule,
-or dead-letter) in a later commit.
+service to a URL and to a wall-clock budget, POSTs the delivery envelope with THAT
+TARGET's ``X-Radar-Agent-Token``, and returns a :class:`DispatchResult` classifying
+the outcome. It does **not** touch the database or schedule retries — it only
+performs the HTTP call and reports what happened; the poller's handler acts on the
+result (mark delivered, reschedule, or dead-letter).
+
+**The timeout is per target, from config** (:class:`TimeoutPolicy`). Ten seconds is
+right for an agent that writes a row and answers; it is nowhere near enough for the
+reasoner, which calls an LLM first. A worker that gave up mid-call would redeliver
+the event, and the second delivery would start a SECOND LLM call — the first has
+not committed its ``processed_events`` marker yet, so the idempotency gate cannot
+see it. The reasoner's budget and this timeout are ordered against each other in
+``radar_common.timeouts``, together, because two copies of a number whose relative
+order is the whole guarantee will drift.
 
 Retry classification deliberately **mirrors the Phase 4 LLM-gateway retry policy**
 (see its spec in the implementation plan) so the whole platform treats upstream
@@ -148,6 +156,52 @@ class TargetResolver:
         return self._template.format(service=target_service)
 
 
+class TimeoutPolicy:
+    """How long the worker waits for each target — a default plus per-target config.
+
+    The third per-target map in this service, and deliberately its own: the URL map
+    and this one are NON-SECRET (env / ConfigMap), while ``dispatch_tokens`` is a
+    Vault secret. Merging them would put a credential in a ConfigMap-shaped object,
+    which is exactly the mistake that layout exists to prevent.
+
+    Config-driven, not a special case in code. ``if target == "reasoner-agent": 90``
+    would be a rule that cannot be changed without a deploy, cannot be seen in a
+    ConfigMap, and would have to be edited again for every future slow target. The
+    reasoner is not special — it is merely the first target that calls an LLM.
+
+    The reasoner's entry defaults to :data:`REASONER_DISPATCH_TIMEOUT_SECONDS`, which
+    is required to exceed the reasoner's own LLM budget: a worker that gives up while
+    the reasoner is still talking to OpenAI redelivers the event, and the second
+    delivery starts a SECOND LLM call, because the first has not committed its
+    ``processed_events`` marker yet. See ``radar_common.timeouts``.
+    """
+
+    def __init__(
+        self,
+        *,
+        default_seconds: float = DISPATCH_TIMEOUT_SECONDS,
+        overrides: dict[str, float] | None = None,
+    ) -> None:
+        if default_seconds <= 0:
+            raise ConfigurationError("dispatch timeout must be greater than zero")
+        bad = sorted(name for name, value in (overrides or {}).items() if value <= 0)
+        if bad:
+            raise ConfigurationError(
+                f"dispatch timeout overrides must be greater than zero: {bad}"
+            )
+        self._default = default_seconds
+        self._overrides = dict(overrides or {})
+
+    def resolve(self, target_service: str) -> float:
+        """Return the wall-clock budget for dispatching to ``target_service``."""
+        return self._overrides.get(target_service, self._default)
+
+    @property
+    def targets(self) -> dict[str, float]:
+        """The configured overrides — safe to log (no secrets here)."""
+        return dict(self._overrides)
+
+
 class EventDispatcher:
     """Delivers claimed events over HTTP, classifying each outcome.
 
@@ -161,13 +215,13 @@ class EventDispatcher:
         resolver: TargetResolver,
         tokens: DispatchTokenMap,
         *,
-        timeout_seconds: float = DISPATCH_TIMEOUT_SECONDS,
+        timeouts: TimeoutPolicy | None = None,
         metrics: OutboxMetrics | None = None,
     ) -> None:
         self._client = client
         self._resolver = resolver
         self._tokens = tokens
-        self._timeout_seconds = timeout_seconds
+        self._timeouts = timeouts if timeouts is not None else TimeoutPolicy()
         self._metrics = metrics
 
     async def dispatch(self, event: OutboxEvent) -> DispatchResult:
@@ -187,6 +241,9 @@ class EventDispatcher:
             return result
 
         url = self._resolver.resolve(event.target_service)
+        # Per target, from config. A reasoner dispatch waits far longer than a
+        # watcher one, because the reasoner has to call an LLM before it can answer.
+        timeout_seconds = self._timeouts.resolve(event.target_service)
         # The row -> wire projection. Building the envelope (rather than a dict)
         # is what keeps the outbox row's private bookkeeping off the wire: any
         # field not on the contract cannot be sent, because it is not on the model.
@@ -201,14 +258,14 @@ class EventDispatcher:
 
         started = time.perf_counter()
         try:
-            async with asyncio.timeout(self._timeout_seconds):
+            async with asyncio.timeout(timeout_seconds):
                 response = await self._client.post(url, json=body, headers=headers)
         except TimeoutError:
             # asyncio hard wall-clock bound fired.
-            result = self._timeout_result(event)
+            result = self._timeout_result(event, timeout_seconds)
         except httpx.TimeoutException:
             # httpx's own connect/read timeout (before the wall-clock bound).
-            result = self._timeout_result(event)
+            result = self._timeout_result(event, timeout_seconds)
         except httpx.HTTPError as exc:
             # Connection refused/reset/DNS — transient; the target may be rolling.
             result = DispatchResult(
@@ -229,10 +286,9 @@ class EventDispatcher:
         self._log(result, event)
         return result
 
-    def _timeout_result(self, event: OutboxEvent) -> DispatchResult:
-        detail = (
-            f"dispatch to {event.target_service} exceeded {self._timeout_seconds:g}s"
-        )
+    @staticmethod
+    def _timeout_result(event: OutboxEvent, timeout_seconds: float) -> DispatchResult:
+        detail = f"dispatch to {event.target_service} exceeded {timeout_seconds:g}s"
         return DispatchResult(DispatchStatus.RETRYABLE, "timeout", None, detail)
 
     @staticmethod
