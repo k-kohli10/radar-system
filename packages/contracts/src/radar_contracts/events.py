@@ -181,6 +181,27 @@ class PlanRequestedPayload(BaseModel):
     alert_name: str = Field(max_length=256, description="The alert that fired.")
 
 
+class ReasoningRequestedPayload(BaseModel):
+    """The body of an ``incident.reasoning_requested`` event: planner -> reasoner.
+
+    Two ids, and deliberately nothing else. The reasoner loads the incident and the
+    plan from Postgres and builds its context from the ROWS — which are current —
+    rather than from a payload, which is frozen at the instant it was written.
+
+    That is the same rule ``PlanRequestedPayload`` follows, and it matters more here:
+    an incident can escalate between the plan being stored and the reasoner running,
+    and the RCA card the engineer reads must say what the incident IS, not what it
+    was when the planner happened to look. Severity, status, and alert_count live on
+    the ``incidents`` row; steps live on the ``investigation_plans`` row. Carrying
+    copies here would only create a second, staler source of truth.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: UUID = Field(description="The incident to reason about.")
+    plan_id: UUID = Field(description="The investigation plan to reason over.")
+
+
 class ProcessedEvent(BaseModel):
     """An idempotency marker: one event handled by one service.
 

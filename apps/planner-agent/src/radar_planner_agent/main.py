@@ -54,6 +54,7 @@ from radar_common import (
 from radar_common.bootstrap import AGENT_TOKEN_SECRET
 from radar_database import Database
 from radar_telemetry import (
+    create_planner_metrics,
     create_request_metrics,
     instrument_fastapi,
     render_latest,
@@ -104,6 +105,7 @@ def create_app(
 
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
+    planner_metrics = create_planner_metrics(metrics_registry)
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
     templates: PlanTemplates | None = None
@@ -153,6 +155,11 @@ def create_app(
         # the handler answers 503 rather than touching a missing database.
         return database
 
+    def get_templates() -> PlanTemplates | None:
+        # Late-bound like the rest: None until the ConfigMap loads, so the handler
+        # answers 503 rather than planning against templates nobody configured.
+        return templates
+
     def get_agent_auth() -> AgentTokenAuth | None:
         # Late-bound: None until the Vault secret loads, so the auth dependency
         # answers 503 while not ready and 401 once it is.
@@ -165,7 +172,12 @@ def create_app(
     # and an unauthenticated caller must not learn the shape of the contract.
     install_guarded_events_handler(app, events_auth)
     app.include_router(
-        create_events_router(get_database=get_database, events_auth=events_auth)
+        create_events_router(
+            get_database=get_database,
+            get_templates=get_templates,
+            events_auth=events_auth,
+            metrics=planner_metrics,
+        )
     )
 
     @app.get("/healthz")

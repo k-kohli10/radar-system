@@ -210,3 +210,41 @@ def create_incident_metrics(registry: CollectorRegistry = REGISTRY) -> IncidentM
             registry=registry,
         ),
     )
+
+
+@dataclass(frozen=True)
+class PlannerMetrics:
+    """Planner metrics — both of them exist to make a SILENT bug loud.
+
+    ``plans_created_total`` is labelled ``matched`` vs ``default``. The planner
+    matches its template exactly, so a key that drifts (a rename on one side, a
+    stray space) never matches and every affected alert falls through to the
+    generic ``_default`` plan — which looks perfectly plausible. Nothing errors.
+    The only symptom is that the default rate climbs. This counter is that symptom,
+    on a dashboard, and it is the production analog of the round-trip key test: CI
+    catches the drift it can see, this catches the drift it cannot.
+
+    ``duplicate_plan_requests_total`` counts plan_requested events for an incident
+    that already has a plan. The planner absorbs these (200, no second plan, no
+    second LLM call), which is right — but absorbing an upstream bug in silence is
+    how it stays a bug. A non-zero rate here means the watcher is double-emitting.
+    """
+
+    plans_created_total: Counter
+    duplicate_plan_requests_total: Counter
+
+
+def create_planner_metrics(registry: CollectorRegistry = REGISTRY) -> PlannerMetrics:
+    return PlannerMetrics(
+        plans_created_total=Counter(
+            "radar_plans_created_total",
+            "Investigation plans created, by whether a specific template matched.",
+            ["outcome"],
+            registry=registry,
+        ),
+        duplicate_plan_requests_total=Counter(
+            "radar_duplicate_plan_requests_total",
+            "plan_requested events for an incident that already had a plan.",
+            registry=registry,
+        ),
+    )

@@ -35,7 +35,7 @@ import pytest_asyncio
 from prometheus_client import CollectorRegistry
 from radar_common import AGENT_TOKEN_HEADER
 from radar_contracts import PlanRequestedPayload
-from radar_database import Database, ProcessedEvent
+from radar_database import Database, Incident, ProcessedEvent
 from radar_planner_agent.config import SERVICE_NAME
 from radar_planner_agent.main import create_app
 from sqlalchemy import func, select
@@ -81,10 +81,39 @@ async def client(
             yield http
 
 
-def _event(event_id: UUID | None = None, **overrides: Any) -> dict[str, Any]:
+@pytest_asyncio.fixture
+async def incident_id(db: Database) -> UUID:
+    """An open incident, as ingestion and the watcher would have left it.
+
+    The handler now RESOLVES the incident its payload names — an event pointing at
+    an incident that does not exist is a 422 (see test_planning), because a plan's
+    foreign key would otherwise fail at commit and be indistinguishable from a
+    duplicate race. So the gate and auth tests here need a real one.
+    """
+    incident = Incident(
+        id=uuid4(),
+        correlation_id=uuid4(),
+        fingerprint="f" * 64,
+        service_name="order-service",
+        title="order-service OrderProcessingFailureRate",
+        severity="high",
+        status="open",
+        alert_count=1,
+    )
+    async with db.session() as session:
+        session.add(incident)
+        await session.commit()
+    return incident.id
+
+
+def _event(
+    event_id: UUID | None = None,
+    incident_id: UUID | None = None,
+    **overrides: Any,
+) -> dict[str, Any]:
     """A well-formed plan_requested envelope, built from the real contract."""
     payload = PlanRequestedPayload(
-        incident_id=uuid4(),
+        incident_id=incident_id or uuid4(),
         service_name="order-service",
         alert_name="OrderProcessingFailureRate",
     )
@@ -166,12 +195,14 @@ async def test_well_formed_event_with_a_bad_token_returns_401(
 
 
 async def test_event_is_processed_and_marked(
-    client: httpx.AsyncClient, db: Database
+    client: httpx.AsyncClient, db: Database, incident_id: UUID
 ) -> None:
     event_id = uuid4()
 
     response = await client.post(
-        "/events", json=_event(event_id), headers={AGENT_TOKEN_HEADER: TOKEN}
+        "/events",
+        json=_event(event_id, incident_id),
+        headers={AGENT_TOKEN_HEADER: TOKEN},
     )
 
     assert response.status_code == 200
@@ -181,9 +212,11 @@ async def test_event_is_processed_and_marked(
     assert marker is not None, "the handler must record what it handled"
 
 
-async def test_redelivery_is_a_no_op(client: httpx.AsyncClient, db: Database) -> None:
-    """The same event twice is handled once — and answered 200, so the worker stops."""
-    body = _event()
+async def test_redelivery_is_a_no_op(
+    client: httpx.AsyncClient, db: Database, incident_id: UUID
+) -> None:
+    """The same event twice is handled once — answered 200, so the worker stops."""
+    body = _event(incident_id=incident_id)
 
     headers = {AGENT_TOKEN_HEADER: TOKEN}
     first = await client.post("/events", json=body, headers=headers)
