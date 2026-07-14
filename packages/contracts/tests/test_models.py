@@ -27,6 +27,7 @@ from radar_contracts import (
     PlanStep,
     ProcessedEvent,
     Recommendation,
+    RecommendationCreatedPayload,
     RecommendedAction,
     Usage,
 )
@@ -340,3 +341,34 @@ def test_event_envelope_payload_stays_open() -> None:
     )
     assert envelope.payload["deduplicated"] is True
     assert envelope.payload["nested"] == {"a": 1}
+
+
+def test_recommendation_created_payload_carries_ids_and_nothing_else() -> None:
+    """The event names the recommendation; it does not copy it.
+
+    A payload carrying root_cause/confidence/is_fallback would freeze them at the
+    instant of writing — and a recommendation is the one row a human can CORRECT
+    later, so the frozen copy could contradict the corrected row it names. The
+    consumer reads the row by id and always sees current values.
+
+    ``extra="forbid"`` makes that enforcement rather than convention: a producer that
+    tries to helpfully attach the analysis is rejected, loudly, at the boundary.
+    """
+    incident_id, recommendation_id = uuid4(), uuid4()
+
+    payload = RecommendationCreatedPayload(
+        incident_id=incident_id, recommendation_id=recommendation_id
+    )
+
+    assert payload.incident_id == incident_id
+    assert payload.recommendation_id == recommendation_id
+
+    for stale in ("root_cause", "confidence", "is_fallback", "recommended_actions"):
+        with pytest.raises(ValidationError):
+            RecommendationCreatedPayload.model_validate(
+                {
+                    "incident_id": str(incident_id),
+                    "recommendation_id": str(recommendation_id),
+                    stale: "anything",
+                }
+            )

@@ -202,6 +202,35 @@ class ReasoningRequestedPayload(BaseModel):
     plan_id: UUID = Field(description="The investigation plan to reason over.")
 
 
+class RecommendationCreatedPayload(BaseModel):
+    """The body of a ``recommendation.created`` event: reasoner -> feedback-service.
+
+    Two ids, and deliberately nothing else — the third payload in this file to follow
+    the same rule, and the one where breaking it would be most tempting. A feedback
+    card needs a root cause, a confidence and a list of actions, and putting them here
+    would save the consumer a query.
+
+    It would also freeze them. A recommendation is the one row in RADAR that a human
+    can *correct* (Phase 9's ``[✏️ Correction]`` button), and an incident keeps moving
+    after the RCA is written: severity escalates, the incident resolves. A card
+    rendered from this payload would show the analysis as it was at the instant of
+    writing, not as it stands — including, in the worst case, a root cause an engineer
+    has already corrected.
+
+    So the consumer reads ``recommendations`` and ``incidents`` by id, and always sees
+    current values. Leaving the fields out is not documentation, it is enforcement:
+    nothing can read a stale confidence from a payload that does not carry one.
+
+    ``is_fallback`` is likewise absent, and that is worth stating because the Slack card
+    branches on it ("*[RADAR] Incident Alert - AI Unavailable*"). It lives on the row.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: UUID = Field(description="The incident this recommendation is for.")
+    recommendation_id: UUID = Field(description="The recommendation that was created.")
+
+
 class ProcessedEvent(BaseModel):
     """An idempotency marker: one event handled by one service.
 

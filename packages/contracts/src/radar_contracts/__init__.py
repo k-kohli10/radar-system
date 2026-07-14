@@ -27,6 +27,7 @@ from .events import (
     PlanRequestedPayload,
     ProcessedEvent,
     ReasoningRequestedPayload,
+    RecommendationCreatedPayload,
 )
 from .feedback import FeedbackEvent
 from .incidents import (
@@ -71,6 +72,7 @@ __all__ = [
     "EventEnvelope",
     "PlanRequestedPayload",
     "ReasoningRequestedPayload",
+    "RecommendationCreatedPayload",
     "OutboxEvent",
     "ProcessedEvent",
     # llm
