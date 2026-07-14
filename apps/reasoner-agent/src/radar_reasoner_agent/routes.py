@@ -47,6 +47,7 @@ from radar_database import Database, is_already_processed, mark_processed
 
 from radar_reasoner_agent.config import SERVICE_NAME
 from radar_reasoner_agent.context import ContextNotAvailableError, build_context_bundle
+from radar_reasoner_agent.fallback import resolve
 from radar_reasoner_agent.llm import GatewayClient
 
 log = get_logger("reasoner.routes")
@@ -83,6 +84,7 @@ def create_events_router(
                 detail="reasoner-agent is not ready",
             )
 
+        # ---- 1 & 2: the gate, then the read. Nothing is written here. ----
         async with database.session() as session:
             # THE GATE. First read of the handler, before the event is interpreted
             # at all. A redelivery must not be able to reach any work — and here
@@ -132,8 +134,6 @@ def create_events_router(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
                 ) from exc
 
-            # The LLM call, the fallback, and the transactional write land HERE over
-            # the next three commits. The call happens OUTSIDE this transaction.
             log.info(
                 "context.built",
                 incident_id=str(bundle.incident_id),
@@ -141,6 +141,28 @@ def create_events_router(
                 alert_count=bundle.alert_count,
                 steps=len(bundle.investigation_steps),
             )
+
+        # ---- 3: the LLM call. NO TRANSACTION IS OPEN. ----
+        #
+        # A minute-long call to a third party must not hold a database connection and
+        # a row lock. The transaction above is closed; the one below has not started.
+        #
+        # `complete` does not raise (it returns a typed LLMFailure), and neither does
+        # the parser inside `resolve`. So there is no exception path between here and
+        # the write — and `resolve` is total over the result space. An incident that
+        # reaches this line WILL have a recommendation to store.
+        llm_result = await gateway.complete(bundle)
+        outcome = resolve(bundle, llm_result)
+
+        # ---- 4: the write, atomically. ----
+        #
+        # A crash before this point leaves no marker and no recommendation, so the
+        # redelivery does the work again — at the cost of one repeated LLM call, which
+        # is the price of not holding a transaction across a call to OpenAI.
+        async with database.session() as session:
+            # R7 lands the recommendation row and the recommendation.created outbox
+            # event HERE, in this same transaction as the marker. `outcome` already
+            # holds every column they need.
             await mark_processed(session, envelope.event_id, SERVICE_NAME)
             await session.commit()
 
@@ -148,6 +170,8 @@ def create_events_router(
             "event.processed",
             event_id=str(envelope.event_id),
             event_type=envelope.event_type,
+            is_fallback=outcome.is_fallback,
+            confidence=outcome.confidence.value,
         )
         return {"status": "processed"}
 

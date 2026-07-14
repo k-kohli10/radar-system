@@ -24,6 +24,14 @@ and alert_count are read from the ``incidents`` row; the steps from the
 reasoned about, and the card an engineer reads must say what the incident IS — not
 what it was when the planner happened to look at it.
 
+FALLBACK IS THE ABSENCE OF A CLEAN SUCCESS
+------------------------------------------
+It is not triggered by a list of known failures — a list is a thing somebody has to
+keep complete, and the day it is not, an incident falls through it with no RCA. It is
+triggered by anything that is not (a call that succeeded AND an answer that parsed).
+``fallback`` matches over the whole result space and ends in ``assert_never``, so a
+new failure mode is a **type error**, not a production surprise.
+
 THE FALLBACK CONTRACT
 ---------------------
 A fallback row must not be able to lie about itself, and must not corrupt an
@@ -35,20 +43,32 @@ aggregate. So:
                                               GROUP BY must not count fallbacks as
                                               extended-mode traffic)
     model_id           "template-fallback"
-    raw_llm_response   NULL                  (there was no response; the template
-                                              text is the root_cause)
-    prompt_tokens      NULL                  (these describe an LLM call that did
-    completion_tokens  NULL                   not happen)
+    prompt_tokens      NULL                  (these describe an LLM call that
+    completion_tokens  NULL                   produced a usable answer; none did)
     latency_ms         NULL
 
-The debugging information — which mode we asked for, why we fell back, how long we
-waited — lives in ``context_bundle``, where it cannot contaminate a provider or
-model aggregate.
+    raw_llm_response   the model's text, when there WAS text — see below
+
+``raw_llm_response`` is deliberately NOT blanket-NULL. The column means *what the
+model literally returned*, and on the unparseable triggers the model returned
+something: the garbage that failed to parse. That garbage is the debugging gold — it
+is the evidence of why the row is a template, and it is what a prompt fix has to be
+tested against. Throwing it away to keep the fallback rows uniform would be tidiness
+bought with the only artifact that explains them. It is NULL only for the failures
+where there genuinely was no response body (503, timeout, rejected).
+
+The rest of the debugging information — which mode we asked for, why we fell back, how
+long we waited — lives in ``context_bundle``, where it cannot contaminate a provider
+or model aggregate.
 
 Layout:
 
 - ``config`` — settings, the Postgres DSN, and the OUTBOUND gateway token.
 - ``routes`` — ``POST /events``: the ``processed_events`` gate, then the work.
+- ``context`` — the bundle the model is shown, built from the rows.
+- ``llm`` — the gateway call. Returns a typed result; never raises.
+- ``rca`` — parses the model's answer. Returns a typed result; never raises.
+- ``fallback`` — the total match, and the one template generator. THE invariant.
 - ``main`` — FastAPI assembly. The inbound agent-token guard (and 401-before-422) is
   the shared one from ``radar_common``.
 """
