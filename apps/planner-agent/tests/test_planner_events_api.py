@@ -292,3 +292,34 @@ async def test_events_is_503_before_the_secrets_load(
             )
 
     assert response.status_code == 503
+
+
+async def test_readyz_is_503_when_the_templates_are_missing_a_default(
+    tmp_path: Path, app_factory: Any, database_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A template file with no ``_default`` must fail at BOOT, not at 3am.
+
+    Without ``_default``, the first alert nobody wrote a template for would have no
+    investigation at all — a stalled incident, discovered at the worst moment. So
+    the planner refuses to become ready, and Kubernetes never sends it traffic.
+    """
+    templates = tmp_path / "plan-templates.yaml"
+    templates.write_text(
+        "templates:\n"
+        "  order-service:OrderProcessingFailureRate:\n"
+        "    steps:\n"
+        "      - order: 1\n"
+        '        description: "check things"\n'
+    )
+    monkeypatch.setenv("RADAR_PLAN_TEMPLATES_PATH", str(templates))
+    app = app_factory(_secrets(tmp_path, dsn=database_url))
+
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://planner"
+        ) as http:
+            response = await http.get("/readyz")
+
+    assert response.status_code == 503
+    assert "_default" in response.json()["reason"]

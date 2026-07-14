@@ -30,8 +30,9 @@ crash on a missing secret — the exact crash ``/readyz`` exists to turn into a
 missing token degrades to 503 (which the outbox worker retries) rather than 401
 (which it would dead-letter).
 
-The template loader joins this lifespan in the next commit, gating readiness the
-same way.
+The investigation templates are loaded here too, and an invalid file keeps the
+pod at 503. A planner running templates nobody wrote looks perfectly healthy
+while handing every incident the same generic checklist — so it does not start.
 """
 
 from __future__ import annotations
@@ -61,6 +62,7 @@ from radar_telemetry import (
 
 from radar_planner_agent.config import SERVICE_NAME, PlannerSettings, load_postgres_dsn
 from radar_planner_agent.routes import create_events_router
+from radar_planner_agent.templates import PlanTemplates, load_plan_templates
 
 
 class Readiness:
@@ -104,18 +106,30 @@ def create_app(
     request_metrics = create_request_metrics(metrics_registry)
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
+    templates: PlanTemplates | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal database, agent_auth
+        nonlocal database, agent_auth, templates
         try:
             dsn = load_postgres_dsn()
             agent_token = read_secret(AGENT_TOKEN_SECRET)
             assert agent_token is not None  # required=True: raised if absent
             agent_auth = AgentTokenAuth([agent_token])
+            # A bad templates file is a startup failure, not a fallback to
+            # defaults. A planner running templates nobody wrote looks perfectly
+            # healthy while handing every incident the same generic checklist.
+            templates = load_plan_templates(settings.plan_templates_path)
             database = Database(dsn)
             readiness.mark_ready()
-            log.info("planner.ready")
+            log.info(
+                "planner.ready",
+                # The template keys, out loud. If the ConfigMap failed to mount you
+                # would otherwise see a healthy planner quietly defaulting every
+                # incident — this is the line that says which templates are live.
+                template_keys=templates.keys,
+                templates_path=str(settings.plan_templates_path),
+            )
         except ConfigurationError as exc:
             # Config-layer messages are written to be secret-free.
             readiness.mark_not_ready(str(exc))
