@@ -230,20 +230,33 @@ class ReasoningOutcome:
     model_alias: str
     model_id: str
 
-    #: What the model literally returned, or ``None`` if it returned nothing.
-    #:
-    #: NOT blanket-``None`` on fallbacks. When the model answered with something we
-    #: could not parse, that garbage is the single most useful artifact for debugging —
-    #: it is the evidence of *why* we fell back, and it is exactly what a prompt fix
-    #: has to be tested against. The column means "what the model literally returned";
-    #: on a 503 or a timeout that is nothing, and on unusable JSON it is the unusable
-    #: JSON.
-    raw_llm_response: str | None
+    # ---- The four columns that describe THE CALL, not the recommendation. ----
+    #
+    # All four are ``None`` together or populated together, because all four are read
+    # off the same ``LLMSuccess | None`` in :func:`_from_failure`. There is no code that
+    # can set one without the others, so a row cannot claim the model returned text
+    # while reporting that it cost nothing.
+    #
+    # They mean ONE thing: **a call completed**. Not "a call succeeded" — a call that
+    # came back with unusable garbage still ran, still took eight seconds, and OpenAI
+    # still charged us for it. NULLing those true values on a fallback row would
+    # silently under-report the only spend RADAR has, and the reasoner is the only
+    # stage that spends anything.
+    #
+    # The worry this trades against — that fallback latencies pollute a p95 of real
+    # analyses — is already answered by a column the row carries: ``is_fallback``.
+    #   WHERE is_fallback = false  -> p95 of successful analyses
+    #   WHERE is_fallback = true   -> how long we waited before giving up
+    # Storing a true value and letting the reader filter beats destroying it to
+    # pre-simplify an aggregate that can already be separated at query time. Same
+    # principle as ``raw_llm_response``.
+    #
+    # NULL therefore means exactly one thing, and it is a fact rather than a choice:
+    # **no call completed**. 503 before a response, a timeout, a rejected request — none
+    # of them produce an ``LLMSuccess``, so none of them have usage to report.
 
-    #: These describe an LLM call that produced a usable answer. ``None`` on every
-    #: fallback — including a parse failure, where tokens were genuinely spent but no
-    #: recommendation came of them. A fallback row must not contribute to a latency or
-    #: token aggregate it would only distort.
+    #: What the model literally returned. ``None`` only when it returned nothing.
+    raw_llm_response: str | None
     prompt_tokens: int | None
     completion_tokens: int | None
     latency_ms: int | None
@@ -266,24 +279,27 @@ def resolve(bundle: ContextBundle, result: LLMResult) -> ReasoningOutcome:
                     # THE one path that does not fall back.
                     return _from_analysis(bundle, result, parsed)
                 case RCAParseFailure():
-                    # The model answered, and the answer was unusable. Keep the raw
-                    # text: it is the evidence of why this row is a template.
+                    # The model answered, and the answer was unusable. The CALL still
+                    # happened: hand the whole LLMSuccess over, so the raw text, the
+                    # tokens it cost and the time it took are all recorded together.
                     return _from_failure(
                         bundle,
                         reason=_reason_for_parse_failure(parsed.reason),
                         detail=parsed.detail,
-                        raw_llm_response=result.content,
+                        call=result,
                         elapsed_ms=result.latency_ms,
                     )
                 case _:
                     assert_never(parsed)
         case LLMFailure():
-            # Down, slow, or refusing us. No response body exists to keep.
+            # Down, slow, or refusing us. No call COMPLETED, so there is no response
+            # body, no token cost and no latency to report — `call=None` makes all four
+            # of those NULL at once, because they are the same fact.
             return _from_failure(
                 bundle,
                 reason=_reason_for_llm_failure(result.reason),
                 detail=result.detail,
-                raw_llm_response=None,
+                call=None,
                 elapsed_ms=result.elapsed_ms,
             )
         case _:
@@ -367,10 +383,22 @@ def _from_failure(
     *,
     reason: FallbackReason,
     detail: str,
-    raw_llm_response: str | None,
+    call: LLMSuccess | None,
     elapsed_ms: int | None,
 ) -> ReasoningOutcome:
-    """The template path. Every trigger lands here, differing only in ``reason``."""
+    """The template path. Every trigger lands here, differing only in ``reason``.
+
+    ``call`` is the ONE input that decides all four call-describing columns:
+
+    - ``LLMSuccess`` — the model ran and answered; the answer was just unusable. It
+      cost tokens and it took time, and both are recorded. The row is a template, and
+      the spend was real.
+    - ``None`` — no call completed (503, timeout, rejected). Nothing to record.
+
+    Passing the whole result rather than four separate arguments is what makes the
+    columns unable to disagree: there is no call site that could supply the raw text and
+    forget the tokens, because there is no argument for the raw text.
+    """
     template = generate_template_rca(bundle)
 
     # WARNING, not error: the incident still gets a usable card, and a provider outage
@@ -384,6 +412,9 @@ def _from_failure(
         attempted_mode=ATTEMPTED_MODE.value,
         elapsed_ms=elapsed_ms,
         actions=len(template.recommended_actions),
+        # Spend that bought nothing. Zero on the paths where no call completed — which
+        # is the number that makes a wasted-cost query answerable at all.
+        wasted_prompt_tokens=call.prompt_tokens if call else 0,
     )
     return ReasoningOutcome(
         root_cause=template.root_cause,
@@ -404,10 +435,12 @@ def _from_failure(
         llm_provider=FALLBACK_PROVIDER,
         model_alias=FALLBACK_MODEL_ALIAS,
         model_id=FALLBACK_MODEL_ID,
-        raw_llm_response=raw_llm_response,
-        prompt_tokens=None,
-        completion_tokens=None,
-        latency_ms=None,
+        # All four from the same optional. Populated together, NULL together — the row
+        # cannot say the model returned text while reporting that it cost nothing.
+        raw_llm_response=call.content if call else None,
+        prompt_tokens=call.prompt_tokens if call else None,
+        completion_tokens=call.completion_tokens if call else None,
+        latency_ms=call.latency_ms if call else None,
     )
 
 

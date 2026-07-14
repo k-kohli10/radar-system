@@ -400,19 +400,76 @@ def test_no_response_body_means_no_raw_response(reason: LLMFailureReason) -> Non
     assert outcome.raw_llm_response is None
 
 
-@pytest.mark.parametrize("result", _every_failing_result())
-def test_a_fallback_reports_no_token_or_latency_figures(result: LLMResult) -> None:
-    """Token and latency columns describe a call that produced a usable answer.
+@pytest.mark.parametrize("reason", list(RCAParseFailureReason))
+def test_a_wasted_call_still_reports_what_it_cost(
+    reason: RCAParseFailureReason,
+) -> None:
+    """The model ran, returned garbage, and the provider CHARGED us. Record the spend.
 
-    None did. A fallback row must not contribute to an aggregate it would only distort —
-    including the parse-failure case, where tokens were genuinely spent but produced
-    nothing usable.
+    This reverses the contract R6 shipped. NULLing tokens here would silently
+    under-report the only money RADAR spends — the reasoner is the only stage that
+    spends any — and the call was every bit as expensive as one that produced a usable
+    answer. The row is a template; the invoice is real.
+
+    Latency follows the same rule, not a separate decision: the call genuinely took this
+    long. The "it pollutes p95" objection is answered by ``is_fallback``, which the row
+    carries — filter on it at query time rather than destroying a true value up front.
+
+    Mutation that must turn this red: set ``call=None`` on the parse-failure arm of
+    ``resolve``.
     """
-    outcome = resolve(_bundle(), result)
+    outcome = resolve(_bundle(), _success(UNPARSEABLE[reason]))
 
+    assert outcome.is_fallback is True
+    assert outcome.prompt_tokens == 420
+    assert outcome.completion_tokens == 99
+    assert outcome.latency_ms == 8_500
+
+
+@pytest.mark.parametrize("reason", list(LLMFailureReason))
+def test_a_call_that_never_completed_reports_no_figures(
+    reason: LLMFailureReason,
+) -> None:
+    """503, timeout, rejected: no call completed, so there is nothing to report.
+
+    NULL is a FACT here — "nothing ran, nothing was spent" — not an editorial choice
+    about what to keep. That is the whole difference from the case above.
+    """
+    outcome = resolve(_bundle(), _failure(reason))
+
+    assert outcome.is_fallback is True
     assert outcome.prompt_tokens is None
     assert outcome.completion_tokens is None
     assert outcome.latency_ms is None
+
+
+@pytest.mark.parametrize(
+    "result",
+    [*_every_failing_result(), pytest.param(_success(GOOD_RCA), id="clean-success")],
+)
+def test_the_call_columns_are_all_present_or_all_absent(result: LLMResult) -> None:
+    """The four call-describing columns can never disagree, over the whole result space.
+
+    A row saying the model returned 900 bytes of text but cost zero tokens would be
+    lying about one of the two, and there would be no way to tell which. They are all
+    read off a single ``LLMSuccess | None``, so there is no code path that can populate
+    one and forget another — the property is structural.
+
+    Mutation that must turn this red: give ``_from_failure`` a separate
+    ``raw_llm_response`` argument again and let it drift from the token fields.
+    """
+    outcome = resolve(_bundle(), result)
+
+    present = [
+        outcome.raw_llm_response is not None,
+        outcome.prompt_tokens is not None,
+        outcome.latency_ms is not None,
+    ]
+    assert len(set(present)) == 1, "the call columns disagree about whether a call ran"
+
+    # And "a call ran" is exactly "the model returned something we can point at".
+    a_call_completed = outcome.raw_llm_response is not None
+    assert a_call_completed == (outcome.prompt_tokens is not None)
 
 
 def test_a_real_analysis_reports_its_real_figures() -> None:

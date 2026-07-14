@@ -43,19 +43,34 @@ aggregate. So:
                                               GROUP BY must not count fallbacks as
                                               extended-mode traffic)
     model_id           "template-fallback"
-    prompt_tokens      NULL                  (these describe an LLM call that
-    completion_tokens  NULL                   produced a usable answer; none did)
-    latency_ms         NULL
 
-    raw_llm_response   the model's text, when there WAS text — see below
+    raw_llm_response   \
+    prompt_tokens       >  present iff A CALL COMPLETED — see below. NOT blanket-NULL.
+    completion_tokens   |
+    latency_ms         /
 
-``raw_llm_response`` is deliberately NOT blanket-NULL. The column means *what the
-model literally returned*, and on the unparseable triggers the model returned
-something: the garbage that failed to parse. That garbage is the debugging gold — it
-is the evidence of why the row is a template, and it is what a prompt fix has to be
-tested against. Throwing it away to keep the fallback rows uniform would be tidiness
-bought with the only artifact that explains them. It is NULL only for the failures
-where there genuinely was no response body (503, timeout, rejected).
+Those four columns describe **the call**, not the recommendation, and they are NOT
+blanket-NULL on a fallback. They are populated together or NULL together, because all
+four are read off one ``LLMSuccess | None``.
+
+They are present whenever a call COMPLETED — which includes the case where it came
+back with unusable garbage. That call still ran, still took eight seconds, and the
+provider still charged us for it. The reasoner is the only stage in RADAR that spends
+money, so NULLing those true values would silently under-report the entire cost of the
+system. The garbage in ``raw_llm_response`` is also the only evidence of *why* the row
+is a template, and the only thing a prompt fix can be tested against.
+
+They are NULL only when **no call completed** — 503 before a response, a timeout, a
+rejected request. NULL is therefore a fact ("nothing ran"), never an editorial choice.
+
+The obvious objection — that fallback latencies pollute a p95 of real analyses — is
+answered by a column the row already carries:
+
+    WHERE is_fallback = false   -> p95 of successful analyses
+    WHERE is_fallback = true    -> how long we waited before giving up
+
+Store the true value; let the reader filter. Destroying a fact to pre-simplify an
+aggregate that can already be separated at query time is a trade that only ever loses.
 
 The rest of the debugging information — which mode we asked for, why we fell back, how
 long we waited — lives in ``context_bundle``, where it cannot contaminate a provider
