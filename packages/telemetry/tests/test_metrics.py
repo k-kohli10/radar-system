@@ -27,9 +27,11 @@ EXPECTED_METRICS = {
     # incident pipeline
     "radar_incidents_total",
     "radar_incident_duration_seconds",
+    "radar_feedback_total",
+    # reasoner
     "radar_recommendations_total",
     "radar_recommendations_fallback_total",
-    "radar_feedback_total",
+    "radar_duplicate_recommendation_requests_total",
 }
 
 
@@ -48,6 +50,7 @@ def test_all_metric_families_register_expected_names() -> None:
     rt.create_llm_metrics(registry)
     rt.create_outbox_metrics(registry)
     rt.create_incident_metrics(registry)
+    rt.create_reasoner_metrics(registry)
     assert EXPECTED_METRICS <= _type_names(registry)
 
 
@@ -107,7 +110,7 @@ def test_fallbacks_are_counted_separately_by_reason() -> None:
     ``.labels()`` then raises, and every assertion below is unreachable.
     """
     registry = CollectorRegistry()
-    metrics = rt.create_incident_metrics(registry)
+    metrics = rt.create_reasoner_metrics(registry)
 
     metrics.recommendations_fallback_total.labels(reason="rejected").inc()
     metrics.recommendations_fallback_total.labels(reason="rejected").inc()

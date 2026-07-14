@@ -174,10 +174,6 @@ class IncidentMetrics:
 
     incidents_total: Counter
     incident_duration_seconds: Histogram
-    recommendations_total: Counter
-    #: Labelled by ``reason`` — see the factory below. The plan specifies this counter
-    #: unlabelled; that would make it unactionable.
-    recommendations_fallback_total: Counter
     feedback_total: Counter
 
 
@@ -194,10 +190,49 @@ def create_incident_metrics(registry: CollectorRegistry = REGISTRY) -> IncidentM
             "Incident open-to-resolution duration in seconds.",
             registry=registry,
         ),
+        feedback_total=Counter(
+            "radar_feedback_total",
+            "Total feedback submissions by sentiment.",
+            ["sentiment"],
+            registry=registry,
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class ReasonerMetrics:
+    """The reasoner's own business metrics.
+
+    ``recommendations_total`` and ``recommendations_fallback_total`` used to sit on
+    :class:`IncidentMetrics`, and they are moved here because a metric belongs to the
+    service that PRODUCES it. Each agent registers only the family it owns (the planner
+    registers ``PlannerMetrics`` and nothing else), so leaving these on the incident
+    family meant the reasoner would have had to register ``incidents_total`` and
+    ``feedback_total`` as well — exporting two counters it can never increment, sitting
+    at zero forever, indistinguishable from "no incidents happened".
+
+    The names are unchanged, so nothing downstream of Prometheus notices the move.
+    """
+
+    recommendations_total: Counter
+    #: Labelled by ``reason`` — see the factory below. The plan specifies this counter
+    #: unlabelled; that would make it unactionable.
+    recommendations_fallback_total: Counter
+    #: Both duplicate paths: the pre-check AND the unique-index race.
+    duplicate_recommendation_requests_total: Counter
+
+
+def create_reasoner_metrics(registry: CollectorRegistry = REGISTRY) -> ReasonerMetrics:
+    return ReasonerMetrics(
         recommendations_total=Counter(
             "radar_recommendations_total",
             "Total recommendations produced.",
             ["provider", "confidence"],
+            registry=registry,
+        ),
+        duplicate_recommendation_requests_total=Counter(
+            "radar_duplicate_recommendation_requests_total",
+            "Total duplicate reasoning requests ignored (one RCA per incident).",
             registry=registry,
         ),
         recommendations_fallback_total=Counter(
@@ -230,12 +265,6 @@ def create_incident_metrics(registry: CollectorRegistry = REGISTRY) -> IncidentM
             # here — telemetry sits below the apps and must not depend on one — so the
             # coupling is by convention, and the reasoner's own tests pin the values.
             ["reason"],
-            registry=registry,
-        ),
-        feedback_total=Counter(
-            "radar_feedback_total",
-            "Total feedback submissions by sentiment.",
-            ["sentiment"],
             registry=registry,
         ),
     )
