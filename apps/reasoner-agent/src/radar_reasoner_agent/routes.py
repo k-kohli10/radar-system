@@ -44,6 +44,7 @@ from pydantic import ValidationError
 from radar_common import EventsAuth, bind_correlation_id, get_logger
 from radar_contracts import EventEnvelope, ReasoningRequestedPayload
 from radar_database import Database, is_already_processed, mark_processed
+from radar_telemetry import ReasonerMetrics
 from sqlalchemy.exc import IntegrityError
 
 from radar_reasoner_agent.config import SERVICE_NAME
@@ -68,6 +69,7 @@ def create_events_router(
     get_database: Callable[[], Database | None],
     get_gateway: Callable[[], GatewayClient | None],
     events_auth: EventsAuth,
+    metrics: ReasonerMetrics,
 ) -> APIRouter:
     """Build the ``POST /events`` surface.
 
@@ -214,12 +216,15 @@ def create_events_router(
                 # delivery simply has nothing left to do. A 500 would have the worker
                 # retry a race it would only lose again.
                 await session.rollback()
-                return await _absorb_race(database, envelope=envelope, payload=payload)
+                return await _absorb_race(
+                    database, envelope=envelope, payload=payload, metrics=metrics
+                )
 
         if stored.duplicate:
             # The SEQUENTIAL duplicate: the pre-check found an existing recommendation.
-            # Its audit row committed with the marker above; the log is here, so both
-            # duplicate paths are equally visible.
+            # Its audit row committed with the marker above; the log and the counter are
+            # here, so both duplicate paths are equally visible.
+            metrics.duplicate_recommendation_requests_total.inc()
             log.warning(
                 "reasoner.duplicate_recommendation_ignored",
                 event_id=str(envelope.event_id),
@@ -228,6 +233,28 @@ def create_events_router(
                 detected_by="pre_check",
             )
             return {"status": "already_recommended"}
+
+        # ---- COUNTED ONLY NOW. The commit is above; the row is durable. ----
+        #
+        # Incrementing before the commit would count recommendations that never landed:
+        # a transaction that rolls back would still have moved the counter, and the
+        # fallback RATE — the number the LLMFallbackRateHigh alert fires on — would be
+        # inflated by writes that do not exist. A metric that counts intentions rather
+        # than facts is worse than no metric, because it is believed.
+        metrics.recommendations_total.labels(
+            outcome.llm_provider, outcome.confidence.value
+        ).inc()
+
+        fallback = outcome.context_bundle.fallback
+        if fallback is not None:
+            # Keyed off the metadata, not off `is_fallback` — the two cannot disagree
+            # (resolve sets them together), and reading the reason from the same object
+            # that proves the fallback happened keeps it that way.
+            #
+            # The `reason` label is what makes this actionable: `rejected` means fix the
+            # config NOW, `gateway_unavailable` means wait for the provider. A bare
+            # total cannot tell an operator which.
+            metrics.recommendations_fallback_total.labels(fallback.reason.value).inc()
 
         log.info(
             "recommendation.created",
@@ -249,6 +276,7 @@ async def _absorb_race(
     *,
     envelope: EventEnvelope,
     payload: ReasoningRequestedPayload,
+    metrics: ReasonerMetrics,
 ) -> dict[str, str]:
     """Record the lost race in a FRESH transaction, and answer 200.
 
@@ -260,6 +288,9 @@ async def _absorb_race(
     deliveries of the SAME event racing on the ``processed_events`` primary key, in
     which case the marker is already there and writing it again would fail again.
     """
+    # Safe to count here: the transaction that could have rolled back ALREADY has —
+    # the IntegrityError rolled it back. Nothing below can un-happen this duplicate.
+    metrics.duplicate_recommendation_requests_total.inc()
     log.warning(
         "reasoner.duplicate_recommendation_ignored",
         event_id=str(envelope.event_id),

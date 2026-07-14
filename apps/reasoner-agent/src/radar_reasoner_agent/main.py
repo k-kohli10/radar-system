@@ -53,6 +53,7 @@ from radar_common import (
 from radar_common.bootstrap import AGENT_TOKEN_SECRET
 from radar_database import Database
 from radar_telemetry import (
+    create_reasoner_metrics,
     create_request_metrics,
     instrument_fastapi,
     render_latest,
@@ -107,6 +108,7 @@ def create_app(
 
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
+    reasoner_metrics = create_reasoner_metrics(metrics_registry)
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
     gateway_token: SecretStr | None = None
@@ -189,6 +191,7 @@ def create_app(
             get_database=get_database,
             get_gateway=get_gateway,
             events_auth=events_auth,
+            metrics=reasoner_metrics,
         )
     )
 
