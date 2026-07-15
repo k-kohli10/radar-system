@@ -50,7 +50,7 @@ sequenceDiagram
 
     Prometheus->>ingestion: alert fired (webhook token)
     ingestion->>Postgres: INSERT incident + alert + outbox(alert.normalized)
-    Note over ingestion,Postgres: one tx — new incident, or dedup onto an open one (<5m);<br/>the dedup path bumps alert_count only (never the watcher)
+    Note over ingestion,Postgres: one tx — new incident, or dedup onto an open one within 5m.<br/>The dedup path bumps alert_count only (never the watcher)
 
     outbox->>Postgres: claim outbox row (FOR UPDATE SKIP LOCKED)
     outbox->>watcher: POST /events (watcher token)
@@ -66,7 +66,7 @@ sequenceDiagram
     Note over reasoner,llm: no DB transaction is held across this call
     llm-->>reasoner: RCA JSON — or 503 / timeout / unparseable
     reasoner->>Postgres: INSERT recommendation<br/>+ outbox(recommendation.created) + marker (tx2)
-    Note over reasoner,Postgres: any non-success → template RCA, is_fallback=true;<br/>an incident always ends with a recommendation
+    Note over reasoner,Postgres: any non-success → template RCA, is_fallback=true.<br/>An incident always ends with a recommendation
 
     outbox->>Postgres: claim recommendation.created
     Note over outbox,Postgres: dead-letters — no feedback-service until Phase 9
