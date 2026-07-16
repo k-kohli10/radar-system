@@ -77,8 +77,8 @@ async def test_a_trigger_is_counted_under_its_own_reason(
     - every OTHER reason label is absent — so a mislabelling that stamped, say, a parse
       failure as ``gateway_unavailable`` would fail here even though the count is right.
     """
-    pipeline.gateway.respond = responder
-    pipeline.gateway.delay_seconds = delay
+    pipeline.mock.respond = responder
+    pipeline.mock.delay_seconds = delay
 
     async with asyncio.timeout(GUARD_SECONDS):
         response = await pipeline.post_alert()
@@ -109,8 +109,8 @@ async def test_the_stored_row_agrees_with_the_metric(
     written from the same outcome, and a test that only read the metric could miss a row
     that disagreed with it. Both come out of one alert, through the whole pipeline.
     """
-    pipeline.gateway.respond = responder
-    pipeline.gateway.delay_seconds = delay
+    pipeline.mock.respond = responder
+    pipeline.mock.delay_seconds = delay
 
     async with asyncio.timeout(GUARD_SECONDS):
         await pipeline.post_alert()

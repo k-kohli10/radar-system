@@ -61,10 +61,16 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from prometheus_client import CollectorRegistry
+from radar_common import REASONER_DISPATCH_TIMEOUT_SECONDS
 from radar_contracts import LLMMode, LLMResponse, Usage
 from radar_database import Database, claim_outbox_batch
 from radar_ingestion.main import create_app as create_ingestion_app
-from radar_outbox_worker.dispatcher import EventDispatcher, TargetResolver
+from radar_llm_gateway.main import create_app as create_gateway_app
+from radar_outbox_worker.dispatcher import (
+    EventDispatcher,
+    TargetResolver,
+    TimeoutPolicy,
+)
 from radar_outbox_worker.retry import DispatchProcessor
 from radar_outbox_worker.security import DispatchTokenMap
 from radar_planner_agent.main import create_app as create_planner_app
@@ -259,11 +265,20 @@ class Pipeline:
     """Everything a pipeline test needs: an entry point, a crank, and the database."""
 
     db: Database
-    gateway: GatewayControl
+    #: The mock gateway's control, or ``None`` on the live pipeline (real gateway).
+    gateway: GatewayControl | None
     _ingestion: httpx.AsyncClient
     _processor: DispatchProcessor
     _worker_db: Database
     apps: dict[str, FastAPI]
+
+    @property
+    def mock(self) -> GatewayControl:
+        """The mock gateway's control. Only the deterministic pipeline has one."""
+        assert self.gateway is not None, (
+            "this Pipeline has no mock gateway (it is live)"
+        )
+        return self.gateway
 
     async def post_alert(self, body: dict[str, Any] | None = None) -> httpx.Response:
         """POST one alert to ingestion — the pipeline's front door."""
@@ -310,6 +325,74 @@ def _write_secrets(directory: Path, *, dsn: str) -> None:
     (directory / "webhook_token_mock").write_text(WEBHOOK_TOKEN)
 
 
+async def _assemble_services(
+    stack: AsyncExitStack,
+    db: Database,
+    database_url: str,
+    gateway: GatewayControl | None,
+) -> Pipeline:
+    """Build the four agents + the real worker + the ingestion client.
+
+    Assumes ``RADAR_SECRETS_DIR`` and ``RADAR_GATEWAY_URL`` are already set and the
+    gateway (mock or real) is already serving. Shared by the mock and live builders so
+    the *pipeline* is identical either way — only the gateway behind it differs.
+    """
+    apps: dict[str, FastAPI] = {
+        "ingestion": create_ingestion_app(
+            metrics_registry=CollectorRegistry(), with_tracing=False
+        ),
+        "watcher-agent": create_watcher_app(
+            metrics_registry=CollectorRegistry(), with_tracing=False
+        ),
+        "planner-agent": create_planner_app(
+            metrics_registry=CollectorRegistry(), with_tracing=False
+        ),
+        "reasoner-agent": create_reasoner_app(
+            metrics_registry=CollectorRegistry(), with_tracing=False
+        ),
+    }
+    for app in apps.values():
+        await stack.enter_async_context(app.router.lifespan_context(app))
+
+    routes = {
+        service: httpx.ASGITransport(app=apps[service]) for service in AGENT_SERVICES
+    }
+    worker_client = await stack.enter_async_context(
+        httpx.AsyncClient(transport=_RoutingTransport(routes))
+    )
+    dispatcher = EventDispatcher(
+        worker_client,
+        TargetResolver(overrides={s: f"http://{s}/events" for s in AGENT_SERVICES}),
+        DispatchTokenMap({s: AGENT_TOKEN for s in AGENT_SERVICES}),
+        # THE catch that keeps the live latency honest: the reasoner hop calls an LLM
+        # and can take tens of seconds, so the worker must wait the real 90s dispatch
+        # budget — the production value, ordered above the reasoner's own 60s. A shorter
+        # default would fire mid-call and record a dispatch timeout that never happened.
+        # Harmless for the fast deterministic tests, which answer in milliseconds.
+        timeouts=TimeoutPolicy(
+            overrides={"reasoner-agent": REASONER_DISPATCH_TIMEOUT_SECONDS}
+        ),
+    )
+    worker_db = Database(database_url)
+    stack.push_async_callback(worker_db.dispose)
+
+    ingestion_client = await stack.enter_async_context(
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=apps["ingestion"]),
+            base_url="http://ingestion",
+        )
+    )
+
+    return Pipeline(
+        db=db,
+        gateway=gateway,
+        _ingestion=ingestion_client,
+        _processor=DispatchProcessor(worker_db, dispatcher),
+        _worker_db=worker_db,
+        apps=apps,
+    )
+
+
 @asynccontextmanager
 async def build_pipeline(
     db: Database,
@@ -317,7 +400,7 @@ async def build_pipeline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[Pipeline]:
-    """Assemble the whole pipeline for one test. The fixture just wraps this."""
+    """The deterministic pipeline: a MOCK gateway and the compressed budget."""
     import radar_reasoner_agent.main as reasoner_main
 
     secrets = tmp_path / "secrets"
@@ -332,57 +415,68 @@ async def build_pipeline(
     async with AsyncExitStack() as stack:
         # The mock gateway first, on a real port, so its URL is known before the
         # reasoner reads RADAR_GATEWAY_URL at build time.
-        gateway_app, gateway = _build_mock_gateway()
+        gateway_app, control = _build_mock_gateway()
         gateway_url = await stack.enter_async_context(_serve(gateway_app))
         monkeypatch.setenv("RADAR_GATEWAY_URL", gateway_url)
 
-        apps: dict[str, FastAPI] = {
-            "ingestion": create_ingestion_app(
-                metrics_registry=CollectorRegistry(), with_tracing=False
-            ),
-            "watcher-agent": create_watcher_app(
-                metrics_registry=CollectorRegistry(), with_tracing=False
-            ),
-            "planner-agent": create_planner_app(
-                metrics_registry=CollectorRegistry(), with_tracing=False
-            ),
-            "reasoner-agent": create_reasoner_app(
-                metrics_registry=CollectorRegistry(), with_tracing=False
-            ),
-        }
-        for app in apps.values():
-            await stack.enter_async_context(app.router.lifespan_context(app))
+        yield await _assemble_services(stack, db, database_url, control)
 
-        routes = {
-            service: httpx.ASGITransport(app=apps[service])
-            for service in AGENT_SERVICES
-        }
-        worker_client = await stack.enter_async_context(
-            httpx.AsyncClient(transport=_RoutingTransport(routes))
-        )
-        dispatcher = EventDispatcher(
-            worker_client,
-            TargetResolver(overrides={s: f"http://{s}/events" for s in AGENT_SERVICES}),
-            DispatchTokenMap({s: AGENT_TOKEN for s in AGENT_SERVICES}),
-        )
-        worker_db = Database(database_url)
-        stack.push_async_callback(worker_db.dispose)
 
-        ingestion_client = await stack.enter_async_context(
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=apps["ingestion"]),
-                base_url="http://ingestion",
-            )
-        )
+# --- the live pipeline (real llm-gateway → real OpenAI) -----------------------
 
-        yield Pipeline(
-            db=db,
-            gateway=gateway,
-            _ingestion=ingestion_client,
-            _processor=DispatchProcessor(worker_db, dispatcher),
-            _worker_db=worker_db,
-            apps=apps,
+
+GATEWAY_CONFIG_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "apps"
+    / "llm-gateway"
+    / "config"
+    / "gateway.yaml"
+)
+"""The repo's real mode-routing config — extended → OpenAI gpt-4o."""
+
+
+def _gateway_tokens_yaml() -> str:
+    """The ``gateway_tokens`` secret: the reasoner's token, granted extended mode."""
+    return (
+        "tokens:\n"
+        f"  {GATEWAY_TOKEN}:\n"
+        "    service: reasoner-agent\n"
+        "    allowed_mode: extended\n"
+    )
+
+
+@asynccontextmanager
+async def build_live_pipeline(
+    db: Database,
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    openai_api_key: str,
+) -> AsyncIterator[Pipeline]:
+    """The live pipeline: the REAL llm-gateway calling REAL OpenAI, real 60s budget.
+
+    No mock and no compressed budget — the whole point is to measure the real extended
+    call against the real budget. The gateway runs on a real socket (like the mock), but
+    it is the actual ``radar_llm_gateway`` app, keyed with a real OpenAI key.
+    """
+    secrets = tmp_path / "secrets"
+    _write_secrets(secrets, dsn=database_url)
+    # The gateway's own secrets, alongside the agents' in the shared dir.
+    (secrets / "openai_api_key").write_text(openai_api_key)
+    (secrets / "gateway_tokens").write_text(_gateway_tokens_yaml())
+    monkeypatch.setenv("RADAR_SECRETS_DIR", str(secrets))
+    monkeypatch.setenv("RADAR_GATEWAY_CONFIG_PATH", str(GATEWAY_CONFIG_PATH))
+
+    async with AsyncExitStack() as stack:
+        gateway_app = create_gateway_app(
+            metrics_registry=CollectorRegistry(), with_tracing=False
         )
+        gateway_url = await stack.enter_async_context(_serve(gateway_app))
+        monkeypatch.setenv("RADAR_GATEWAY_URL", gateway_url)
+
+        # No budget compression: the reasoner runs its real 60s budget.
+        yield await _assemble_services(stack, db, database_url, None)
 
 
 # --- read helpers -------------------------------------------------------------

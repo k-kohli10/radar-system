@@ -124,8 +124,8 @@ async def test_the_reasoner_actually_called_the_gateway(pipeline: Pipeline) -> N
     await pipeline.post_alert()
     await pipeline.drain()
 
-    assert len(pipeline.gateway.received) == 1
-    request = pipeline.gateway.received[0]
+    assert len(pipeline.mock.received) == 1
+    request = pipeline.mock.received[0]
     assert request["mode"] == "extended"
     # The reasoner sends the system prompt + the context bundle as the user message.
     assert any(m["role"] == "system" for m in request["messages"])
