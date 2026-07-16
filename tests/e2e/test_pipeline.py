@@ -22,7 +22,7 @@ from radar_database import (
 )
 from sqlalchemy import func, select
 
-from tests.e2e.conftest import Pipeline, correlation_ids
+from tests.e2e.harness import Pipeline, correlation_ids
 
 
 async def test_alert_becomes_a_recommendation(pipeline: Pipeline) -> None:
