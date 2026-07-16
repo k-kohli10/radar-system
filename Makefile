@@ -55,9 +55,12 @@ gateway-secrets: env-check
 	RADAR_SECRETS_DIR="$(GATEWAY_SECRETS_DIR)" uv run python scripts/dev-gateway-secrets.py
 
 # --- Ingestion (local dev) ---------------------------------------------------
-# Re-pull ingestion webhook tokens from the dev Vault into RADAR_SECRETS_DIR,
-# one file PER SOURCE (independent rotation, ADR 0011). Run after changing a
-# token in Vault, then restart ingestion.
+# Re-pull ingestion's secrets from the dev Vault into ITS OWN directory,
+# $(INGESTION_SECRETS_DIR)/ingestion/ — webhook tokens one file PER SOURCE
+# (independent rotation, ADR 0011) plus postgres_dsn. Nothing else assembles
+# this directory (ingestion has no agent_token, so `make agent-secrets` skips
+# it). Run after changing a token in Vault, then restart ingestion with
+# RADAR_SECRETS_DIR pointed at that subdirectory.
 INGESTION_SECRETS_DIR ?= $(HOME)/.radar-dev/secrets
 
 ingestion-secrets: env-check
