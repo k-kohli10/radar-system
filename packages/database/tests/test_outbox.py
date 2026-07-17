@@ -135,3 +135,5 @@ async def test_dead_letter_after_max_attempts(db: Database) -> None:
         )
     assert len(audits) == 1
     assert audits[0].event_type == "outbox.dead_letter"
+    # The audit trail names WHO for every row; a dead-letter is the worker's doing.
+    assert audits[0].actor == "outbox-worker"
