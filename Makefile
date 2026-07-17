@@ -3,7 +3,8 @@ COMPOSE := docker compose --env-file .env -f $(COMPOSE_FILE)
 SERVICES := postgres elasticsearch kibana prometheus grafana vault
 
 .PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps \
-	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets
+	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets \
+	seed tokens rotate agent-secrets
 
 setup:
 	uv sync --all-packages
@@ -54,13 +55,59 @@ gateway-secrets: env-check
 	RADAR_SECRETS_DIR="$(GATEWAY_SECRETS_DIR)" uv run python scripts/dev-gateway-secrets.py
 
 # --- Ingestion (local dev) ---------------------------------------------------
-# Re-pull ingestion webhook tokens from the dev Vault into RADAR_SECRETS_DIR,
-# one file PER SOURCE (independent rotation, ADR 0011). Run after changing a
-# token in Vault, then restart ingestion.
+# Re-pull ingestion's secrets from the dev Vault into ITS OWN directory,
+# $(INGESTION_SECRETS_DIR)/ingestion/ — webhook tokens one file PER SOURCE
+# (independent rotation, ADR 0011) plus postgres_dsn. Nothing else assembles
+# this directory (ingestion has no agent_token, so `make agent-secrets` skips
+# it). Run after changing a token in Vault, then restart ingestion with
+# RADAR_SECRETS_DIR pointed at that subdirectory.
 INGESTION_SECRETS_DIR ?= $(HOME)/.radar-dev/secrets
 
 ingestion-secrets: env-check
 	RADAR_SECRETS_DIR="$(INGESTION_SECRETS_DIR)" uv run python scripts/dev-ingestion-secrets.py
+
+# --- Internal tokens (local dev) ---------------------------------------------
+# Two halves, and the split matters: `seed` restores what a HUMAN supplies (the
+# DSN, the provider key, from .env); `tokens` mints what the PLATFORM generates
+# (per-service agent tokens, the worker's dispatch map, gateway mode grants,
+# webhook tokens). Together they rebuild a dev Vault from empty — which matters,
+# because the dev Vault is in-memory and loses everything when its container
+# restarts.
+#
+#   make seed && make tokens && make agent-secrets     # from scratch
+#
+# `tokens` is idempotent (existing tokens are KEPT, never clobbered) and
+# convergent (the worker's dispatch_tokens map is rebuilt from the per-service
+# tokens every run, so it cannot drift from them). Safe to re-run any time.
+AGENT_SECRETS_DIR ?= $(HOME)/.radar-dev/secrets
+
+seed: env-check
+	uv run python scripts/dev-seed-vault.py
+
+tokens: env-check
+	uv run python scripts/dev-mint-tokens.py
+
+# Rotate ONE service's credentials: a fresh agent token, a fresh gateway token if
+# it has one, and — the second write, without which the first is useless — the
+# outbox worker's dispatch_tokens entry pointing at it.
+#
+# NOT a hot operation. Between the two pods restarting, the worker sends the old
+# token and the target rejects it; a 401 is classified permanent, so those events
+# are dead-lettered rather than retried. Rotate on a drained pipeline: check
+# outbox depth first. See the carried-debt note in docs/roadmap.md.
+#
+#   make rotate SERVICE=reasoner-agent
+rotate: env-check
+	@test -n "$(SERVICE)" || { echo 'usage: make rotate SERVICE=<service>'; exit 1; }
+	uv run python scripts/dev-mint-tokens.py --rotate $(SERVICE)
+	@echo "--> now: make agent-secrets, then restart $(SERVICE) AND outbox-worker"
+
+# Pull each agent's secrets into its OWN directory ($(AGENT_SECRETS_DIR)/<service>/).
+# One directory per service, not one shared: every service reads its token from a
+# file with a fixed name, so a shared directory would mean a shared token — which
+# is exactly what per-service tokens exist to prevent.
+agent-secrets: env-check
+	RADAR_SECRETS_DIR="$(AGENT_SECRETS_DIR)" uv run python scripts/dev-agent-secrets.py
 
 # --- Database migrations (Alembic) -------------------------------------------
 # alembic.ini lives in packages/database and env.py reads POSTGRES_DSN, which we

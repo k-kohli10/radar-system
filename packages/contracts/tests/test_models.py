@@ -13,6 +13,7 @@ from radar_contracts import (
     BotCommandType,
     BotResponse,
     Confidence,
+    EventEnvelope,
     FeedbackEvent,
     GatewayStreamEvent,
     Incident,
@@ -26,6 +27,7 @@ from radar_contracts import (
     PlanStep,
     ProcessedEvent,
     Recommendation,
+    RecommendationCreatedPayload,
     RecommendedAction,
     Usage,
 )
@@ -295,3 +297,78 @@ def test_feedback_event_optional_fields_default_none() -> None:
     assert fb.correction_text is None
     assert fb.slack_user_id is None
     assert fb.slack_message_ts is None
+
+
+def test_event_envelope_requires_every_contract_field() -> None:
+    """All four fields are mandatory — none has a default to silently paper over."""
+    for missing in ("event_id", "event_type", "correlation_id", "payload"):
+        body = {
+            "event_id": str(uuid4()),
+            "event_type": "alert.normalized",
+            "correlation_id": str(uuid4()),
+            "payload": {},
+        }
+        del body[missing]
+        with pytest.raises(ValidationError):
+            EventEnvelope.model_validate(body)
+
+
+def test_event_envelope_forbids_extra_fields() -> None:
+    """An unknown field is a malformed delivery (422), never silently dropped.
+
+    This is what stops the outbox row's private bookkeeping from being accepted
+    as if it were part of the contract.
+    """
+    with pytest.raises(ValidationError):
+        EventEnvelope.model_validate(
+            {
+                "event_id": str(uuid4()),
+                "event_type": "alert.normalized",
+                "correlation_id": str(uuid4()),
+                "payload": {},
+                "attempts": 3,
+            }
+        )
+
+
+def test_event_envelope_payload_stays_open() -> None:
+    """The envelope is generic transport: each agent judges its own payload shape."""
+    envelope = EventEnvelope(
+        event_id=uuid4(),
+        event_type="alert.normalized",
+        correlation_id=uuid4(),
+        payload={"incident_id": str(uuid4()), "deduplicated": True, "nested": {"a": 1}},
+    )
+    assert envelope.payload["deduplicated"] is True
+    assert envelope.payload["nested"] == {"a": 1}
+
+
+def test_recommendation_created_payload_carries_ids_and_nothing_else() -> None:
+    """The event names the recommendation; it does not copy it.
+
+    A payload carrying root_cause/confidence/is_fallback would freeze them at the
+    instant of writing — and a recommendation is the one row a human can CORRECT
+    later, so the frozen copy could contradict the corrected row it names. The
+    consumer reads the row by id and always sees current values.
+
+    ``extra="forbid"`` makes that enforcement rather than convention: a producer that
+    tries to helpfully attach the analysis is rejected, loudly, at the boundary.
+    """
+    incident_id, recommendation_id = uuid4(), uuid4()
+
+    payload = RecommendationCreatedPayload(
+        incident_id=incident_id, recommendation_id=recommendation_id
+    )
+
+    assert payload.incident_id == incident_id
+    assert payload.recommendation_id == recommendation_id
+
+    for stale in ("root_cause", "confidence", "is_fallback", "recommended_actions"):
+        with pytest.raises(ValidationError):
+            RecommendationCreatedPayload.model_validate(
+                {
+                    "incident_id": str(incident_id),
+                    "recommendation_id": str(recommendation_id),
+                    stale: "anything",
+                }
+            )

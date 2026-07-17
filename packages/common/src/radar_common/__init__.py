@@ -22,7 +22,13 @@ level::
 
 from __future__ import annotations
 
-from .auth import AGENT_TOKEN_HEADER, AgentTokenAuth
+from .auth import (
+    AGENT_TOKEN_HEADER,
+    EVENTS_PATH,
+    AgentTokenAuth,
+    EventsAuth,
+    install_guarded_events_handler,
+)
 from .bootstrap import ServiceRuntime, bootstrap
 from .config import (
     DEFAULT_SECRETS_DIR,
@@ -50,6 +56,10 @@ from .logging import (
     get_logger,
 )
 from .time import ensure_utc, utcnow
+from .timeouts import (
+    REASONER_DISPATCH_TIMEOUT_SECONDS,
+    REASONER_LLM_BUDGET_SECONDS,
+)
 
 __version__ = "0.3.0"
 
@@ -63,7 +73,10 @@ __all__ = [
     "get_logger",
     # auth
     "AGENT_TOKEN_HEADER",
+    "EVENTS_PATH",
     "AgentTokenAuth",
+    "EventsAuth",
+    "install_guarded_events_handler",
     # bootstrap
     "ServiceRuntime",
     "bootstrap",
@@ -87,6 +100,9 @@ __all__ = [
     "new_event_id",
     "new_correlation_id",
     "parse_uuid",
+    # timeouts
+    "REASONER_DISPATCH_TIMEOUT_SECONDS",
+    "REASONER_LLM_BUDGET_SECONDS",
     # time
     "utcnow",
     "ensure_utc",

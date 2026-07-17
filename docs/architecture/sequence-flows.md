@@ -14,7 +14,7 @@ sequenceDiagram
     participant Slack
 
     Prometheus->>ingestion: POST /alerts/prometheus
-    Note over ingestion: normalize, dedupe<br/>INSERT incident+alert+outbox(plan_requested), one tx
+    Note over ingestion: normalize, dedupe<br/>INSERT incident+alert+outbox(alert.normalized), one tx
     ingestion->>watcher: via outbox-worker
     Note over watcher: correlate, INSERT plan_requested outbox
     watcher->>planner: via outbox-worker
@@ -30,6 +30,62 @@ sequenceDiagram
 Every arrow labeled "via outbox-worker" is: agent commits state + outbox row in one
 transaction → outbox-worker polls, claims the row (`FOR UPDATE SKIP LOCKED`), and
 `POST /events` to the next agent. Agents never call each other directly.
+
+## 1a. Full Pipeline Detail: outbox-worker, transactions, and fallback
+
+The same happy path as (1), with the outbox-worker hops, the Postgres transactions, and
+the reasoner's fallback made explicit — the view that matters when reasoning about
+atomicity and the correlation chain.
+
+```mermaid
+sequenceDiagram
+    participant Prometheus
+    participant ingestion
+    participant Postgres
+    participant outbox as outbox-worker
+    participant watcher as watcher-agent
+    participant planner as planner-agent
+    participant reasoner as reasoner-agent
+    participant llm as llm-gateway
+
+    Prometheus->>ingestion: alert fired (webhook token)
+    ingestion->>Postgres: INSERT incident + alert + outbox(alert.normalized)
+    Note over ingestion,Postgres: one tx — new incident, or dedup onto an open one within 5m.<br/>The dedup path bumps alert_count only (never the watcher)
+
+    outbox->>Postgres: claim outbox row (FOR UPDATE SKIP LOCKED)
+    outbox->>watcher: POST /events (watcher token)
+    watcher->>Postgres: read incident (live severity/alert_count),<br/>suppress/escalate, INSERT outbox(plan_requested) + marker
+    Note over watcher,Postgres: one tx — alert_count is READ from the row, never written here
+
+    outbox->>planner: POST /events (planner token)
+    planner->>Postgres: match template, INSERT plan<br/>+ outbox(reasoning_requested) + marker (one tx)
+
+    outbox->>reasoner: POST /events (reasoner token)
+    reasoner->>Postgres: read incident + plan (tx1)
+    reasoner->>llm: POST /v1/complete, mode=extended (gateway token)
+    Note over reasoner,llm: no DB transaction is held across this call
+    llm-->>reasoner: RCA JSON — or 503 / timeout / unparseable
+    reasoner->>Postgres: INSERT recommendation<br/>+ outbox(recommendation.created) + marker (tx2)
+    Note over reasoner,Postgres: any non-success → template RCA, is_fallback=true.<br/>An incident always ends with a recommendation
+
+    outbox->>Postgres: claim recommendation.created
+    Note over outbox,Postgres: dead-letters — no feedback-service until Phase 9
+```
+
+Two details this view makes precise:
+
+- **`alert_count` belongs to ingestion.** It is bumped only on ingestion's dedup path;
+  the watcher *reads* it live from the incidents row and never writes it (its escalation
+  counts timestamped arrivals in a window, not the running total). See
+  [ADR 0013](../adr/0013-watcher-correlation-scope.md).
+- **The reasoner splits its work across two transactions.** It reads in `tx1`, calls the
+  gateway with **no transaction open** (the call can take tens of seconds), then writes
+  the recommendation, its outbox event, and the marker together in `tx2`. A crash during
+  the call leaves no marker, so the event is simply redelivered.
+
+The one correlation id minted at ingress is written on every row in this flow —
+`incidents`, `investigation_plans`, `recommendations`, `audit_log`, and every
+`outbox_events` row — so an incident is traceable end-to-end by that value alone.
 
 ## 2. Deduplication
 

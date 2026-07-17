@@ -46,6 +46,10 @@ inherit these.
 | Owed by | Item |
 |---|---|
 | Phase 11 (CI/CD) | **CI must re-enforce the pre-commit checks.** Phase 6 added a repo-wide strict `mypy .` pre-commit hook (alongside ruff and gitleaks) after a type error in a `tests/` file survived five commits — narrower per-package mypy commands were being run by hand while the Makefile's correct `mypy .` target went uninvoked. But there is no CI yet, so **that hook is currently the only automated guard**: `--no-verify` is off-limits on this repo until CI exists. Phase 11's CI must run `mypy .` + `pytest` + `ruff` on PRs, so the checks are enforced at the CI layer and not merely locally. Belt-and-suspenders only becomes real then. |
+| Unscheduled (only if hot rotation is ever needed) | **Hot rotation causes transient-401 dead-lettering.** Phase 7 gave each service its own agent token and the outbox worker a `dispatch_tokens` map of them, so `make rotate SERVICE=x` writes two Vault secrets and both pods must restart to converge. In the window between those restarts the worker sends the old token and the target rejects it — and a 401 is classified `permanent` by the dispatcher, so the event is **dead-lettered immediately, never retried** (recoverable only via `POST /admin/dead-letters/{event_id}/requeue`). **The default procedure is therefore rotate-on-drained-pipeline: check outbox depth first, rotate only when it is empty.** The fix, deferred until hot rotation is actually needed, is two-phase `[old, new]` acceptance — the target accepts both tokens while the roll proceeds, then drops the old one. `AgentTokenAuth` already takes a list of valid tokens, so the change is cheap when it is wanted; it is simply not worth the operational complexity for a pipeline that can be drained. |
+
+| Unscheduled (define when a consumer needs it) | **`investigation_plans.status` has no lifecycle.** Phase 7 stores every plan `'pending'` and nothing ever advances it — no code reads or writes plan status. It is inert-but-stated (the planner's `PLAN_STATUS_PENDING` docstring says so), not a silent gap: "was this plan reasoned over?" is already answered by whether a `recommendations` row exists for the incident. Defining a real `pending → …` transition means first answering what the value should be on a fallback and on the duplicate path — questions the plan does not, so it waits until a consumer (Phase 9 feedback, Phase 10 dashboard) actually needs the column. |
+| Unscheduled (revisit under load) | **A slow reasoner dispatch can stall its batch for up to 90 seconds.** The outbox worker dispatches a claimed batch *sequentially*, and the reasoner's per-target dispatch timeout is 90s because it calls an LLM before it can answer. Ninety, not sixty: 60s is the budget the reasoner *aims* for (past which it abandons the LLM and writes a template-fallback RCA), while 90s is what the worker will actually wait if the reasoner is not merely slow but **gone**. So watcher and planner events claimed in the same batch as a hung reasoning event wait behind it. At POC volume this is invisible — the events are delivered a minute or two later and nothing is lost, because the outbox is durable — but under real load it wants **concurrent dispatch within a batch** (`asyncio.gather` over the claimed events). That change redefines Phase 6's graceful-shutdown semantics (its tests assert the un-started tail is left in `processing` for the reaper, which concurrency reframes), so it is real work and deliberately not done for the POC. |
 
 ## Notes for Later Phases
 
@@ -58,3 +62,12 @@ inherit these.
   cycle — `packages/database`'s dev deps pull in `radar-testing`, which depends on
   `radar-database` — resolves cleanly in uv, since dev deps are not in the runtime
   graph.)
+
+- **Phase 8: the reasoner's system prompt gives the model an example to copy.** In the
+  live POC run, with an empty `retrieved_context`, the model echoed the prompt's own
+  illustrative action ("check order-service error logs in Kibana … filtered by
+  status=500") back as a recommended action. Harmless — and correct low-confidence
+  behaviour given zero evidence — but a sign the prompt's concrete example leaks into
+  output when there is nothing else to cite. Phase 8's retrieval should give the model
+  real runbook content to ground actions in; revisit the prompt's worked example then so
+  it teaches format without supplying content the model parrots.

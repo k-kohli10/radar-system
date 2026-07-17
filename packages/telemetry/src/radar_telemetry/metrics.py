@@ -174,8 +174,6 @@ class IncidentMetrics:
 
     incidents_total: Counter
     incident_duration_seconds: Histogram
-    recommendations_total: Counter
-    recommendations_fallback_total: Counter
     feedback_total: Counter
 
 
@@ -192,21 +190,119 @@ def create_incident_metrics(registry: CollectorRegistry = REGISTRY) -> IncidentM
             "Incident open-to-resolution duration in seconds.",
             registry=registry,
         ),
+        feedback_total=Counter(
+            "radar_feedback_total",
+            "Total feedback submissions by sentiment.",
+            ["sentiment"],
+            registry=registry,
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class ReasonerMetrics:
+    """The reasoner's own business metrics.
+
+    ``recommendations_total`` and ``recommendations_fallback_total`` used to sit on
+    :class:`IncidentMetrics`, and they are moved here because a metric belongs to the
+    service that PRODUCES it. Each agent registers only the family it owns (the planner
+    registers ``PlannerMetrics`` and nothing else), so leaving these on the incident
+    family meant the reasoner would have had to register ``incidents_total`` and
+    ``feedback_total`` as well — exporting two counters it can never increment, sitting
+    at zero forever, indistinguishable from "no incidents happened".
+
+    The names are unchanged, so nothing downstream of Prometheus notices the move.
+    """
+
+    recommendations_total: Counter
+    #: Labelled by ``reason`` — see the factory below. The plan specifies this counter
+    #: unlabelled; that would make it unactionable.
+    recommendations_fallback_total: Counter
+    #: Both duplicate paths: the pre-check AND the unique-index race.
+    duplicate_recommendation_requests_total: Counter
+
+
+def create_reasoner_metrics(registry: CollectorRegistry = REGISTRY) -> ReasonerMetrics:
+    return ReasonerMetrics(
         recommendations_total=Counter(
             "radar_recommendations_total",
             "Total recommendations produced.",
             ["provider", "confidence"],
             registry=registry,
         ),
-        recommendations_fallback_total=Counter(
-            "radar_recommendations_fallback_total",
-            "Total recommendations produced by template fallback.",
+        duplicate_recommendation_requests_total=Counter(
+            "radar_duplicate_recommendation_requests_total",
+            "Total duplicate reasoning requests ignored (one RCA per incident).",
             registry=registry,
         ),
-        feedback_total=Counter(
-            "radar_feedback_total",
-            "Total feedback submissions by sentiment.",
-            ["sentiment"],
+        recommendations_fallback_total=Counter(
+            "radar_recommendations_fallback_total",
+            "Total recommendations produced by template fallback, by reason.",
+            # WHY THIS COUNTER IS LABELLED WHEN THE PLAN SAYS IT IS NOT
+            #
+            # A bare total answers "are we falling back?" — which is the question you
+            # ask second. The first one is "is this OUR fault?", and it decides who gets
+            # woken up:
+            #
+            #   gateway_unavailable / timeout  -> the LLM is down or slow. RADAR is
+            #                                     fine. Wait it out, or page whoever
+            #                                     owns the provider.
+            #   rejected                       -> OUR misconfiguration: a bad token, a
+            #                                     mode this token may not use. It fails
+            #                                     identically on EVERY incident until a
+            #                                     human fixes the config.
+            #   not_json / schema_invalid      -> the model answered and the answer was
+            #                                     unusable. A prompt or model-quality
+            #                                     problem, not an outage.
+            #
+            # `rejected` is the one that hides. A steady 100% fallback rate carrying it
+            # means the reasoner has NEVER ONCE used the LLM — every incident silently
+            # getting a checklist instead of an analysis — while every dashboard shows a
+            # healthy service answering 200s. An unlabelled counter cannot tell that
+            # apart from a provider having a bad afternoon, so nobody investigates.
+            #
+            # The label vocabulary is the reasoner's FallbackReason. It is not imported
+            # here — telemetry sits below the apps and must not depend on one — so the
+            # coupling is by convention, and the reasoner's own tests pin the values.
+            ["reason"],
+            registry=registry,
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class PlannerMetrics:
+    """Planner metrics — both of them exist to make a SILENT bug loud.
+
+    ``plans_created_total`` is labelled ``matched`` vs ``default``. The planner
+    matches its template exactly, so a key that drifts (a rename on one side, a
+    stray space) never matches and every affected alert falls through to the
+    generic ``_default`` plan — which looks perfectly plausible. Nothing errors.
+    The only symptom is that the default rate climbs. This counter is that symptom,
+    on a dashboard, and it is the production analog of the round-trip key test: CI
+    catches the drift it can see, this catches the drift it cannot.
+
+    ``duplicate_plan_requests_total`` counts plan_requested events for an incident
+    that already has a plan. The planner absorbs these (200, no second plan, no
+    second LLM call), which is right — but absorbing an upstream bug in silence is
+    how it stays a bug. A non-zero rate here means the watcher is double-emitting.
+    """
+
+    plans_created_total: Counter
+    duplicate_plan_requests_total: Counter
+
+
+def create_planner_metrics(registry: CollectorRegistry = REGISTRY) -> PlannerMetrics:
+    return PlannerMetrics(
+        plans_created_total=Counter(
+            "radar_plans_created_total",
+            "Investigation plans created, by whether a specific template matched.",
+            ["outcome"],
+            registry=registry,
+        ),
+        duplicate_plan_requests_total=Counter(
+            "radar_duplicate_plan_requests_total",
+            "plan_requested events for an incident that already had a plan.",
             registry=registry,
         ),
     )

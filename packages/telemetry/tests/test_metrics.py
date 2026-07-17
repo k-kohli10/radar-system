@@ -27,9 +27,11 @@ EXPECTED_METRICS = {
     # incident pipeline
     "radar_incidents_total",
     "radar_incident_duration_seconds",
+    "radar_feedback_total",
+    # reasoner
     "radar_recommendations_total",
     "radar_recommendations_fallback_total",
-    "radar_feedback_total",
+    "radar_duplicate_recommendation_requests_total",
 }
 
 
@@ -48,6 +50,7 @@ def test_all_metric_families_register_expected_names() -> None:
     rt.create_llm_metrics(registry)
     rt.create_outbox_metrics(registry)
     rt.create_incident_metrics(registry)
+    rt.create_reasoner_metrics(registry)
     assert EXPECTED_METRICS <= _type_names(registry)
 
 
@@ -92,3 +95,30 @@ def test_separate_registries_avoid_duplicate_registration() -> None:
     # Building the same family on two registries must not raise.
     rt.create_request_metrics(CollectorRegistry())
     rt.create_request_metrics(CollectorRegistry())
+
+
+def test_fallbacks_are_counted_separately_by_reason() -> None:
+    """A misconfiguration must not hide inside a provider outage.
+
+    The two demand opposite human responses — ``rejected`` means fix your config NOW
+    (it will fail identically on every incident until someone does), ``gateway_
+    unavailable`` means the LLM is down and waiting is the correct action. A single
+    unlabelled total cannot tell them apart, so a reasoner that has never once reached
+    the LLM looks exactly like a provider having a bad afternoon.
+
+    Mutation that must turn this red: drop the ``["reason"]`` label from the counter —
+    ``.labels()`` then raises, and every assertion below is unreachable.
+    """
+    registry = CollectorRegistry()
+    metrics = rt.create_reasoner_metrics(registry)
+
+    metrics.recommendations_fallback_total.labels(reason="rejected").inc()
+    metrics.recommendations_fallback_total.labels(reason="rejected").inc()
+    metrics.recommendations_fallback_total.labels(reason="gateway_unavailable").inc()
+
+    name = "radar_recommendations_fallback_total"
+    assert registry.get_sample_value(name, {"reason": "rejected"}) == 2.0
+    assert registry.get_sample_value(name, {"reason": "gateway_unavailable"}) == 1.0
+    # And a reason nobody has emitted yet is absent, not zero — so an alert on it
+    # cannot fire off a series that was never observed.
+    assert registry.get_sample_value(name, {"reason": "timeout"}) is None

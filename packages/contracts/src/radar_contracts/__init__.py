@@ -18,9 +18,17 @@ level::
 
 from __future__ import annotations
 
-from .alerts import NormalizedAlert, Severity
+from .alerts import FINGERPRINT_FIELDS, NormalizedAlert, Severity
 from .bot import BotCommand, BotCommandType, BotResponse
-from .events import OutboxEvent, ProcessedEvent
+from .events import (
+    AlertNormalizedPayload,
+    EventEnvelope,
+    OutboxEvent,
+    PlanRequestedPayload,
+    ProcessedEvent,
+    ReasoningRequestedPayload,
+    RecommendationCreatedPayload,
+)
 from .feedback import FeedbackEvent
 from .incidents import (
     Confidence,
@@ -49,6 +57,7 @@ __version__ = "0.3.0"
 
 __all__ = [
     # alerts
+    "FINGERPRINT_FIELDS",
     "NormalizedAlert",
     "Severity",
     # incidents
@@ -59,6 +68,11 @@ __all__ = [
     "Recommendation",
     "RecommendedAction",
     # events
+    "AlertNormalizedPayload",
+    "EventEnvelope",
+    "PlanRequestedPayload",
+    "ReasoningRequestedPayload",
+    "RecommendationCreatedPayload",
     "OutboxEvent",
     "ProcessedEvent",
     # llm

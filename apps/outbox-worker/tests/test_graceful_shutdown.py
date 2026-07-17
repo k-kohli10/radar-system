@@ -44,6 +44,7 @@ from radar_database import (
 from radar_outbox_worker import main as main_module
 from radar_outbox_worker.poller import Poller
 from sqlalchemy import func, select
+from tokens import token_for
 
 BATCH_SIZE = 10  # the poller's default claim size
 SEEDED = 20  # two batches' worth: the second must never be claimed
@@ -143,6 +144,13 @@ async def test_drain_is_bounded_and_cannot_hang_past_the_budget(
     """
     (tmp_path / "postgres_dsn").write_text(database_url)
     (tmp_path / "agent_token").write_text("a" * 64)
+    # The worker's own token (above) is not a dispatch token: it authenticates
+    # callers of /admin/*, and cannot authenticate the worker TO a target. Without
+    # this map startup fails and /readyz stays 503 — which is the intended
+    # behaviour, but it would leave this test with nothing to drain.
+    (tmp_path / "dispatch_tokens").write_text(
+        f"watcher-agent: {token_for('watcher-agent')}\n"
+    )
     monkeypatch.setenv("RADAR_SECRETS_DIR", str(tmp_path))
 
     started = asyncio.Event()

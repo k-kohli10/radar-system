@@ -201,6 +201,20 @@ class Recommendation(Base):
 
     __table_args__ = (
         Index("idx_rec_incident_id", "incident_id"),
+        # ONE recommendation per incident, mirroring idx_plans_one_per_incident.
+        #
+        # Not in the plan's DDL, and added deliberately. An incident gets exactly one
+        # RCA: a second recommendation means the engineer receives two contradictory
+        # Slack cards for one incident and cannot tell which is current. The reasoner
+        # is the only stage that spends money, so the redelivery that would produce a
+        # duplicate is also the one that charges twice.
+        #
+        # The reasoner's dispatch timeout is ordered against its LLM budget precisely
+        # so that race cannot happen (radar_common.timeouts) — this index is the
+        # backstop for when it does anyway: a crash mid-call, a manual requeue of a
+        # dead letter, an operator replaying an event. The guarantee then rests on the
+        # SCHEMA rather than on two numbers staying in the right order forever.
+        Index("idx_rec_one_per_incident", "incident_id", unique=True),
         Index("idx_rec_plan_id", "plan_id"),
         Index("idx_rec_created_at", text("created_at DESC")),
         Index("idx_rec_correlation", "correlation_id"),

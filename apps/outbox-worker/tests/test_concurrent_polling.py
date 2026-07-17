@@ -33,12 +33,12 @@ from collections.abc import Awaitable, Callable
 from uuid import UUID, uuid4
 
 import httpx
-from pydantic import SecretStr
 from radar_database import Database, OutboxEvent, write_outbox_event
 from radar_outbox_worker.dispatcher import EventDispatcher, TargetResolver
 from radar_outbox_worker.poller import Poller
 from radar_outbox_worker.retry import DispatchProcessor
 from sqlalchemy import func, select
+from tokens import token_map
 
 #: Enough events that both pollers are racing for overlapping batches, not
 #: politely taking turns on a queue too short to contend over.
@@ -102,7 +102,7 @@ async def test_two_pollers_never_double_process(db: Database) -> None:
         transport=httpx.MockTransport(lambda request: httpx.Response(200))
     )
     processor = DispatchProcessor(
-        db, EventDispatcher(client, TargetResolver(), SecretStr("t" * 64))
+        db, EventDispatcher(client, TargetResolver(), token_map())
     )
 
     claimed_a: list[UUID] = []

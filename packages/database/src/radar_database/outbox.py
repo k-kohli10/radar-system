@@ -29,6 +29,13 @@ STATUS_PENDING = "pending"
 STATUS_PROCESSING = "processing"
 STATUS_DEAD_LETTER = "dead_letter"
 
+#: The actor recorded on a dead-letter audit row. Hardcoded rather than passed in
+#: because promotion is worker-exclusive: only the outbox-worker's dispatch/retry loop
+#: and its reaper (which is part of the worker) ever run this path, so there is no other
+#: actor it could be. Naming it keeps the audit trail answering "who?" for EVERY row —
+#: every other audit row in the system names its actor, and a lone NULL reads as a gap.
+DEAD_LETTER_ACTOR = "outbox-worker"
+
 DEFAULT_BATCH_SIZE = 10
 
 #: A dispatch is retried with growing backoff; after MAX_ATTEMPTS failed attempts
@@ -167,6 +174,7 @@ def _promote_to_dead_letter(
             entity_type="outbox_event",
             entity_id=event.id,
             correlation_id=event.correlation_id,
+            actor=DEAD_LETTER_ACTOR,
             payload={
                 "event_id": str(event.event_id),
                 "event_type": event.event_type,

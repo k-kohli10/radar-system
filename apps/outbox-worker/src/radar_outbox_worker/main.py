@@ -9,11 +9,15 @@ and a shared ``httpx.AsyncClient``, and launches two background tasks — the
 is missing, readiness stays false and ``/readyz`` answers 503 instead of crashing
 the import the probe never sees.
 
-The agent token is loaded once and serves both directions: the dispatcher sends
-it outbound as ``X-Radar-Agent-Token`` to targets, and (a later commit) the admin
-dead-letter endpoints validate it inbound. This worker has NO ``POST /events`` —
-it is a consumer, not an agent endpoint; only ``/healthz``, ``/readyz``,
-``/metrics`` are exposed here.
+Two distinct sets of credentials, and conflating them is the bug this service is
+most likely to have: the worker's OWN ``agent_token`` validates callers of its
+admin dead-letter endpoints (inbound), while the ``dispatch_tokens`` map holds each
+target's token, which the dispatcher sends *to that target* (outbound). Each agent
+has its own token, so there is no one credential that opens them all — the worker
+presents the target's, never its own. Both are Vault secrets; a missing either
+keeps ``/readyz`` at 503. This worker has NO ``POST /events`` — it is a consumer,
+not an agent endpoint; only ``/healthz``, ``/readyz``, ``/metrics``, and
+``/admin/*`` are exposed here.
 
 Graceful shutdown (the phase contract: SIGTERM → stop polling → wait ≤30s for
 in-flight → exit): uvicorn turns SIGTERM into a lifespan shutdown, which marks
@@ -38,6 +42,7 @@ import httpx
 from fastapi import Depends, FastAPI, Request, Response, status
 from prometheus_client import REGISTRY, CollectorRegistry
 from radar_common import (
+    REASONER_DISPATCH_TIMEOUT_SECONDS,
     AgentTokenAuth,
     ConfigurationError,
     RadarSettings,
@@ -60,10 +65,14 @@ from radar_outbox_worker.dead_letter import (
     list_dead_letters,
     requeue_dead_letter,
 )
-from radar_outbox_worker.dispatcher import EventDispatcher, TargetResolver
+from radar_outbox_worker.dispatcher import (
+    EventDispatcher,
+    TargetResolver,
+    TimeoutPolicy,
+)
 from radar_outbox_worker.poller import Poller
 from radar_outbox_worker.retry import DispatchProcessor
-from radar_outbox_worker.security import AdminAuth
+from radar_outbox_worker.security import AdminAuth, load_dispatch_tokens
 
 DEAD_LETTER_LIST_MAX = 200
 DEAD_LETTER_LIST_DEFAULT = 50
@@ -96,6 +105,14 @@ class OutboxWorkerSettings(RadarSettings):
     dispatch_url_template: str = "http://{service}.radar.svc.cluster.local:8080/events"
     #: Per-target URL overrides (JSON in the env var), for dev/compose/tests.
     dispatch_url_overrides: dict[str, str] = {}
+    #: Per-target dispatch timeouts, in seconds. Config, not a special case in code:
+    #: the reasoner needs far longer than 10s because it calls an LLM before it can
+    #: answer, and the value MUST exceed the reasoner's own LLM budget or the worker
+    #: gives up mid-call and redelivers, paying OpenAI twice (radar_common.timeouts).
+    #: Defaulted here so a deployment that forgets to set it still works.
+    dispatch_timeout_overrides: dict[str, float] = {
+        "reasoner-agent": REASONER_DISPATCH_TIMEOUT_SECONDS
+    }
 
 
 class Readiness:
@@ -167,15 +184,21 @@ def create_app(
             agent_token = read_secret(AGENT_TOKEN_SECRET)
             assert agent_token is not None  # required=True: raised if absent
             agent_auth = AgentTokenAuth([agent_token])
+            # The worker's OWN token guards its admin endpoints (above); the tokens
+            # it SENDS are the targets' (below). Two different things, and the whole
+            # point of per-service tokens is that they are not interchangeable.
+            dispatch_tokens = load_dispatch_tokens()
             database = Database(dsn)
             client = httpx.AsyncClient()
+            timeouts = TimeoutPolicy(overrides=settings.dispatch_timeout_overrides)
             dispatcher = EventDispatcher(
                 client,
                 TargetResolver(
                     url_template=settings.dispatch_url_template,
                     overrides=settings.dispatch_url_overrides,
                 ),
-                agent_token,
+                dispatch_tokens,
+                timeouts=timeouts,
                 metrics=outbox_metrics,
             )
             poller = Poller(
@@ -194,6 +217,11 @@ def create_app(
             log.info(
                 "outbox_worker.ready",
                 reaper_interval_seconds=settings.reaper_interval_seconds,
+                # Target NAMES only — the map never logs a token value.
+                dispatch_targets=dispatch_tokens.targets,
+                # Which targets get a non-default budget, out loud. A reasoner
+                # missing from this map would time out at 10s mid-LLM-call.
+                dispatch_timeouts=timeouts.targets,
             )
         except ConfigurationError as exc:
             # Config-layer messages are written to be secret-free.

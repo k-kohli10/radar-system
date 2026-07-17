@@ -42,7 +42,6 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 import httpx
-from pydantic import SecretStr
 from radar_database import (
     MAX_ATTEMPTS,
     STATUS_DEAD_LETTER,
@@ -62,6 +61,7 @@ from radar_outbox_worker.dispatcher import EventDispatcher, TargetResolver
 from radar_outbox_worker.poller import Poller
 from radar_outbox_worker.retry import DispatchProcessor
 from sqlalchemy import func, select, update
+from tokens import token_map
 
 TARGET_SERVICE = "watcher-agent"
 REAPER_INTERVAL_SECONDS = 60  # the real default; rows are aged past it, not tuned down
@@ -194,7 +194,7 @@ async def test_crash_before_mark_redelivers_and_target_dedups_to_exactly_once(
     row_id, event_id = await _seed(db)
     target = IdempotentTarget(db, TARGET_SERVICE)
     client = httpx.AsyncClient(transport=target)
-    dispatcher = EventDispatcher(client, TargetResolver(), SecretStr("t" * 64))
+    dispatcher = EventDispatcher(client, TargetResolver(), token_map())
 
     try:
         # --- Worker A: real claim, real dispatch, then die before marking. ---
@@ -267,7 +267,7 @@ async def test_repeated_crashes_terminate_in_dead_letter_not_an_infinite_loop(
     row_id, event_id = await _seed(db)
     target = IdempotentTarget(db, TARGET_SERVICE)
     client = httpx.AsyncClient(transport=target)
-    dispatcher = EventDispatcher(client, TargetResolver(), SecretStr("t" * 64))
+    dispatcher = EventDispatcher(client, TargetResolver(), token_map())
 
     try:
         for cycle in range(1, MAX_ATTEMPTS + 1):

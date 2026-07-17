@@ -52,7 +52,14 @@ class RecommendedAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     order: int = Field(ge=1, description="1-based position of this action.")
-    action: str = Field(description="A specific, actionable remediation step.")
+    #: Non-empty, and that is load-bearing rather than tidy. The reasoner validates a
+    #: language model's output against this contract, and a model that emits
+    #: ``{"order": 1, "action": ""}`` would otherwise produce a recommendation telling
+    #: an engineer to do nothing, in a card that looks perfectly well-formed. An empty
+    #: action is not an action.
+    action: str = Field(
+        min_length=1, description="A specific, actionable remediation step."
+    )
 
 
 class Incident(BaseModel):

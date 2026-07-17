@@ -1,0 +1,48 @@
+{
+  "model": "opus",
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)"
+    ],
+    "deny": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset:*)",
+      "Bash(git stash:*)",
+      "Bash(git switch:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(git clean:*)",
+      "Bash(git tag:*)",
+      "Bash(git revert:*)",
+      "Bash(rm -rf:*)",
+      "Bash(dropdb:*)",
+      "Bash(*DROP DATABASE*)",
+      "Bash(*DROP TABLE*)"
+    ]
+  },
+  "_comment_git_policy": "Only 'git add', 'git status', and 'git diff' are auto-approved. Enumerated destructive git subcommands are denied outright. Any other git subcommand is intentionally left off both lists so it is NOT auto-approved and falls through to a manual permission prompt. Do not add a blanket 'Bash(git:*)' deny — deny takes precedence and would also block the allowed add/status/diff.",
+  "_planned_hooks_TODO": {
+    "note": "PLACEHOLDER — not yet wired. Add a PreToolUse secret-leak guard hook here. A gateway token was previously leaked in terminal output on this project. The planned hook scans tool output (Bash stdout/stderr, etc.) for 64-char hex token patterns (regex e.g. [0-9a-fA-F]{64}) and blocks/redacts before the output is surfaced. Implement as a PreToolUse (and/or PostToolUse) hook under 'hooks' once designed.",
+    "example_shape": {
+      "hooks": {
+        "PreToolUse": [
+          {
+            "matcher": "Bash",
+            "hooks": [
+              {
+                "type": "command",
+                "command": "<path-to-secret-leak-guard-script>"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
