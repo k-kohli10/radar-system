@@ -65,7 +65,15 @@ AUDIT_PLAN_CREATED = "planner.plan_created"
 AUDIT_DUPLICATE_IGNORED = "planner.duplicate_plan_ignored"
 
 PLAN_STATUS_PENDING = "pending"
-"""A plan is 'pending' until the reasoner has reasoned over it."""
+"""Every plan is stored ``'pending'`` — and, in the POC, stays there.
+
+The column exists (schema Phase 3) but NOTHING advances it: no code reads or updates
+plan status, so this is the only value it ever holds. The lifecycle it implies is
+deferred, not implemented — and "has this plan been reasoned over?" is already answered
+authoritatively by whether a ``recommendations`` row exists for the incident (one per
+incident, unique-indexed). A status column updated in the reasoner would be a
+denormalized copy of that fact, raising questions the spec does not answer (its value on
+a fallback, on the duplicate path). Tracked as carried debt in docs/roadmap.md."""
 
 
 class IncidentNotFoundError(RadarError):

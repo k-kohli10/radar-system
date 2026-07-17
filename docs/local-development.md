@@ -502,6 +502,91 @@ curl -s localhost:8081/v1/complete \
 
 ---
 
+## 🔥 Run the whole pipeline (Phase 7+)
+
+From Phase 7 you can fire a real alert and watch it flow **alert → incident → plan →
+RCA** across six processes. The automated proof is `tests/e2e/` (headless, one process);
+this is the same pipeline as real servers, for seeing it by hand. The `-m live` e2e also
+runs it against real OpenAI (`pytest -m live -s tests/e2e/test_live_pipeline.py`).
+
+**Secrets — one directory per service.** Every service reads `RADAR_SECRETS_DIR` pointed
+at its OWN directory (per-pod Vault mount in production). Rebuild them all from an empty
+dev Vault:
+
+```bash
+make seed && make tokens        # human-supplied values, then platform-minted tokens
+make agent-secrets              # ~/.radar-dev/secrets/<agent>/ for watcher, planner, reasoner, outbox-worker
+make ingestion-secrets          # ~/.radar-dev/secrets/ingestion/  (webhook tokens + DSN)
+make gateway-secrets            # openai_api_key + gateway_tokens
+```
+
+> ingestion holds no `agent_token` (it authenticates webhooks, not `/events`), so
+> `make agent-secrets` skips it — `make ingestion-secrets` is what assembles its whole
+> directory, DSN included.
+
+**Launch the six** (one terminal each; ports are a convention, any free ones work). The
+`--factory` apps build their FastAPI app per the same `create_app` production uses:
+
+```bash
+make gateway                                                                    # :8081
+
+RADAR_SECRETS_DIR=~/.radar-dev/secrets/ingestion \
+  uv run uvicorn --factory radar_ingestion.main:create_app --port 8090 --no-access-log
+
+RADAR_SECRETS_DIR=~/.radar-dev/secrets/watcher-agent \
+  uv run uvicorn --factory radar_watcher_agent.main:create_app --port 8091 --no-access-log
+
+RADAR_SECRETS_DIR=~/.radar-dev/secrets/planner-agent \
+  uv run uvicorn --factory radar_planner_agent.main:create_app --port 8092 --no-access-log
+
+RADAR_SECRETS_DIR=~/.radar-dev/secrets/reasoner-agent RADAR_GATEWAY_URL=http://127.0.0.1:8081 \
+  uv run uvicorn --factory radar_reasoner_agent.main:create_app --port 8093 --no-access-log
+
+# The worker's k8s URL template points at localhost via a per-target override map:
+RADAR_SECRETS_DIR=~/.radar-dev/secrets/outbox-worker \
+  RADAR_DISPATCH_URL_OVERRIDES='{"watcher-agent":"http://127.0.0.1:8091/events","planner-agent":"http://127.0.0.1:8092/events","reasoner-agent":"http://127.0.0.1:8093/events"}' \
+  uv run uvicorn --factory radar_outbox_worker.main:create_app --port 8094 --no-access-log
+```
+
+**Check readiness** — every 503 names the file or dependency it wants:
+
+```bash
+for p in 8081 8090 8091 8092 8093 8094; do echo -n ":$p  "; curl -s localhost:$p/readyz; echo; done
+```
+
+**Fire an alert**, then watch the worker's terminal walk the hops (the reasoner hop takes
+a few seconds — the real LLM call):
+
+```bash
+curl -s -X POST http://127.0.0.1:8090/alerts/mock \
+  -H "X-Radar-Webhook-Token: $(cat ~/.radar-dev/secrets/ingestion/webhook_token_mock)" \
+  -H "Content-Type: application/json" \
+  -d '{"service_name":"order-service","alert_name":"OrderProcessingFailureRate","severity":"critical"}'
+# → 202 {"incident_id": "…"}
+```
+
+**Read the RCA, and trace it by one UUID** (the whole point of the correlation id):
+
+```sql
+SELECT is_fallback, llm_provider, confidence, latency_ms, left(root_cause, 80)
+  FROM recommendations ORDER BY created_at DESC LIMIT 1;
+
+SELECT event_type, actor, created_at FROM audit_log
+  WHERE correlation_id = (SELECT correlation_id FROM incidents ORDER BY opened_at DESC LIMIT 1)
+  ORDER BY created_at;
+```
+
+You'll see `watcher.plan_requested → planner.plan_created → reasoner.recommendation_created
+→ outbox.dead_letter` — the last because `recommendation.created` has no consumer until
+Phase 9's feedback-service, so the worker dead-letters it (correct, and requeueable).
+
+**Prove the invariant the reasoner exists for:** Ctrl-C the gateway, fire a *different*
+alert (a repeat within 5 minutes just deduplicates onto the open incident), and the new
+recommendation comes back `is_fallback=t, llm_provider=none, confidence=low` — the
+investigation plan's own steps delivered as the RCA, with the LLM down.
+
+---
+
 ## 🪝 Git hooks
 
 `pre-commit` runs automatically on every commit, so bad things never make it

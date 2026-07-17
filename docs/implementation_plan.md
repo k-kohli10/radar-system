@@ -1224,6 +1224,15 @@ v1 context bundle:
 }
 ```
 
+> **Note (Phase 7 as-built):** this is the bundle SENT to the model — the flat
+> prompt-facing shape. What is STORED in `recommendations.context_bundle` is a wrapper
+> that composes it with fallback metadata: `{"bundle": {…the v1 bundle above…},
+> "fallback": null | {"reason", "attempted_mode", "detail", "elapsed_ms"}}`. The nesting
+> is deliberate — it keeps "what the model saw" byte-for-byte reconstructable and
+> separate from "why we fell back", and keeps fallback fields out of the prompt (the
+> bundle is `extra="forbid"` and serialized straight into the request). See
+> `reasoner-agent/fallback.py`.
+
 v2 context bundle (after Phase 8):
 ```json
 {
