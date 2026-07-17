@@ -57,6 +57,43 @@ async def test_the_pipeline_wrote_one_of_each_row(pipeline: Pipeline) -> None:
             assert n == 1, f"expected one {table.__name__}, got {n}"
 
 
+async def test_a_duplicate_alert_produces_no_second_rca(pipeline: Pipeline) -> None:
+    """Two identical alerts → ONE incident, ONE RCA. Deduplication, end to end.
+
+    The plan lists this as an e2e case, and it is a different claim from the ingestion
+    suite's dedup-window tests. Ingestion attaches the second alert to the open incident
+    (same fingerprint, inside the 5-minute window) and bumps ``alert_count`` — proven at
+    that boundary already. What only the *whole pipeline* can show is that the duplicate
+    does not FAN OUT: no second plan, no second (paid) LLM call, no second RCA
+    contradicting the first. The planner and reasoner each dedup their own hand-off, so
+    the one-RCA-per-incident guarantee holds across every stage, not just at the door.
+
+    Dedup is not drop: both alerts land on the incident (``alert_count == 2``), so the
+    watcher still sees the burst it needs for escalation — the second alert is absorbed,
+    not discarded.
+    """
+    first = await pipeline.post_alert()
+    second = await pipeline.post_alert()  # same MOCK_ALERT → same fingerprint
+    assert first.status_code == second.status_code == 202
+    # Ingestion attached the second alert; it did not open a second incident.
+    assert first.json()["incident_id"] == second.json()["incident_id"]
+
+    await pipeline.drain()
+
+    async with pipeline.db.session() as session:
+        incident = (await session.scalars(select(Incident))).one()  # .one() ⇒ exactly 1
+        plans = await session.scalar(
+            select(func.count()).select_from(InvestigationPlan)
+        )
+        recs = await session.scalar(select(func.count()).select_from(Recommendation))
+
+    assert plans == 1, "the duplicate spawned a second investigation plan"
+    assert recs == 1, "the duplicate spawned a second, contradictory recommendation"
+    assert incident.alert_count == 2, (
+        "dedup dropped the second alert instead of attaching it"
+    )
+
+
 async def test_recommendation_created_dead_letters_until_phase_9(
     pipeline: Pipeline,
 ) -> None:
