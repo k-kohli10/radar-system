@@ -27,6 +27,7 @@ from radar_common import configure_logging, get_logger
 from radar_telemetry import render_latest
 
 from radar_platform_sim.chaos import (
+    AbsoluteChaosRequest,
     ChaosController,
     ChaosRequest,
     CounterRampRequest,
@@ -67,6 +68,7 @@ def create_app(*, metrics_registry: CollectorRegistry = REGISTRY) -> FastAPI:
         metrics.processing_failure_rate.set(chaos.order_failure_rate())
         metrics.checkout_timeout_rate.set(chaos.checkout_timeout_rate())
         metrics.payment_gateway_error_rate.set(chaos.payment_error_rate())
+        metrics.inventory_check_p95_seconds.set(chaos.inventory_check_p95())
         # The counter is the exception: it is advanced, not set. The drain is
         # destructive, so it must be applied here and nowhere else — dropping
         # the result would lose those declines permanently. This is also why
@@ -133,6 +135,22 @@ def create_app(*, metrics_registry: CollectorRegistry = REGISTRY) -> FastAPI:
         return {
             "status": "ok",
             "per_second": req.per_second,
+            "duration_seconds": req.duration_seconds,
+        }
+
+    @app.post("/chaos/inventory-latency")
+    async def chaos_inventory_latency(
+        req: AbsoluteChaosRequest,
+    ) -> dict[str, float | int | str]:
+        chaos.spike_inventory_latency(req.value, req.duration_seconds)
+        log.info(
+            "chaos.inventory_latency",
+            seconds=req.value,
+            duration_seconds=req.duration_seconds,
+        )
+        return {
+            "status": "ok",
+            "value": req.value,
             "duration_seconds": req.duration_seconds,
         }
 

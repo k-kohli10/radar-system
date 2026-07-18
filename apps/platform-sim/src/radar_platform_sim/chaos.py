@@ -41,8 +41,9 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, Field
 
-# The value both gauges hold when no chaos is active. No traffic, no failures.
-BASELINE_RATE = 0.0
+# The value every chaos-driven gauge holds when no chaos is active. No traffic,
+# no failures, no latency.
+BASELINE_VALUE = 0.0
 
 
 class ChaosRequest(BaseModel):
@@ -72,28 +73,54 @@ class CounterRampRequest(BaseModel):
     duration_seconds: int = Field(gt=0)
 
 
+class AbsoluteChaosRequest(BaseModel):
+    """Body for gauges holding an absolute quantity rather than a fraction.
+
+    Used by ``POST /chaos/inventory-latency`` (seconds).
+
+    Deliberately a separate model rather than a loosened :class:`ChaosRequest`.
+    That ``le=1.0`` bound is doing real work for the ratio scenarios: it rejects
+    ``{"rate": 15}`` from someone who meant 15%, which would otherwise pin the
+    gauge at 15.0 and breach every ratio rule at once while looking like a
+    successful spike. Absolute quantities have no comparable natural ceiling —
+    1.5 seconds and 2.5e9 bytes are both ordinary — so sharing one model would
+    mean dropping a guard that catches a real mistake in order to accommodate
+    values that never needed it.
+
+    ``value`` is in the target metric's own unit; the endpoint says which.
+    """
+
+    value: float = Field(gt=0.0)
+    duration_seconds: int = Field(gt=0)
+
+
 @dataclass
 class _Spike:
-    """One rate gauge's chaos state: a pinned ``rate`` until ``deadline``.
+    """One gauge's chaos state: a pinned ``value`` until ``deadline``.
+
+    The field is ``value``, not ``rate``: this same shape now backs both the
+    0.0–1.0 ratio gauges and absolute gauges like inventory latency in seconds,
+    so naming it ``rate`` would be a lie for half its uses. What it holds is
+    whatever unit the target gauge is in.
 
     ``deadline`` is a :func:`time.monotonic` timestamp; ``0.0`` means inactive
     (or already expired), which reads back as the baseline.
     """
 
-    rate: float = BASELINE_RATE
+    value: float = BASELINE_VALUE
     deadline: float = 0.0
 
-    def effective_rate(self, now: float) -> float:
-        """The gauge value at ``now``: the pinned rate if still within the
+    def effective_value(self, now: float) -> float:
+        """The gauge value at ``now``: the pinned value if still within the
         window, else the baseline (auto-reset by an elapsed deadline)."""
-        return self.rate if now < self.deadline else BASELINE_RATE
+        return self.value if now < self.deadline else BASELINE_VALUE
 
-    def spike(self, rate: float, duration_seconds: int, now: float) -> None:
-        self.rate = rate
+    def spike(self, value: float, duration_seconds: int, now: float) -> None:
+        self.value = value
         self.deadline = now + duration_seconds
 
     def clear(self) -> None:
-        self.rate = BASELINE_RATE
+        self.value = BASELINE_VALUE
         self.deadline = 0.0
 
 
@@ -177,6 +204,7 @@ class ChaosController:
     checkout_timeouts: _Spike = field(default_factory=_Spike)
     payment_errors: _Spike = field(default_factory=_Spike)
     payment_declines: _CounterRamp = field(default_factory=_CounterRamp)
+    inventory_latency: _Spike = field(default_factory=_Spike)
     clock: Callable[[], float] = time.monotonic
 
     def spike_order_failures(self, rate: float, duration_seconds: int) -> None:
@@ -191,6 +219,9 @@ class ChaosController:
     def ramp_payment_declines(self, per_second: float, duration_seconds: int) -> None:
         self.payment_declines.ramp(per_second, duration_seconds, self.clock())
 
+    def spike_inventory_latency(self, seconds: float, duration_seconds: int) -> None:
+        self.inventory_latency.spike(seconds, duration_seconds, self.clock())
+
     def reset(self) -> None:
         """Clear every scenario's chaos: gauges return to baseline immediately.
 
@@ -202,18 +233,23 @@ class ChaosController:
         self.checkout_timeouts.clear()
         self.payment_errors.clear()
         self.payment_declines.clear(now)
+        self.inventory_latency.clear()
 
     def order_failure_rate(self) -> float:
         """Current ``order_processing_failure_rate`` value."""
-        return self.order_failures.effective_rate(self.clock())
+        return self.order_failures.effective_value(self.clock())
 
     def checkout_timeout_rate(self) -> float:
         """Current ``checkout_timeout_rate`` value."""
-        return self.checkout_timeouts.effective_rate(self.clock())
+        return self.checkout_timeouts.effective_value(self.clock())
 
     def payment_error_rate(self) -> float:
         """Current ``payment_gateway_error_rate`` value."""
-        return self.payment_errors.effective_rate(self.clock())
+        return self.payment_errors.effective_value(self.clock())
+
+    def inventory_check_p95(self) -> float:
+        """Current ``inventory_check_p95_seconds`` value, in seconds."""
+        return self.inventory_latency.effective_value(self.clock())
 
     def drain_payment_declines(self) -> int:
         """Whole declines to add to ``payment_declines_total`` since last call.

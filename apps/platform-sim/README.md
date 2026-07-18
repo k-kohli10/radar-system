@@ -26,6 +26,7 @@ template does not apply to it.
 | `checkout-service` | checkout timeouts | `POST /chaos/checkout-timeouts` |
 | `payment-gateway` | gateway authorization errors | `POST /chaos/payment-errors` |
 | `payment-gateway` | issuer card declines | `POST /chaos/payment-declines` |
+| `inventory-service` | slow availability checks | `POST /chaos/inventory-latency` |
 
 ## Endpoints
 
@@ -36,6 +37,7 @@ POST /chaos/order-failures     spike order_processing_failure_rate
 POST /chaos/checkout-timeouts  spike checkout_timeout_rate
 POST /chaos/payment-errors     spike payment_gateway_error_rate
 POST /chaos/payment-declines   ramp  payment_declines_total
+POST /chaos/inventory-latency  spike inventory_check_p95_seconds
 POST /chaos/reset              clear active chaos for every scenario
 ```
 
@@ -46,14 +48,19 @@ order_processing_failure_rate     gauge      fraction of orders failing (0.0-1.0
 checkout_timeout_rate             gauge      fraction of checkouts timing out (0.0-1.0)
 payment_gateway_error_rate        gauge      fraction of authorizations erroring (0.0-1.0)
 payment_declines_total            counter    card payments declined by the issuer
+inventory_check_p95_seconds       gauge      inventory check p95 latency in seconds
 order_request_duration_seconds    histogram  order request latency
-inventory_check_duration_seconds  histogram  inventory check latency
 order_requests_total              counter    total order requests handled
 ```
 
-The three gauges and `payment_declines_total` are what chaos drives. The
-simulator does not simulate traffic, so the remaining counter and the histograms
-are exposed for scraping completeness and read zero at rest.
+Everything except `order_request_duration_seconds` and `order_requests_total` is
+chaos-driven. The simulator does not simulate traffic, so those two are exposed
+for scraping completeness and read zero at rest.
+
+Inventory latency is a **gauge holding a p95**, not a histogram. A histogram
+cannot be pinned — `histogram_quantile` over `rate(..._bucket[5m])` needs real
+observations accruing over time, which the deadline design cannot produce, and
+faking them would couple the metric to scrape cadence.
 
 ## Chaos
 
@@ -70,6 +77,18 @@ Two request shapes, because gauges and counters behave differently.
 the gauge returns to its `0.0` baseline. There is no background reset task: a
 spike stores a monotonic **deadline** and the gauge value is computed from it at
 scrape time: active while `now < deadline`, baseline afterwards.
+
+**Absolute gauges** — `/chaos/inventory-latency`:
+
+```json
+{"value": 1.5, "duration_seconds": 120}
+```
+
+Same pin-until-deadline behaviour, but `value` is an absolute quantity in the
+metric's own unit (seconds here) rather than a fraction, so it is deliberately
+not capped at 1.0. The ratio endpoints keep their `0.0-1.0` bound: it rejects
+`{"rate": 15}` from someone who meant 15%, which would otherwise breach every
+ratio rule at once while looking like a successful spike.
 
 **Counters** — `/chaos/payment-declines`:
 
