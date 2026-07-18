@@ -31,6 +31,8 @@ Simulated services and their scenarios:
 
 - ``order-service``    — ``POST /chaos/order-failures``
 - ``checkout-service`` — ``POST /chaos/checkout-timeouts``
+- ``payment-gateway``  — ``POST /chaos/payment-errors``,
+  ``POST /chaos/payment-declines``
 
 Endpoints:
 
@@ -38,6 +40,8 @@ Endpoints:
 - ``GET  /healthz``                 200 while the process is alive.
 - ``POST /chaos/order-failures``    Spike ``order_processing_failure_rate``.
 - ``POST /chaos/checkout-timeouts`` Spike ``checkout_timeout_rate``.
+- ``POST /chaos/payment-errors``    Spike ``payment_gateway_error_rate``.
+- ``POST /chaos/payment-declines``  Ramp ``payment_declines_total``.
 - ``POST /chaos/reset``             Clear active chaos for every scenario.
 """
 

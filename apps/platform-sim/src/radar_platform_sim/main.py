@@ -26,7 +26,11 @@ from prometheus_client import REGISTRY, CollectorRegistry
 from radar_common import configure_logging, get_logger
 from radar_telemetry import render_latest
 
-from radar_platform_sim.chaos import ChaosController, ChaosRequest
+from radar_platform_sim.chaos import (
+    ChaosController,
+    ChaosRequest,
+    CounterRampRequest,
+)
 from radar_platform_sim.metrics import create_platform_metrics
 
 SERVICE_NAME = "platform-sim"
@@ -62,6 +66,13 @@ def create_app(*, metrics_registry: CollectorRegistry = REGISTRY) -> FastAPI:
         # baseline. This is where auto-reset actually takes effect.
         metrics.processing_failure_rate.set(chaos.order_failure_rate())
         metrics.checkout_timeout_rate.set(chaos.checkout_timeout_rate())
+        metrics.payment_gateway_error_rate.set(chaos.payment_error_rate())
+        # The counter is the exception: it is advanced, not set. The drain is
+        # destructive, so it must be applied here and nowhere else — dropping
+        # the result would lose those declines permanently. This is also why
+        # the counter only moves when something scrapes: with no scrapes there
+        # is no rate() to observe anyway.
+        metrics.payment_declines_total.inc(chaos.drain_payment_declines())
         payload, content_type = render_latest(metrics_registry)
         return Response(content=payload, media_type=content_type)
 
@@ -92,6 +103,36 @@ def create_app(*, metrics_registry: CollectorRegistry = REGISTRY) -> FastAPI:
         return {
             "status": "ok",
             "rate": req.rate,
+            "duration_seconds": req.duration_seconds,
+        }
+
+    @app.post("/chaos/payment-errors")
+    async def chaos_payment_errors(req: ChaosRequest) -> dict[str, float | int | str]:
+        chaos.spike_payment_errors(req.rate, req.duration_seconds)
+        log.info(
+            "chaos.payment_errors",
+            rate=req.rate,
+            duration_seconds=req.duration_seconds,
+        )
+        return {
+            "status": "ok",
+            "rate": req.rate,
+            "duration_seconds": req.duration_seconds,
+        }
+
+    @app.post("/chaos/payment-declines")
+    async def chaos_payment_declines(
+        req: CounterRampRequest,
+    ) -> dict[str, float | int | str]:
+        chaos.ramp_payment_declines(req.per_second, req.duration_seconds)
+        log.info(
+            "chaos.payment_declines",
+            per_second=req.per_second,
+            duration_seconds=req.duration_seconds,
+        )
+        return {
+            "status": "ok",
+            "per_second": req.per_second,
             "duration_seconds": req.duration_seconds,
         }
 

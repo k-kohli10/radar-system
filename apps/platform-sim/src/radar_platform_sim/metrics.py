@@ -50,10 +50,17 @@ class PlatformMetrics:
 
     inventory-service:
         ``inventory_check_duration_seconds`` — declared, never observed.
+
+    payment-gateway:
+        ``payment_gateway_error_rate`` — 0.0–1.0 gauge, chaos-driven.
+        ``payment_declines_total`` — counter, advanced at scrape time by the
+        chaos ramp. The only metric here that evolves rather than holds.
     """
 
     processing_failure_rate: Gauge
     checkout_timeout_rate: Gauge
+    payment_gateway_error_rate: Gauge
+    payment_declines_total: Counter
     request_duration_seconds: Histogram
     inventory_check_duration_seconds: Histogram
     requests_total: Counter
@@ -70,6 +77,16 @@ def create_platform_metrics(registry: CollectorRegistry = REGISTRY) -> PlatformM
         checkout_timeout_rate=Gauge(
             "checkout_timeout_rate",
             "Fraction of checkouts currently timing out (0.0-1.0).",
+            registry=registry,
+        ),
+        payment_gateway_error_rate=Gauge(
+            "payment_gateway_error_rate",
+            "Fraction of payment authorizations currently erroring (0.0-1.0).",
+            registry=registry,
+        ),
+        payment_declines_total=Counter(
+            "payment_declines",
+            "Total card payments declined by the issuer.",
             registry=registry,
         ),
         request_duration_seconds=Histogram(

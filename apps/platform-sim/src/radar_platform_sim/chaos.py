@@ -1,14 +1,32 @@
 """In-memory chaos state for the platform simulator.
 
-A chaos endpoint spikes one of the two rate gauges for a bounded window. Rather
-than spawn a background task to undo the spike after ``duration_seconds`` (extra
-lifecycle, extra shutdown handling), a spike stores a *deadline* and the gauge
-value is computed from it at scrape time: active while ``now < deadline``, back
-to the ``0.0`` baseline once the deadline passes. Auto-reset is therefore free —
-it happens by the deadline elapsing, with nothing to cancel or await.
+A chaos endpoint spikes one metric for a bounded window. Rather than spawn a
+background task to undo the spike after ``duration_seconds`` (extra lifecycle,
+extra shutdown handling), a spike stores a *deadline* and the metric is computed
+from it at scrape time. Auto-reset is therefore free — it happens by the
+deadline elapsing, with nothing to cancel or await.
 
-Deadlines use :func:`time.monotonic` so they are immune to wall-clock jumps
-(NTP steps, DST); only elapsed real time matters.
+There are two shapes here, and the difference is the whole of the interesting
+part:
+
+:class:`_Spike` — for gauges. A gauge *holds* a value, so the spike stores the
+value and hands it back while the deadline is in the future, baseline after.
+Reading it twice changes nothing; it is a pure function of the deadline.
+
+:class:`_CounterRamp` — for counters. A counter must *evolve*: it may only ever
+increase, and what a rule reads is ``rate()``, the slope. So it cannot be
+computed as "the value right now" — there is no such thing. Instead the ramp
+accrues ``per_second × elapsed`` over the time actually spent inside the active
+window, and each drain hands the caller the whole units owed since the previous
+drain. Two scrapes a few seconds apart therefore see a genuinely larger number,
+which is what makes ``rate()`` non-zero. Draining is destructive by design:
+what has been handed to the ``Counter`` is never handed out twice.
+
+Deadlines use a monotonic clock so they are immune to wall-clock jumps (NTP
+steps, DST); only elapsed real time matters. The clock is injectable on
+:class:`ChaosController` so tests can advance time deterministically instead of
+sleeping — the ramp's correctness is entirely about elapsed time, and a test
+that slept to observe it would be both slow and flaky.
 
 The controller is single-instance, mutated only inside request handlers on one
 event loop with no ``await`` between read and write, so it needs no locking.
@@ -16,7 +34,9 @@ event loop with no ``await`` between read and write, so it needs no locking.
 
 from __future__ import annotations
 
+import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, Field
@@ -28,13 +48,27 @@ BASELINE_RATE = 0.0
 class ChaosRequest(BaseModel):
     """Body for the rate-gauge chaos endpoints.
 
-    Used by ``POST /chaos/order-failures`` and ``/chaos/checkout-timeouts``.
+    Used by ``POST /chaos/order-failures``, ``/chaos/checkout-timeouts`` and
+    ``/chaos/payment-errors``.
 
     ``rate`` is the fraction to pin the target gauge at (0.0–1.0);
     ``duration_seconds`` is how long the spike lasts before it auto-resets.
     """
 
     rate: float = Field(ge=0.0, le=1.0)
+    duration_seconds: int = Field(gt=0)
+
+
+class CounterRampRequest(BaseModel):
+    """Body for the counter-ramp chaos endpoints (``/chaos/payment-declines``).
+
+    ``per_second`` is the rate the counter climbs at while the ramp is active —
+    events per second, not a fraction, so it is deliberately *not* capped at 1.0
+    the way :class:`ChaosRequest` is. A rule reading this metric matches on
+    ``rate()``, so ``per_second`` is what it ends up comparing to its threshold.
+    """
+
+    per_second: float = Field(gt=0.0)
     duration_seconds: int = Field(gt=0)
 
 
@@ -64,31 +98,126 @@ class _Spike:
 
 
 @dataclass
-class ChaosController:
-    """Holds the chaos state for both rate gauges.
+class _CounterRamp:
+    """One counter's chaos state: climb at ``per_second`` until ``deadline``.
 
-    Read the two ``*_rate`` methods at scrape time to reconcile the gauges; call
-    the ``spike_*`` / :meth:`reset` methods from the chaos endpoints.
+    Unlike :class:`_Spike` this holds *unhanded* progress. ``pending`` is what
+    has accrued but not yet been given to the ``Counter``; :meth:`drain` hands
+    over the whole units and keeps the fraction, so the counter only ever
+    advances by whole events and no fraction is lost to rounding across drains.
+
+    ``last_advance`` is the monotonic timestamp accrual has been settled up to.
+    """
+
+    per_second: float = 0.0
+    deadline: float = 0.0
+    last_advance: float = 0.0
+    pending: float = 0.0
+
+    def _accrue(self, now: float) -> None:
+        """Settle accrual up to ``now``, counting only time inside the window."""
+        # Cap at the deadline: time after the ramp expired accrues nothing, which
+        # is what makes expiry stop the climb without a background task.
+        end = min(now, self.deadline)
+        if end > self.last_advance:
+            self.pending += self.per_second * (end - self.last_advance)
+            self.last_advance = end
+
+    def ramp(self, per_second: float, duration_seconds: int, now: float) -> None:
+        """Start (or retarget) the ramp at ``per_second`` for the given window."""
+        # Settle the outstanding accrual against the OLD rate before retargeting.
+        # Without this, re-ramping mid-window silently drops whatever had accrued
+        # since the last drain, because last_advance is about to move to `now`.
+        self._accrue(now)
+        self.per_second = per_second
+        self.deadline = now + duration_seconds
+        self.last_advance = now
+
+    def drain(self, now: float) -> int:
+        """Whole events owed to the ``Counter`` since the last drain.
+
+        Destructive: what this returns has been handed over and will not be
+        returned again. The caller must actually apply it, or those events are
+        lost — a counter cannot be re-derived from state the way a gauge can.
+        """
+        self._accrue(now)
+        whole = math.floor(self.pending)
+        self.pending -= whole
+        return int(whole)
+
+    def clear(self, now: float) -> None:
+        """Stop the climb. Accrual already earned is kept, not discarded.
+
+        Deliberately does NOT rewind the counter. Rewinding a Prometheus counter
+        means "the process restarted" — ``rate()`` treats a decrease as a reset
+        and discounts the interval. Faking that on a chaos reset would corrupt
+        the very query the alert rule runs, so reset stops the ramp and leaves
+        the total standing, exactly as a real service's counter would behave
+        once its incident ended.
+        """
+        self._accrue(now)
+        self.per_second = 0.0
+        self.deadline = 0.0
+        self.last_advance = 0.0
+
+
+@dataclass
+class ChaosController:
+    """Holds the chaos state for every scenario the simulator can fire.
+
+    Read the ``*_rate`` methods and :meth:`drain_payment_declines` at scrape
+    time to reconcile the metrics; call the ``spike_*`` / ``ramp_*`` /
+    :meth:`reset` methods from the chaos endpoints.
+
+    ``clock`` returns monotonic seconds and is injectable so tests can advance
+    time without sleeping.
     """
 
     order_failures: _Spike = field(default_factory=_Spike)
     checkout_timeouts: _Spike = field(default_factory=_Spike)
+    payment_errors: _Spike = field(default_factory=_Spike)
+    payment_declines: _CounterRamp = field(default_factory=_CounterRamp)
+    clock: Callable[[], float] = time.monotonic
 
     def spike_order_failures(self, rate: float, duration_seconds: int) -> None:
-        self.order_failures.spike(rate, duration_seconds, time.monotonic())
+        self.order_failures.spike(rate, duration_seconds, self.clock())
 
     def spike_checkout_timeouts(self, rate: float, duration_seconds: int) -> None:
-        self.checkout_timeouts.spike(rate, duration_seconds, time.monotonic())
+        self.checkout_timeouts.spike(rate, duration_seconds, self.clock())
+
+    def spike_payment_errors(self, rate: float, duration_seconds: int) -> None:
+        self.payment_errors.spike(rate, duration_seconds, self.clock())
+
+    def ramp_payment_declines(self, per_second: float, duration_seconds: int) -> None:
+        self.payment_declines.ramp(per_second, duration_seconds, self.clock())
 
     def reset(self) -> None:
-        """Clear both spikes: gauges return to baseline immediately."""
+        """Clear every scenario's chaos: gauges return to baseline immediately.
+
+        The decline counter stops climbing but keeps its total — see
+        :meth:`_CounterRamp.clear` for why rewinding it would be wrong.
+        """
+        now = self.clock()
         self.order_failures.clear()
         self.checkout_timeouts.clear()
+        self.payment_errors.clear()
+        self.payment_declines.clear(now)
 
     def order_failure_rate(self) -> float:
         """Current ``order_processing_failure_rate`` value."""
-        return self.order_failures.effective_rate(time.monotonic())
+        return self.order_failures.effective_rate(self.clock())
 
     def checkout_timeout_rate(self) -> float:
         """Current ``checkout_timeout_rate`` value."""
-        return self.checkout_timeouts.effective_rate(time.monotonic())
+        return self.checkout_timeouts.effective_rate(self.clock())
+
+    def payment_error_rate(self) -> float:
+        """Current ``payment_gateway_error_rate`` value."""
+        return self.payment_errors.effective_rate(self.clock())
+
+    def drain_payment_declines(self) -> int:
+        """Whole declines to add to ``payment_declines_total`` since last call.
+
+        Destructive — the caller must apply the result to the counter.
+        """
+        return self.payment_declines.drain(self.clock())

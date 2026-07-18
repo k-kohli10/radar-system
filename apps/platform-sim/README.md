@@ -24,6 +24,8 @@ template does not apply to it.
 |---|---|---|
 | `order-service` | order processing failures | `POST /chaos/order-failures` |
 | `checkout-service` | checkout timeouts | `POST /chaos/checkout-timeouts` |
+| `payment-gateway` | gateway authorization errors | `POST /chaos/payment-errors` |
+| `payment-gateway` | issuer card declines | `POST /chaos/payment-declines` |
 
 ## Endpoints
 
@@ -32,6 +34,8 @@ GET  /metrics                  Prometheus text format
 GET  /healthz                  process liveness (200)
 POST /chaos/order-failures     spike order_processing_failure_rate
 POST /chaos/checkout-timeouts  spike checkout_timeout_rate
+POST /chaos/payment-errors     spike payment_gateway_error_rate
+POST /chaos/payment-declines   ramp  payment_declines_total
 POST /chaos/reset              clear active chaos for every scenario
 ```
 
@@ -40,18 +44,23 @@ POST /chaos/reset              clear active chaos for every scenario
 ```
 order_processing_failure_rate     gauge      fraction of orders failing (0.0-1.0)
 checkout_timeout_rate             gauge      fraction of checkouts timing out (0.0-1.0)
+payment_gateway_error_rate        gauge      fraction of authorizations erroring (0.0-1.0)
+payment_declines_total            counter    card payments declined by the issuer
 order_request_duration_seconds    histogram  order request latency
 inventory_check_duration_seconds  histogram  inventory check latency
 order_requests_total              counter    total order requests handled
 ```
 
-The two gauges are the ones chaos drives. The simulator does not simulate
-traffic, so the counter and histograms are exposed for scraping completeness and
-read zero at rest.
+The three gauges and `payment_declines_total` are what chaos drives. The
+simulator does not simulate traffic, so the remaining counter and the histograms
+are exposed for scraping completeness and read zero at rest.
 
 ## Chaos
 
-`POST /chaos/order-failures` and `POST /chaos/checkout-timeouts` take:
+Two request shapes, because gauges and counters behave differently.
+
+**Gauges** — `/chaos/order-failures`, `/chaos/checkout-timeouts`,
+`/chaos/payment-errors`:
 
 ```json
 {"rate": 0.15, "duration_seconds": 120}
@@ -60,8 +69,35 @@ read zero at rest.
 `rate` (0.0–1.0) is pinned onto the target gauge for `duration_seconds`, then
 the gauge returns to its `0.0` baseline. There is no background reset task: a
 spike stores a monotonic **deadline** and the gauge value is computed from it at
-scrape time: active while `now < deadline`, baseline afterwards. `POST
-/chaos/reset` clears every scenario's spike immediately.
+scrape time: active while `now < deadline`, baseline afterwards.
+
+**Counters** — `/chaos/payment-declines`:
+
+```json
+{"per_second": 10.0, "duration_seconds": 300}
+```
+
+A counter cannot be pinned: what the alert rule reads is `rate()`, the slope, so
+the metric has to *evolve* rather than hold. Each scrape advances the counter by
+`per_second × elapsed`, counting only time inside the active window, so two
+scrapes apart genuinely differ. `per_second` is events per second and is not
+capped at 1.0. Whole events only — a fractional remainder is carried to the next
+scrape rather than rounded away.
+
+Note that the counter only moves when something scrapes `/metrics`. That is not
+a limitation: with no scrapes there is no `rate()` to observe in the first place.
+
+`POST /chaos/reset` clears every scenario immediately. It stops the decline ramp
+but **does not rewind** the counter — a counter going backwards tells Prometheus
+the process restarted, and `rate()` discards that interval, which would corrupt
+the very query the alert rule runs.
+
+### Spike values that actually fire
+
+Each rule in `deploy/prometheus/alerting-rules.yml` has both a magnitude and a
+duration bar; a spike must clear both, and a spike shorter than the rule's `for`
+never fires however large it is. The measured minimums are tabulated in that
+file's header.
 
 ## Run locally
 
