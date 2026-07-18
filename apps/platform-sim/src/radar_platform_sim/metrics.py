@@ -49,6 +49,7 @@ class PlatformMetrics:
     order-service:
         ``processing_failure_rate`` — 0.0–1.0 gauge reconciled from chaos state
         at scrape time (see ``main.py``).
+        ``service_memory_bytes`` — chaos-driven gauge, resident bytes.
         ``request_duration_seconds``, ``requests_total`` — declared for scraping
         completeness; stay at zero unless observed.
 
@@ -65,6 +66,7 @@ class PlatformMetrics:
     """
 
     processing_failure_rate: Gauge
+    service_memory_bytes: Gauge
     checkout_timeout_rate: Gauge
     payment_gateway_error_rate: Gauge
     payment_declines_total: Counter
@@ -79,6 +81,11 @@ def create_platform_metrics(registry: CollectorRegistry = REGISTRY) -> PlatformM
         processing_failure_rate=Gauge(
             "order_processing_failure_rate",
             "Fraction of orders currently failing (0.0-1.0).",
+            registry=registry,
+        ),
+        service_memory_bytes=Gauge(
+            "order_service_memory_bytes",
+            "order-service resident memory in bytes.",
             registry=registry,
         ),
         checkout_timeout_rate=Gauge(

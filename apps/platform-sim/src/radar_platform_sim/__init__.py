@@ -29,7 +29,8 @@ Layout:
 
 Simulated services and their scenarios:
 
-- ``order-service``    — ``POST /chaos/order-failures``
+- ``order-service``    — ``POST /chaos/order-failures``,
+  ``POST /chaos/order-memory``
 - ``checkout-service`` — ``POST /chaos/checkout-timeouts``
 - ``payment-gateway``  — ``POST /chaos/payment-errors``,
   ``POST /chaos/payment-declines``
@@ -44,6 +45,7 @@ Endpoints:
 - ``POST /chaos/payment-errors``    Spike ``payment_gateway_error_rate``.
 - ``POST /chaos/payment-declines``  Ramp ``payment_declines_total``.
 - ``POST /chaos/inventory-latency`` Spike ``inventory_check_p95_seconds``.
+- ``POST /chaos/order-memory``      Spike ``order_service_memory_bytes``.
 - ``POST /chaos/reset``             Clear active chaos for every scenario.
 """
 

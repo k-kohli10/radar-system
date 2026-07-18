@@ -76,7 +76,8 @@ class CounterRampRequest(BaseModel):
 class AbsoluteChaosRequest(BaseModel):
     """Body for gauges holding an absolute quantity rather than a fraction.
 
-    Used by ``POST /chaos/inventory-latency`` (seconds).
+    Used by ``POST /chaos/inventory-latency`` (seconds) and
+    ``POST /chaos/order-memory`` (bytes).
 
     Deliberately a separate model rather than a loosened :class:`ChaosRequest`.
     That ``le=1.0`` bound is doing real work for the ratio scenarios: it rejects
@@ -205,6 +206,7 @@ class ChaosController:
     payment_errors: _Spike = field(default_factory=_Spike)
     payment_declines: _CounterRamp = field(default_factory=_CounterRamp)
     inventory_latency: _Spike = field(default_factory=_Spike)
+    order_memory: _Spike = field(default_factory=_Spike)
     clock: Callable[[], float] = time.monotonic
 
     def spike_order_failures(self, rate: float, duration_seconds: int) -> None:
@@ -222,6 +224,9 @@ class ChaosController:
     def spike_inventory_latency(self, seconds: float, duration_seconds: int) -> None:
         self.inventory_latency.spike(seconds, duration_seconds, self.clock())
 
+    def spike_order_memory(self, memory_bytes: float, duration_seconds: int) -> None:
+        self.order_memory.spike(memory_bytes, duration_seconds, self.clock())
+
     def reset(self) -> None:
         """Clear every scenario's chaos: gauges return to baseline immediately.
 
@@ -234,6 +239,7 @@ class ChaosController:
         self.payment_errors.clear()
         self.payment_declines.clear(now)
         self.inventory_latency.clear()
+        self.order_memory.clear()
 
     def order_failure_rate(self) -> float:
         """Current ``order_processing_failure_rate`` value."""
@@ -250,6 +256,10 @@ class ChaosController:
     def inventory_check_p95(self) -> float:
         """Current ``inventory_check_p95_seconds`` value, in seconds."""
         return self.inventory_latency.effective_value(self.clock())
+
+    def order_memory_bytes(self) -> float:
+        """Current ``order_service_memory_bytes`` value, in bytes."""
+        return self.order_memory.effective_value(self.clock())
 
     def drain_payment_declines(self) -> int:
         """Whole declines to add to ``payment_declines_total`` since last call.

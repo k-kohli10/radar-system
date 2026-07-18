@@ -23,6 +23,7 @@ template does not apply to it.
 | service | scenario | chaos endpoint |
 |---|---|---|
 | `order-service` | order processing failures | `POST /chaos/order-failures` |
+| `order-service` | memory pressure | `POST /chaos/order-memory` |
 | `checkout-service` | checkout timeouts | `POST /chaos/checkout-timeouts` |
 | `payment-gateway` | gateway authorization errors | `POST /chaos/payment-errors` |
 | `payment-gateway` | issuer card declines | `POST /chaos/payment-declines` |
@@ -38,6 +39,7 @@ POST /chaos/checkout-timeouts  spike checkout_timeout_rate
 POST /chaos/payment-errors     spike payment_gateway_error_rate
 POST /chaos/payment-declines   ramp  payment_declines_total
 POST /chaos/inventory-latency  spike inventory_check_p95_seconds
+POST /chaos/order-memory       spike order_service_memory_bytes
 POST /chaos/reset              clear active chaos for every scenario
 ```
 
@@ -49,6 +51,7 @@ checkout_timeout_rate             gauge      fraction of checkouts timing out (0
 payment_gateway_error_rate        gauge      fraction of authorizations erroring (0.0-1.0)
 payment_declines_total            counter    card payments declined by the issuer
 inventory_check_p95_seconds       gauge      inventory check p95 latency in seconds
+order_service_memory_bytes        gauge      order-service resident memory in bytes
 order_request_duration_seconds    histogram  order request latency
 order_requests_total              counter    total order requests handled
 ```
@@ -78,14 +81,15 @@ the gauge returns to its `0.0` baseline. There is no background reset task: a
 spike stores a monotonic **deadline** and the gauge value is computed from it at
 scrape time: active while `now < deadline`, baseline afterwards.
 
-**Absolute gauges** — `/chaos/inventory-latency`:
+**Absolute gauges** — `/chaos/inventory-latency`, `/chaos/order-memory`:
 
 ```json
 {"value": 1.5, "duration_seconds": 120}
 ```
 
 Same pin-until-deadline behaviour, but `value` is an absolute quantity in the
-metric's own unit (seconds here) rather than a fraction, so it is deliberately
+metric's own unit (seconds for latency, bytes for memory) rather than a
+fraction, so it is deliberately
 not capped at 1.0. The ratio endpoints keep their `0.0-1.0` bound: it rejects
 `{"rate": 15}` from someone who meant 15%, which would otherwise breach every
 ratio rule at once while looking like a successful spike.
