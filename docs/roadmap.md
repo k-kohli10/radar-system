@@ -12,12 +12,12 @@ Full deliverables, commit sequences, and acceptance criteria for every phase liv
 | 2 | v0.2-contracts | n/a | Pydantic contracts and plugin SDK. Zero vendor imports. |
 | 3 | v0.3-packages | n/a | Shared common/database/telemetry packages. Outbox atomicity, poller isolation, idempotency proven by test. |
 | 4 | v0.4-llm-gateway | n/a | LLM Gateway: token IAM, mode routing, retries, provider fallback. |
-| 5 | v0.5-ingestion | n/a | Ingestion API, order-stub, dedup logic. |
+| 5 | v0.5-ingestion | n/a | Ingestion API, platform-sim, dedup logic. Simulator extended pre-Phase-8 to six fireable scenarios across four services; alert rules declared in `deploy/prometheus/`. |
 | 6 | v0.6-outbox-worker | n/a | Full outbox worker spec: polling, dispatch, retry, dead letter, graceful shutdown. |
 | 7 | v0.7-vertical-slice | v0.1.0 | Watcher, Planner, and Reasoner working end to end with real LLM calls. First POC. |
 | 8 | v0.8-knowledge | v0.2.0 | Runbooks written, knowledge-service RAG retrieval, CRAG grading. |
 | 9 | v0.9-feedback | v0.3.0 | Feedback-service: RCA delivery cards and Slack bot, in one deployment. |
-| 10 | v0.10-observability | v0.4.0 | Dashboards, alert rules, OTel trace coverage, RADAR's own operations runbooks. |
+| 10 | v0.10-observability | v0.4.0 | Dashboards, alert rules, OTel trace coverage, RADAR's own operations runbooks. Also owns the deferred platform-sim wiring: running Prometheus + alertmanager, their compose services, and the real scrape→fire→webhook path in the default suite (proven once opt-in at Phase 5, behind the `infra` marker). |
 | 11 | v0.11-cicd | v0.5.0 | Path-based CI, multi-arch builds, per-service CD. |
 | 12 | v0.12-kubernetes | v0.6.0 | Helm chart, RBAC, HPA, ConfigMaps for rules/templates, deployable examples. |
 | 13 | v0.13-hardened | v0.7.0 | Load test, circuit breaker, threat model, audit log completeness. |
