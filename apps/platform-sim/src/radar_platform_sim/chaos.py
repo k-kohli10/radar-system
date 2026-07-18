@@ -1,4 +1,4 @@
-"""In-memory chaos state for the order-stub.
+"""In-memory chaos state for the platform simulator.
 
 A chaos endpoint spikes one of the two rate gauges for a bounded window. Rather
 than spawn a background task to undo the spike after ``duration_seconds`` (extra
@@ -26,7 +26,9 @@ BASELINE_RATE = 0.0
 
 
 class ChaosRequest(BaseModel):
-    """Body for ``POST /chaos/order-failures`` and ``/chaos/checkout-timeouts``.
+    """Body for the rate-gauge chaos endpoints.
+
+    Used by ``POST /chaos/order-failures`` and ``/chaos/checkout-timeouts``.
 
     ``rate`` is the fraction to pin the target gauge at (0.0–1.0);
     ``duration_seconds`` is how long the spike lasts before it auto-resets.

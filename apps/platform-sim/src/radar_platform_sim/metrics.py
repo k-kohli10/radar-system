@@ -1,18 +1,23 @@
-"""The five Prometheus metrics the order-stub exposes.
+"""The Prometheus metrics the platform simulator exposes.
 
-These are e-commerce *domain* metrics for the simulated order-service, not the
+These are e-commerce *domain* metrics for the simulated services, not the
 ``radar_*`` platform metrics that live in ``radar_telemetry`` — so they are
 declared here, spelled exactly as the plan lists them. Rendering still reuses
 ``radar_telemetry.render_latest`` (see ``main.py``); nothing about metric
 *output* is reimplemented.
 
-Two of the five are gauges chaos drives: ``order_processing_failure_rate`` and
-``checkout_timeout_rate``. The stub does not simulate order traffic, so the
+Metric names carry no ``service`` label: one process exposes all of them, and
+the simulated service a metric belongs to is attached by the alert rule that
+watches it (see the package docstring). Grouping here is by naming and by the
+docstring below, not by label.
+
+Two gauges are chaos-driven: ``order_processing_failure_rate`` and
+``checkout_timeout_rate``. The simulator does not simulate traffic, so the
 counter and the two histograms are exposed but only ever observed if a caller
 drives them; at rest they render at zero.
 
-Following the ``radar_telemetry`` pattern, :func:`create_order_metrics` takes a
-``registry`` (default: the global ``REGISTRY``) and returns a frozen bundle, so
+Following the ``radar_telemetry`` pattern, :func:`create_platform_metrics` takes
+a ``registry`` (default: the global ``REGISTRY``) and returns a frozen bundle, so
 tests or a second app instance can pass a fresh ``CollectorRegistry`` and avoid
 duplicate-registration errors.
 """
@@ -31,12 +36,20 @@ from prometheus_client import (
 
 
 @dataclass(frozen=True)
-class OrderMetrics:
-    """The order-stub's five exposed metrics.
+class PlatformMetrics:
+    """The simulator's exposed metrics, grouped by simulated service.
 
-    ``processing_failure_rate`` and ``checkout_timeout_rate`` are 0.0–1.0 gauges
-    reconciled from chaos state at scrape time (see ``main.py``). The rest are
-    declared for scraping completeness and stay at zero unless observed.
+    order-service:
+        ``processing_failure_rate`` — 0.0–1.0 gauge reconciled from chaos state
+        at scrape time (see ``main.py``).
+        ``request_duration_seconds``, ``requests_total`` — declared for scraping
+        completeness; stay at zero unless observed.
+
+    checkout-service:
+        ``checkout_timeout_rate`` — 0.0–1.0 gauge, chaos-driven.
+
+    inventory-service:
+        ``inventory_check_duration_seconds`` — declared, never observed.
     """
 
     processing_failure_rate: Gauge
@@ -46,9 +59,9 @@ class OrderMetrics:
     requests_total: Counter
 
 
-def create_order_metrics(registry: CollectorRegistry = REGISTRY) -> OrderMetrics:
-    """Register the order-stub metric family on ``registry`` and return it."""
-    return OrderMetrics(
+def create_platform_metrics(registry: CollectorRegistry = REGISTRY) -> PlatformMetrics:
+    """Register the simulator's metric family on ``registry`` and return it."""
+    return PlatformMetrics(
         processing_failure_rate=Gauge(
             "order_processing_failure_rate",
             "Fraction of orders currently failing (0.0-1.0).",

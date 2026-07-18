@@ -1,8 +1,8 @@
-"""order-stub service assembly.
+"""platform-sim service assembly.
 
-Wires the five metrics and the chaos controller into a small FastAPI app:
-``/healthz``, ``/metrics``, and the three ``/chaos/*`` endpoints. No ``/readyz``,
-no agent token, no ``POST /events`` — this is a POC target, not a RADAR service
+Wires the domain metrics and the chaos controller into a small FastAPI app:
+``/healthz``, ``/metrics``, and the ``/chaos/*`` endpoints. No ``/readyz``, no
+agent token, no ``POST /events`` — this is a POC target, not a RADAR service
 (see the package docstring).
 
 The gauge reconciliation lives in the ``/metrics`` handler: right before
@@ -26,30 +26,30 @@ from prometheus_client import REGISTRY, CollectorRegistry
 from radar_common import configure_logging, get_logger
 from radar_telemetry import render_latest
 
-from radar_order_stub.chaos import ChaosController, ChaosRequest
-from radar_order_stub.metrics import create_order_metrics
+from radar_platform_sim.chaos import ChaosController, ChaosRequest
+from radar_platform_sim.metrics import create_platform_metrics
 
-SERVICE_NAME = "order-stub"
+SERVICE_NAME = "platform-sim"
 
 
 def create_app(*, metrics_registry: CollectorRegistry = REGISTRY) -> FastAPI:
-    """Build the order-stub app. ``metrics_registry`` is injectable so a fresh
+    """Build the platform-sim app. ``metrics_registry`` is injectable so a fresh
     ``CollectorRegistry`` avoids duplicate-registration across app instances."""
     configure_logging(service_name=SERVICE_NAME)
     log = get_logger(SERVICE_NAME)
 
-    metrics = create_order_metrics(metrics_registry)
+    metrics = create_platform_metrics(metrics_registry)
     chaos = ChaosController()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        log.info("order_stub.started")
+        log.info("platform_sim.started")
         try:
             yield
         finally:
-            log.info("order_stub.stopped")
+            log.info("platform_sim.stopped")
 
-    app = FastAPI(title="radar-order-stub", lifespan=lifespan)
+    app = FastAPI(title="radar-platform-sim", lifespan=lifespan)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
