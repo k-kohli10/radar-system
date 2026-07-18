@@ -82,6 +82,9 @@ from sqlalchemy import select
 AGENT_TOKEN = "e2e-agent-token-" + "e" * 48
 GATEWAY_TOKEN = "e2e-gateway-token-" + "g" * 46
 WEBHOOK_TOKEN = "e2e-webhook-token-" + "w" * 46
+#: Prometheus gets its OWN token: ingestion checks the token per source, so a token
+#: valid for /alerts/mock is 401 on /alerts/prometheus (ADR 0011).
+PROMETHEUS_WEBHOOK_TOKEN = "e2e-prom-token-" + "p" * 49
 
 WEBHOOK_HEADER = "X-Radar-Webhook-Token"
 
@@ -288,6 +291,18 @@ class Pipeline:
             headers={WEBHOOK_HEADER: WEBHOOK_TOKEN},
         )
 
+    async def post_prometheus_alert(self, body: dict[str, Any]) -> httpx.Response:
+        """POST one alertmanager-shaped alert to ``/alerts/prometheus``.
+
+        The front door Prometheus itself would use, exercising the real Prometheus
+        normalizer rather than the mock one — see the platform-sim alert-path test.
+        """
+        return await self._ingestion.post(
+            "/alerts/prometheus",
+            json=body,
+            headers={WEBHOOK_HEADER: PROMETHEUS_WEBHOOK_TOKEN},
+        )
+
     async def drain(self, *, max_iterations: int = 50) -> None:
         """Turn the real claim → dispatch → mark crank until the outbox settles.
 
@@ -323,6 +338,7 @@ def _write_secrets(directory: Path, *, dsn: str) -> None:
     (directory / "agent_token").write_text(AGENT_TOKEN)
     (directory / "gateway_token").write_text(GATEWAY_TOKEN)
     (directory / "webhook_token_mock").write_text(WEBHOOK_TOKEN)
+    (directory / "webhook_token_prometheus").write_text(PROMETHEUS_WEBHOOK_TOKEN)
 
 
 async def _assemble_services(

@@ -73,11 +73,13 @@ disallow_untyped_calls = false
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests", "packages", "apps", "plugins"]
-# Live tests hit real external APIs and are OPT-IN: deselected everywhere by
-# default (the normal suite, the pre-commit hook, CI) so they can never burn
-# credits or flake in an automated run. Run them explicitly with `pytest -m live`
-# — a trailing `-m live` overrides this default. They still skip without a key.
-addopts = "-m 'not live'"
+# Live and infra tests are OPT-IN: deselected everywhere by default (the normal
+# suite, the pre-commit hook, CI) so they can never burn credits, require Docker,
+# or flake in an automated run. Run them explicitly with `pytest -m live` or
+# `pytest -m infra` — a trailing `-m ...` overrides this default. Both still skip
+# when their prerequisite (an API key, a working Docker) is absent.
+addopts = "-m 'not live and not infra'"
 markers = [
     "live: hits real external services (real OpenAI). Opt-in via `pytest -m live`; skips without OPENAI_API_KEY.",
+    "infra: stands up real infrastructure in Docker (Prometheus, alertmanager). Opt-in via `pytest -m infra`; skips without a working Docker.",
 ]
