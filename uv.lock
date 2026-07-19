@@ -2210,6 +2210,8 @@ dependencies = [
     { name = "pyyaml" },
     { name = "radar-common" },
     { name = "radar-contracts" },
+    { name = "radar-database" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
 [package.dev-dependencies]
@@ -2217,6 +2219,7 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "radar-testing" },
     { name = "types-pyyaml" },
 ]
 
@@ -2227,6 +2230,8 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "radar-common", editable = "packages/common" },
     { name = "radar-contracts", editable = "packages/contracts" },
+    { name = "radar-database", editable = "packages/database" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.51" },
 ]
 
 [package.metadata.requires-dev]
@@ -2234,6 +2239,7 @@ dev = [
     { name = "mypy", specifier = "==2.1.0" },
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-testing", editable = "packages/testing" },
     { name = "types-pyyaml", specifier = "==6.0.12.20250516" },
 ]
 

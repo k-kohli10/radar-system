@@ -7,6 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "radar-common",
     "radar-contracts",
+    "radar-database",
+    "sqlalchemy[asyncio]==2.0.51",
     "httpx==0.28.0",
     "pydantic==2.13.4",
     "pyyaml==6.0.2",
@@ -18,11 +20,14 @@ dev = [
     "pytest-asyncio==0.24.0",
     "mypy==2.1.0",
     "types-pyyaml==6.0.12.20250516",
+    "radar-testing",
 ]
 
 [tool.uv.sources]
 radar-common = { workspace = true }
 radar-contracts = { workspace = true }
+radar-database = { workspace = true }
+radar-testing = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
