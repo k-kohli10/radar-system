@@ -164,5 +164,5 @@ groups:
           summary: "Payment declines above 2/s"
           description: >-
             Card declines are running at {{ $value | printf "%.2f" }}/s over the
-            last 5 minutes. A sustained spike usually means an issuer or BIN
+            last 2 minutes. A sustained spike usually means an issuer or BIN
             range is refusing traffic, not a fault in our gateway.
