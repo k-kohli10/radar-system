@@ -1,7 +1,7 @@
 [project]
-name = "radar-order-stub"
+name = "radar-platform-sim"
 version = "0.5.0"
-description = "RADAR order-stub: a local-only e-commerce order-service simulator. Exposes Prometheus metrics and chaos endpoints so Prometheus can fire realistic alerts at RADAR ingestion. Never deployed to Kubernetes; not a RADAR agent (no Postgres, outbox, /events, /readyz, or agent token)."
+description = "RADAR platform-sim: a local-only, single-process simulator of a multi-service e-commerce platform. Exposes per-service domain metrics and chaos endpoints so Prometheus can fire realistic alerts at RADAR ingestion. Never deployed to Kubernetes; not a RADAR agent (no Postgres, outbox, /events, /readyz, or agent token)."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -16,6 +16,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest==8.3.0",
+    "httpx==0.28.0",
     "mypy==2.1.0",
 ]
 
@@ -28,7 +30,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/radar_order_stub"]
+packages = ["src/radar_platform_sim"]
 
 [tool.mypy]
 strict = true

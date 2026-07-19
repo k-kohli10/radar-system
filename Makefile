@@ -19,8 +19,14 @@ dev: env-check
 stop: env-check
 	$(COMPOSE) down
 
+# Mirrors the pre-commit gate exactly. `ruff format --check` is the easy one to
+# omit here, and omitting it means a green `make lint` does not predict a green
+# commit — the formatter then rejects the commit over line wrapping that `ruff
+# check` is perfectly happy with. Keep this list in step with
+# .pre-commit-config.yaml.
 lint:
 	uv run ruff check .
+	uv run ruff format --check .
 	uv run mypy .
 
 test:

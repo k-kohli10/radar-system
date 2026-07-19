@@ -1,0 +1,168 @@
+# Alerting rules for the LOCAL e-commerce platform simulator (apps/platform-sim).
+#
+# SCOPE — read before adding a rule here.
+#
+# These rules watch the *simulated e-commerce platform*: the domain metrics that
+# apps/platform-sim exposes so RADAR has realistic incidents to reason about.
+# They are local-POC config and never ship to Kubernetes.
+#
+# RADAR's OWN service alerts (LLM gateway fallback, outbox backlog, agent
+# health) do NOT belong here. Those live in radar-infra/prometheus/ and are a
+# Phase 10 (Observability) deliverable, alongside the Grafana dashboards.
+# Keeping the two apart matters: one set describes a fake shop we made up to
+# generate incidents, the other describes the real system responding to them.
+#
+# NOT WIRED UP YET. Nothing currently mounts or evaluates this file. There is no
+# scrape config and no alertmanager in deploy/compose/docker-compose.yml. This is
+# a *declaration* — Phase 10 stands up the running Prometheus + alertmanager that
+# consumes it and proves the real scrape -> fire -> webhook path end to end.
+#
+# WHY THE `service` LABEL IS SET HERE, PER RULE.
+#
+# apps/platform-sim is ONE process simulating several services. Its metrics carry
+# no `service` label — if they did, one process could only ever claim one
+# identity. Instead each rule below attaches the label of the service it is
+# describing, which is how a single simulator fires alerts labelled
+# service=payment-gateway and service=order-service. Ingestion reads
+# `labels.service` as the incident's service_name, so this label is the entire
+# mechanism. Get it wrong and the incident is filed against the wrong service.
+#
+# SEVERITY IS A CLOSED VOCABULARY.
+#
+# `severity` must be one of critical|high|medium|low|info — the canonical
+# Severity enum in radar_contracts.alerts. Ingestion validates against that set
+# and rejects anything else with 422. Prometheus's conventional `warning` /
+# `page` spellings are NOT accepted; ingestion never translates one spelling to
+# another (see the Severity docstring). Severity is also part of the dedup
+# fingerprint, sha256(service:alert:severity), so changing it here splits an
+# alert into a different incident.
+#
+# ALERTMANAGER MUST FAN OUT, NOT BATCH.
+#
+# Ingestion rejects a batched webhook body (one with an `alerts` array) — see
+# ADR 0011. Whoever wires alertmanager up in Phase 10 must configure one alert
+# per POST.
+#
+# WHAT EACH RULE NEEDS FROM ITS CHAOS SPIKE.
+#
+# A rule has two independent bars and a spike must clear BOTH. Magnitude is the
+# obvious one; duration is the one that gets missed — a spike of any size that
+# ends before `for` elapses never fires at all. The table below is measured
+# (`promtool test rules` against synthetic series), not estimated:
+#
+#   alert                       threshold      spike     min duration_seconds
+#   OrderProcessingFailureRate   > 0.05         0.15      60   (fires at 1m)
+#   OrderServiceHighMemory       > 1.5e9        2.5e9     300  (fires at 5m)
+#   CheckoutTimeoutRate          > 0.10         0.35      120  (fires at 2m)
+#   InventoryCheckLatency        > 0.5          1.5       120  (fires at 2m)
+#   PaymentGatewayErrorRate      > 0.05         0.15      60   (fires at 1m)
+#   PaymentDeclineRate           > 2/s          10/s      180  (fires at 3m)
+#
+# Use durations comfortably above the minimum. A spike that ends exactly when
+# the rule fires is a race, and CheckoutTimeoutRate in particular has the
+# thinnest magnitude margin in the set — spike it at 0.35, not at the 0.15 the
+# other ratio scenarios use, or it sits close to its 0.10 threshold.
+
+groups:
+  # --- order-service ---------------------------------------------------------
+  - name: ecommerce-order-service
+    interval: 15s
+    rules:
+      - alert: OrderProcessingFailureRate
+        expr: order_processing_failure_rate > 0.05
+        for: 1m
+        labels:
+          service: order-service
+          severity: critical
+        annotations:
+          summary: "Order processing failure rate above 5%"
+          description: >-
+            {{ $value | humanizePercentage }} of orders are failing to process.
+            Checkout completes but orders do not reach the fulfilment queue.
+
+      - alert: OrderServiceHighMemory
+        expr: order_service_memory_bytes > 1.5e9
+        for: 5m
+        labels:
+          service: order-service
+          severity: medium
+        annotations:
+          summary: "order-service memory above 1.5GB"
+          description: >-
+            order-service resident memory is {{ $value | humanize1024 }}B and has
+            stayed above the 1.5GB threshold for 5 minutes. Sustained growth here
+            precedes OOM-kill and a pod restart.
+
+  # --- checkout-service ------------------------------------------------------
+  - name: ecommerce-checkout-service
+    interval: 15s
+    rules:
+      - alert: CheckoutTimeoutRate
+        expr: checkout_timeout_rate > 0.10
+        for: 2m
+        labels:
+          service: checkout-service
+          severity: high
+        annotations:
+          summary: "Checkout timeout rate above 10%"
+          description: >-
+            {{ $value | humanizePercentage }} of checkout attempts are timing
+            out. Customers cannot complete purchases; this is revenue-affecting.
+
+  # --- inventory-service -----------------------------------------------------
+  - name: ecommerce-inventory-service
+    interval: 15s
+    rules:
+      - alert: InventoryCheckLatency
+        expr: inventory_check_p95_seconds > 0.5
+        for: 2m
+        labels:
+          service: inventory-service
+          severity: high
+        annotations:
+          summary: "Inventory check p95 latency above 500ms"
+          description: >-
+            Inventory availability checks are taking {{ $value }}s at p95.
+            Checkout blocks on this call, so latency here surfaces as checkout
+            slowness and eventually as checkout timeouts.
+
+  # --- payment-gateway -------------------------------------------------------
+  - name: ecommerce-payment-gateway
+    interval: 15s
+    rules:
+      - alert: PaymentGatewayErrorRate
+        expr: payment_gateway_error_rate > 0.05
+        for: 1m
+        labels:
+          service: payment-gateway
+          severity: critical
+        annotations:
+          summary: "Payment gateway error rate above 5%"
+          description: >-
+            {{ $value | humanizePercentage }} of payment authorization calls are
+            erroring. Distinct from declines: these are gateway faults, not the
+            issuer refusing a card.
+
+      # The only range-vector rule in this file. Declines are a counter, not a
+      # ratio gauge: a decline is a normal business outcome, so what matters is
+      # the *rate of change*, not an instantaneous level.
+      #
+      # DO NOT WIDEN THE WINDOW WITHOUT RE-CHECKING THE FIRING TIME. rate() over
+      # a range starts near zero and climbs as the window fills, so the window
+      # is added to `for` before this fires — unlike the instant-vector rules,
+      # which fire at exactly `for`. At [5m]/for:5m this took 7 minutes of
+      # sustained chaos to fire, not 5. Matching the window to `for` brings it
+      # back to 3m. Both numbers were measured with `promtool test rules`, not
+      # reasoned about; re-measure if you change either.
+      - alert: PaymentDeclineRate
+        expr: rate(payment_declines_total[2m]) > 2
+        for: 2m
+        labels:
+          service: payment-gateway
+          severity: medium
+        annotations:
+          summary: "Payment declines above 2/s"
+          description: >-
+            Card declines are running at {{ $value | printf "%.2f" }}/s over the
+            last 5 minutes. A sustained spike usually means an issuer or BIN
+            range is refusing traffic, not a fault in our gateway.

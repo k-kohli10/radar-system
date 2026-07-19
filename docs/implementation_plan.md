@@ -553,8 +553,8 @@ radar-system/
 │   │   ├── pyproject.toml
 │   │   └── README.md
 │   │
-│   └── order-stub/                    # Local POC only. Never goes to Kubernetes.
-│       ├── src/radar_order_stub/
+│   └── platform-sim/                  # Local POC only. Never goes to Kubernetes.
+│       ├── src/radar_platform_sim/
 │       │   ├── __init__.py
 │       │   ├── main.py
 │       │   ├── metrics.py
@@ -1353,61 +1353,108 @@ All bot responses are ephemeral replies in the same thread as the mention
 
 ---
 
-## Order Stub Service
+## Platform Simulator Service
 
-Local POC only. Never deployed to Kubernetes.
+Local POC only. Never deployed to Kubernetes. Lives at `apps/platform-sim/`
+(package `radar_platform_sim`).
 
-Simulates an e-commerce order-service.
+A SINGLE-PROCESS simulator of a multi-service e-commerce platform — not a set of
+microservices, and never will be. One process exposes a domain metric and a chaos
+endpoint per scenario; the alert rule watching each metric carries the `service`
+label of the service being simulated. That is how one process fires alerts
+labelled `service=payment-gateway` and `service=order-service` without either
+service existing. The service label lives in the rule, not in the metric.
+
+Originally scoped as an order-service stub (`apps/order-stub`). Extended before
+Phase 8 so that every Tier-1 runbook has a matching fireable alert: a runbook
+describing an alert nothing can fire is dead corpus that no e2e will ever
+retrieve.
 
 ```
 GET  /metrics
-     Exposes:
-     order_processing_failure_rate (gauge, 0.0-1.0)
+     Exposes, chaos-driven:
+     order_processing_failure_rate  (gauge, 0.0-1.0)   order-service
+     order_service_memory_bytes     (gauge, bytes)     order-service
+     checkout_timeout_rate          (gauge, 0.0-1.0)   checkout-service
+     inventory_check_p95_seconds    (gauge, seconds)   inventory-service
+     payment_gateway_error_rate     (gauge, 0.0-1.0)   payment-gateway
+     payment_declines_total         (counter)          payment-gateway
+
+     Exposed for scraping completeness, never observed (no simulated traffic):
      order_request_duration_seconds (histogram)
-     order_requests_total (counter)
-     checkout_timeout_rate (gauge, 0.0-1.0)
-     inventory_check_duration_seconds (histogram)
+     order_requests_total           (counter)
 
-POST /chaos/order-failures
-     Body: {"rate": 0.15, "duration_seconds": 120}
-     Spikes order_processing_failure_rate to 0.15 for 120 seconds.
-
-POST /chaos/checkout-timeouts
-     Body: {"rate": 0.08, "duration_seconds": 60}
-     Spikes checkout_timeout_rate to 0.08 for 60 seconds.
+POST /chaos/order-failures      {"rate": 0.15, "duration_seconds": 120}
+POST /chaos/checkout-timeouts   {"rate": 0.35, "duration_seconds": 120}
+POST /chaos/payment-errors      {"rate": 0.15, "duration_seconds": 120}
+POST /chaos/inventory-latency   {"value": 1.5, "duration_seconds": 120}
+POST /chaos/order-memory        {"value": 2.5e9, "duration_seconds": 300}
+POST /chaos/payment-declines    {"per_second": 10.0, "duration_seconds": 300}
 
 POST /chaos/reset
-     Resets all metrics to normal.
+     Clears every scenario. Gauges return to baseline immediately; the decline
+     counter stops climbing but is NOT rewound (a counter going backwards means
+     "process restarted" to rate(), which would corrupt the rule's own query).
 
 GET  /healthz -> 200
 ```
 
-Prometheus rules for the stub:
+Three request shapes, because the metric kinds validate differently:
 
-```yaml
-groups:
-  - name: ecommerce-alerts
-    rules:
-      - alert: OrderProcessingFailureRate
-        expr: order_processing_failure_rate > 0.05
-        for: 1m
-        labels:
-          severity: critical
-          service: order-service
-        annotations:
-          summary: "Order processing failure rate above 5%"
+- **ratio gauges** take `rate` (0.0-1.0). The `le=1.0` bound is real validation:
+  it rejects `{"rate": 15}` from someone who meant 15%, which would otherwise pin
+  the gauge at 15.0 and breach every ratio rule at once while returning 200.
+- **absolute gauges** take `value` in the metric's own unit (seconds, bytes),
+  deliberately uncapped — 1.5s and 2.5e9 bytes are both ordinary.
+- **counters** take `per_second`. A counter cannot be pinned: the rule reads
+  `rate()`, the slope, so the metric must EVOLVE. Each scrape advances it by
+  `per_second x elapsed` within the active window, carrying the fractional
+  remainder so it advances by whole events without losing any to rounding.
 
-      - alert: CheckoutTimeoutRate
-        expr: checkout_timeout_rate > 0.03
-        for: 2m
-        labels:
-          severity: high
-          service: checkout-service
-        annotations:
-          summary: "Checkout timeout rate above 3%"
+No background reset task anywhere: a spike stores a monotonic deadline and the
+metric is computed from it at scrape time, so expiry IS the reset.
+
+### Alert rules
+
+Live in `deploy/prometheus/alerting-rules.yml` in radar-system, NOT in
+radar-infra. They describe a made-up shop that exists to generate incidents;
+RADAR's own service alerts (LLM gateway fallback, outbox backlog, agent health)
+belong in radar-infra and are a Phase 10 deliverable. Six rules across four
+services:
+
+```
+order-service       OrderProcessingFailureRate  > 0.05        for 1m   critical
+order-service       OrderServiceHighMemory      > 1.5e9       for 5m   medium
+checkout-service    CheckoutTimeoutRate         > 0.10        for 2m   high
+inventory-service   InventoryCheckLatency       > 0.5         for 2m   high
+payment-gateway     PaymentGatewayErrorRate     > 0.05        for 1m   critical
+payment-gateway     PaymentDeclineRate          rate[2m] > 2  for 2m   medium
 ```
 
----
+`severity` must come from the canonical `Severity` enum
+(critical|high|medium|low|info). Prometheus's conventional `warning`/`page`
+spellings are rejected by ingestion with 422 — it validates against that set and
+never translates one spelling to another.
+
+A rule has TWO bars and a spike must clear both: magnitude, and duration. A spike
+shorter than the rule's `for` never fires however large it is. The measured
+minimum spike and duration per rule are tabulated in the rules file header;
+`PaymentDeclineRate` is the one to watch, because `rate()` over a range climbs as
+the window fills, so the window ADDS to `for` rather than overlapping it.
+
+### Not wired up yet
+
+Nothing mounts or evaluates the rules file: there is no scrape config and no
+alertmanager in `deploy/compose/docker-compose.yml`, and platform-sim is not a
+compose service. Standing up the running Prometheus + alertmanager, wiring them
+into compose, and proving the real front door in the default suite are all
+**deferred to Phase 10 (Observability)**, which already owns that infrastructure.
+
+The real path is nonetheless proven ONCE, opt-in, by
+`tests/e2e/test_real_prometheus_alert.py` under the `infra` marker: real
+Prometheus with these rules mounted, real alertmanager, firing to a real webhook
+receiver in ~85s. It is deselected by default so the suite never depends on
+Docker.
 
 ## Knowledge Service
 
@@ -1924,13 +1971,14 @@ Done when:
 
 ---
 
-## Phase 5: Ingestion and Order Stub
+## Phase 5: Ingestion and Platform Simulator
 **Milestone: v0.5-ingestion**
 
 Deliverables:
 ```
 apps/ingestion/
-apps/order-stub/
+apps/platform-sim/
+deploy/prometheus/alerting-rules.yml
 plugins/logs/elastic/
 plugins/metrics/prometheus/
 ```
@@ -1974,6 +2022,39 @@ docs: add adr 0011 inbound webhook token pattern
 
 Done when: POST /alerts/mock creates one incident + outbox event. Second identical
 POST within 5 minutes creates neither.
+
+### Pre-Phase-8 extension (done later, on `pre-phase-8-order-stub-fix`)
+
+Phase 5 shipped a stub simulating order-service only, and MET its bar — the
+done-condition above is written entirely in terms of `/alerts/mock`. But Phase 8
+retrieval is triggered by incidents, and incidents come from alerts, so a stub
+that fires three scenarios would leave most of a 15-20 runbook corpus describing
+alerts nothing can produce. The stub was therefore extended into the platform
+simulator BEFORE writing any runbook, so every Tier-1 runbook has a matching
+fireable alert.
+
+```
+refactor(order-stub): rename the stub to platform-simulator
+feat(deploy): declare prometheus alert rules for simulated scenarios
+feat(platform-sim): add payment-gateway error-rate and decline-rate scenarios
+feat(platform-sim): add inventory-service check-latency scenario
+feat(platform-sim): add order-service memory-pressure scenario
+test(platform-sim): prove a chaos spike drives an alert to an incident
+```
+
+Scope decision, so it is not relitigated: the alert RULES are declared here, in
+`deploy/prometheus/alerting-rules.yml`. The running Prometheus + alertmanager,
+their compose wiring, and proving the real scrape -> fire -> webhook path in the
+default suite are **Phase 10's**, not Phase 5's — that infrastructure was always
+a Phase 10 deliverable, and Phase 8 does not need it (ingestion creates the same
+incident whether the alert arrived from a real breach or a crafted POST, and the
+reasoner retrieves on service_name + alert_name either way). The real path is
+proven once, opt-in, behind the `infra` marker.
+
+Extended done-condition: a chaos spike breaches its declared rule and the
+resulting alertmanager-shaped body creates exactly one incident through
+`/alerts/prometheus`; a second identical POST creates none. Six scenarios across
+four services are fireable.
 
 ---
 
@@ -2092,6 +2173,23 @@ This is your POC. Everything after this is improvement.
 
 Write the runbooks before writing code. You need real content to test retrieval against.
 
+Every Tier-1 runbook below has a matching FIREABLE alert: platform-sim was
+extended before this phase precisely so none of them describes an alert nothing
+can produce (see the Phase 5 pre-Phase-8 extension). The mapping is one-to-one:
+
+```
+order-service-high-failure-rate  <- OrderProcessingFailureRate  order-service
+order-service-high-memory        <- OrderServiceHighMemory      order-service
+checkout-timeout-rate            <- CheckoutTimeoutRate         checkout-service
+inventory-check-latency          <- InventoryCheckLatency       inventory-service
+payment-gateway-errors           <- PaymentGatewayErrorRate     payment-gateway
+payment-decline-rate             <- PaymentDeclineRate          payment-gateway
+```
+
+Retrieval is triggered by an incident and matches on service_name + alert_name,
+so a runbook whose alert cannot fire is corpus no e2e will ever retrieve. Drive
+these end to end with the chaos endpoints, not with hand-written incidents.
+
 Deliverables:
 ```
 docs/runbooks/order-service-high-failure-rate.md
@@ -2099,6 +2197,7 @@ docs/runbooks/order-service-high-memory.md
 docs/runbooks/checkout-timeout-rate.md
 docs/runbooks/inventory-check-latency.md
 docs/runbooks/payment-gateway-errors.md
+docs/runbooks/payment-decline-rate.md
 apps/knowledge-service/
 plugins/traces/elastic/
 ```
@@ -2110,6 +2209,7 @@ docs(runbooks): add order service high memory runbook
 docs(runbooks): add checkout timeout rate runbook
 docs(runbooks): add inventory latency runbook
 docs(runbooks): add payment gateway errors runbook
+docs(runbooks): add payment decline rate runbook
 feat(knowledge): add runbook indexer with sha256 change detection
 feat(knowledge): add elasticsearch dense vector index setup
 feat(knowledge): add embedding calls via llm-gateway embed mode
@@ -2307,7 +2407,7 @@ Phase 1  + Makefile pyproject.toml compose stack
 Phase 2  + packages/contracts packages/plugin-sdk
 Phase 3  + packages/common packages/database packages/telemetry
 Phase 4  + apps/llm-gateway plugins/llm/
-Phase 5  + apps/ingestion apps/order-stub plugins/logs plugins/metrics
+Phase 5  + apps/ingestion apps/platform-sim plugins/logs plugins/metrics
 Phase 6  + apps/outbox-worker
 Phase 7  + apps/watcher-agent apps/planner-agent apps/reasoner-agent
            tests/e2e/
@@ -2335,7 +2435,8 @@ Phase 14   Polished docs case study benchmark
 The only thing that matters until Phase 7 is complete:
 
 ```
-POST /alerts/mock (or Prometheus fires via order-stub chaos endpoint)
+POST /alerts/mock (or a crafted /alerts/prometheus body via a platform-sim
+         chaos endpoint — see tests/e2e/test_platform_sim_alert_path.py)
   |
 ingestion
   normalize -> fingerprint -> dedup -> INSERT incident + outbox_event (one tx)
