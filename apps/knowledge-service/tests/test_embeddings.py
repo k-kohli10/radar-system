@@ -28,7 +28,7 @@ from radar_knowledge_service.embeddings import (
     EmbeddingTimeoutError,
     EmbeddingUnavailableError,
     GatewayEmbeddingClient,
-    estimate_tokens,
+    estimate_input_tokens,
 )
 
 DIMS = 8  # small, so fixtures stay readable; dimension logic is dimension-agnostic
@@ -120,10 +120,10 @@ async def test_inputs_are_batched_and_reassembled_in_order() -> None:
 # -------------------------------------------------------------- budget check
 
 
-def test_estimate_tokens_mirrors_the_gateways_four_chars_per_token() -> None:
-    assert estimate_tokens("") == 0
-    assert estimate_tokens("abcd") == 1
-    assert estimate_tokens("abcde") == 2  # ceil, as the gateway does
+def test_input_token_estimate_is_the_shared_gateway_estimator() -> None:
+    assert estimate_input_tokens("") == 0
+    assert estimate_input_tokens("abcd") == 1
+    assert estimate_input_tokens("abcde") == 2  # ceil, as the gateway does
 
 
 async def test_an_oversized_input_is_rejected_before_any_call() -> None:

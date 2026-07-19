@@ -42,13 +42,10 @@ from fastapi import FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from radar_common import AGENT_TOKEN_HEADER
+from radar_common import AGENT_TOKEN_HEADER, estimate_tokens
 from radar_contracts import LLMMode, Message
 
 from .config import ModeConfig, TokenGrant, TokenMap
-
-CHARS_PER_TOKEN = 4
-"""Heuristic divisor for estimating tokens from character count."""
 
 GUARDED_PATH_PREFIX = "/v1/"
 """Every route under this prefix requires a valid agent token."""
@@ -118,12 +115,6 @@ def authorize_mode(grant: TokenGrant, requested: LLMMode) -> None:
                 f"mode '{requested.value}'"
             ),
         )
-
-
-def estimate_tokens(texts: Iterable[str]) -> int:
-    """Estimate the token count of ``texts`` at ~4 characters per token."""
-    total_chars = sum(len(text) for text in texts)
-    return -(-total_chars // CHARS_PER_TOKEN)  # ceil division
 
 
 def enforce_chat_budget(

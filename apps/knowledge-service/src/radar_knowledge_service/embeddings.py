@@ -38,13 +38,17 @@ indexer wants to wait for.
 from __future__ import annotations
 
 import asyncio
-import math
 import time
 from typing import Any
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
-from radar_common import AGENT_TOKEN_HEADER, ConfigurationError, get_logger
+from radar_common import (
+    AGENT_TOKEN_HEADER,
+    ConfigurationError,
+    estimate_tokens,
+    get_logger,
+)
 from radar_contracts import LLMMode
 
 log = get_logger("knowledge.embeddings")
@@ -63,14 +67,6 @@ to be ordered against it.
 
 DEFAULT_BATCH_SIZE = 64
 """Inputs per gateway request. Bounded so one oversized batch cannot be built."""
-
-#: Mirrors ``CHARS_PER_TOKEN`` in the gateway's ``core/security.py``. The gateway
-#: is the authority — it enforces the real limit and returns 422 — but it rejects
-#: the WHOLE batch when one input is over, so a local estimate lets us say which
-#: chunk is at fault instead of failing 64 good ones with it. If the two ever
-#: drift, the gateway still wins and the error surfaces as EmbeddingRejectedError;
-#: the cost is a less precise message, never a wrong index.
-_CHARS_PER_TOKEN = 4
 
 #: The gateway's ``embed`` mode per-input limit (``config/gateway.yaml``).
 DEFAULT_MAX_INPUT_TOKENS = 8191
@@ -117,9 +113,15 @@ class _EmbedResponse(BaseModel):
     model: str
 
 
-def estimate_tokens(text: str) -> int:
-    """Estimate one input's token count, mirroring the gateway's estimator."""
-    return math.ceil(len(text) / _CHARS_PER_TOKEN)
+def estimate_input_tokens(text: str) -> int:
+    """Estimate one input's token count.
+
+    Embedding limits are per input, not per batch, so this wraps the shared
+    estimator with a one-element tuple — the same call the gateway's own
+    ``enforce_embed_budget`` makes, from the same function, so the pre-check
+    here and the enforcement there cannot disagree.
+    """
+    return estimate_tokens((text,))
 
 
 class GatewayEmbeddingClient:
@@ -167,7 +169,7 @@ class GatewayEmbeddingClient:
         anonymously.
         """
         for position, text in enumerate(texts):
-            estimated = estimate_tokens(text)
+            estimated = estimate_input_tokens(text)
             if estimated > self._max_input_tokens:
                 raise EmbeddingRejectedError(
                     f"input {position} is ~{estimated} tokens, over the embed "

@@ -13,7 +13,6 @@ from radar_llm_gateway.core.config import (
     load_gateway_config,
     load_token_map,
 )
-from radar_llm_gateway.core.security import estimate_tokens
 
 
 def test_gateway_config_loads_all_modes_and_fallbacks(tmp_path: Path) -> None:
@@ -97,18 +96,6 @@ def test_token_map_empty_fails_startup(tmp_path: Path) -> None:
         load_token_map(directory=tmp_path)
 
 
-@pytest.mark.parametrize(
-    ("texts", "expected"),
-    [
-        ([], 0),
-        ([""], 0),
-        (["abcd"], 1),
-        (["abcde"], 2),  # ceil(5/4)
-        (["ab", "cd"], 1),  # summed before dividing
-        (["x" * 4096 * 4], 4096),
-    ],
-)
-def test_estimate_tokens_is_ceil_of_chars_over_four(
-    texts: list[str], expected: int
-) -> None:
-    assert estimate_tokens(texts) == expected
+# The token estimator moved to `radar_common.tokens` (the gateway enforces input
+# limits, callers pre-check against them, and the arithmetic must agree), and its
+# tests moved with it: packages/common/tests/test_tokens.py.
