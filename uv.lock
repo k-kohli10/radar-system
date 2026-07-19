@@ -13,6 +13,7 @@ members = [
     "radar-contracts",
     "radar-database",
     "radar-ingestion",
+    "radar-knowledge-service",
     "radar-llm-gateway",
     "radar-outbox-worker",
     "radar-planner-agent",
@@ -2196,6 +2197,33 @@ dev = [
     { name = "pytest", specifier = "==8.3.0" },
     { name = "pytest-asyncio", specifier = "==0.24.0" },
     { name = "radar-testing", editable = "packages/testing" },
+]
+
+[[package]]
+name = "radar-knowledge-service"
+version = "0.8.0"
+source = { editable = "apps/knowledge-service" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "types-pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = "==6.0.2" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "types-pyyaml", specifier = "==6.0.12.20250516" },
 ]
 
 [[package]]
