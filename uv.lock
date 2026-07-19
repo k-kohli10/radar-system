@@ -2205,7 +2205,11 @@ name = "radar-knowledge-service"
 version = "0.8.0"
 source = { editable = "apps/knowledge-service" }
 dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "radar-common" },
+    { name = "radar-contracts" },
 ]
 
 [package.dev-dependencies]
@@ -2217,7 +2221,13 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyyaml", specifier = "==6.0.2" }]
+requires-dist = [
+    { name = "httpx", specifier = "==0.28.0" },
+    { name = "pydantic", specifier = "==2.13.4" },
+    { name = "pyyaml", specifier = "==6.0.2" },
+    { name = "radar-common", editable = "packages/common" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+]
 
 [package.metadata.requires-dev]
 dev = [
