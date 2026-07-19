@@ -64,6 +64,7 @@ AGENT_SERVICES = (
     "watcher-agent",
     "planner-agent",
     "reasoner-agent",
+    "knowledge-service",
 )
 
 #: Targets the outbox worker dispatches to. Its dispatch_tokens map is rebuilt
@@ -83,6 +84,10 @@ DISPATCH_TARGETS = (
 #: keep working, which is the opposite of what deleting it is supposed to mean.
 GATEWAY_GRANTS = {
     "reasoner-agent": "extended",
+    # Phase 8: the knowledge service embeds runbook chunks and queries. It never
+    # calls OpenAI directly — the gateway is the only thing holding provider keys
+    # — so indexing and retrieval both depend on this grant existing.
+    "knowledge-service": "embed",
 }
 
 #: Inbound webhook tokens, one per alert source (ADR 0011): each source's token is
