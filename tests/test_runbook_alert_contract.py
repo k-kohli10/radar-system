@@ -13,10 +13,15 @@ That is the same silent-join failure mode as
 expressions to exposed metrics. This module is its counterpart one level up:
 rules to runbooks.
 
-Scope note: this checks the FORWARD direction — every runbook resolves to a real
-rule. The reverse direction (every fireable alert HAS a Tier-1 runbook, so no
-alert is left without corpus) belongs with the last Tier-1 runbook, since until
-the six exist it would assert a corpus that is still being written.
+Both directions are checked, and together they make the Tier-1 coupling
+bijective:
+
+- FORWARD (every runbook resolves to a real rule) catches a runbook describing an
+  alert nothing can fire — dead corpus no incident will ever retrieve.
+- REVERSE (every alert has a Tier-1 runbook) catches a fireable alert with no
+  corpus behind it — the alert fires, retrieval finds nothing, and the reasoner
+  quietly falls back to a template RCA. Nothing errors; the incident just gets a
+  worse answer.
 """
 
 from __future__ import annotations
@@ -201,6 +206,47 @@ def test_tier1_runbook_agrees_with_its_alert_on_service_and_severity(
     assert frontmatter["severity"] == labels["severity"], (
         f"{path.name} declares severity={frontmatter['severity']!r} but "
         f"{frontmatter['alert_name']!r} fires at severity={labels['severity']!r}."
+    )
+
+
+def test_the_alert_rules_are_not_empty() -> None:
+    """Guard the reverse direction's collection, for the same reason as above.
+
+    The reverse test is parametrized over the ALERTS, so an alert list that
+    parses to nothing — file moved, structure changed, a `groups:` key renamed —
+    would generate zero cases and pass green while asserting nothing about
+    runbook coverage.
+    """
+    assert _rules(), (
+        f"no alert rules parsed from {RULES_FILE}. The reverse-direction test "
+        f"just silently stopped checking that alerts have runbooks."
+    )
+
+
+@pytest.mark.parametrize("alert", sorted(_rules()))
+def test_every_alert_has_a_tier1_runbook(alert: str) -> None:
+    """The reverse direction: a fireable alert with no runbook is a silent gap.
+
+    ASSUMPTION ENCODED HERE: every alert in the rules file is Tier-1, i.e. every
+    alert deserves a runbook. That is true by design today — the six alerts and
+    the six Tier-1 runbooks are 1:1 (docs/runbooks/README.md). If an alert is
+    ever added that deliberately has no runbook, this test is what will fail, and
+    the fix is to make that exemption explicit here rather than to delete the
+    check. See the failure message.
+    """
+    documented = {
+        frontmatter["alert_name"]
+        for path in _tier1_paths()
+        if (frontmatter := _parse(path)[0])
+    }
+
+    assert alert in documented, (
+        f"alert {alert!r} can fire but no runbook documents it. An incident from "
+        f"it will retrieve nothing and the reasoner will fall back to a template "
+        f"RCA — no error, just a worse answer.\n"
+        f"This test assumes every alert is Tier-1 (today they are, 1:1). If "
+        f"{alert!r} is deliberately runbook-less, add an explicit exemption here "
+        f"rather than removing the check."
     )
 
 
