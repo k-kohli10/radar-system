@@ -75,9 +75,16 @@ class FakeEmbedder:
 
 
 def _retriever(
-    backend: FakeBackend, embedder: FakeEmbedder | None = None
+    backend: FakeBackend,
+    embedder: FakeEmbedder | None = None,
+    *,
+    reranker: Any = None,
 ) -> HybridRetriever:
-    return HybridRetriever(backend=backend, embedder=embedder or FakeEmbedder())
+    return HybridRetriever(
+        backend=backend,
+        embedder=embedder or FakeEmbedder(),
+        reranker=reranker,
+    )
 
 
 async def test_both_legs_are_searched() -> None:
@@ -216,3 +223,132 @@ async def test_an_empty_query_is_refused(blank: str) -> None:
         await _retriever(backend).retrieve(blank)
 
     assert backend.calls == []
+
+
+# ------------------------------------------------------------- rerank wiring
+
+
+class FakeReranker:
+    """Records what it was given and returns a chosen order."""
+
+    def __init__(self, order: list[str] | None = None) -> None:
+        self.order = order
+        self.calls: list[tuple[str, list[str], int | None]] = []
+
+    async def rerank(
+        self, query: str, candidates: list[dict[str, Any]], *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        self.calls.append((query, [c["chunk_id"] for c in candidates], limit))
+        if self.order is None:
+            return candidates if limit is None else candidates[:limit]
+        by_id = {c["chunk_id"]: c for c in candidates}
+        picked = [by_id[i] for i in self.order if i in by_id]
+        return picked if limit is None else picked[:limit]
+
+
+async def test_without_a_reranker_the_fused_order_is_returned() -> None:
+    """The configuration the recorded stage baselines measure."""
+    backend = FakeBackend(bm25=[_hit("a"), _hit("b")], knn=[_hit("a"), _hit("b")])
+
+    results = await _retriever(backend).retrieve("q")
+
+    assert [h["chunk_id"] for h in results] == ["a", "b"]
+
+
+async def test_the_reranker_sees_more_candidates_than_the_caller_asked_for() -> None:
+    """Reranking can only promote what it can see.
+
+    Truncating to `limit` before reranking would hide exactly the candidates the
+    stage exists to promote — a rank-6 chunk can never reach rank 1 if the
+    reranker is only shown three.
+    """
+    hits = [_hit(f"c{i}") for i in range(10)]
+    backend = FakeBackend(bm25=hits, knn=hits)
+    reranker = FakeReranker()
+
+    await _retriever(backend, reranker=reranker).retrieve("q", limit=3)
+
+    _, seen, limit = reranker.calls[0]
+    assert len(seen) == 10
+    assert limit == 3
+
+
+async def test_the_reranked_order_is_what_retrieval_returns() -> None:
+    """The shell must not re-sort after the stage it just ran."""
+    hits = [_hit("a"), _hit("b"), _hit("c")]
+    backend = FakeBackend(bm25=hits, knn=hits)
+    reranker = FakeReranker(order=["c", "a", "b"])
+
+    results = await _retriever(backend, reranker=reranker).retrieve("q", limit=3)
+
+    assert [h["chunk_id"] for h in results] == ["c", "a", "b"]
+
+
+async def test_the_reranker_is_given_the_query_text() -> None:
+    """It scores relevance TO the query; without it there is nothing to score."""
+    backend = FakeBackend(bm25=[_hit("a")], knn=[_hit("a")])
+    reranker = FakeReranker()
+
+    await _retriever(backend, reranker=reranker).retrieve("orders failing")
+
+    assert reranker.calls[0][0] == "orders failing"
+
+
+async def test_a_reranker_returning_the_input_unchanged_is_the_fused_order() -> None:
+    """The degraded path: a failed rerank must still return usable retrieval."""
+    hits = [_hit("a"), _hit("b")]
+    backend = FakeBackend(bm25=hits, knn=hits)
+
+    results = await _retriever(backend, reranker=FakeReranker()).retrieve("q", limit=2)
+
+    assert [h["chunk_id"] for h in results] == ["a", "b"]
+
+
+async def test_candidates_reaching_the_reranker_have_unique_ids() -> None:
+    """The precondition rerank's tiebreak equivalence depends on.
+
+    `rerank_by_scores` builds a position map keyed by chunk_id. If the same id
+    arrived twice — both legs returning it, which is the NORMAL case — the map
+    would collapse and two candidates would share a sort key. Fusion dedupes, so
+    this holds; it is asserted because it is a precondition of an argument made
+    elsewhere, not because it is obvious.
+    """
+    shared = [_hit("dup"), _hit("other")]
+    backend = FakeBackend(bm25=shared, knn=list(reversed(shared)))
+    reranker = FakeReranker()
+
+    await _retriever(backend, reranker=reranker).retrieve("q")
+
+    _, seen, _ = reranker.calls[0]
+    assert len(seen) == len(set(seen))
+
+
+async def test_a_fully_tied_rerank_returns_the_fused_order_unchanged() -> None:
+    """An LLM scoring everything equally must be a no-op, not a reshuffle.
+
+    This is the wired version of the tiebreak rule: if reranking cannot
+    distinguish the candidates, the pipeline's existing belief has to survive.
+    Were it not so, every uninformative rerank call would silently permute the
+    ranking, and the recorded rank baselines would move for no attributable
+    reason.
+    """
+    from radar_knowledge_service.reranking import rerank_by_scores
+
+    class TiedReranker:
+        async def rerank(
+            self,
+            query: str,
+            candidates: list[dict[str, Any]],
+            *,
+            limit: int | None = None,
+        ) -> list[dict[str, Any]]:
+            scores = {c["chunk_id"]: 5.0 for c in candidates}
+            return rerank_by_scores(candidates, scores, limit=limit)
+
+    hits = [_hit("a"), _hit("b"), _hit("c"), _hit("d")]
+    backend = FakeBackend(bm25=hits, knn=list(reversed(hits)))
+
+    fused = await _retriever(backend).retrieve("q", limit=4)
+    reranked = await _retriever(backend, reranker=TiedReranker()).retrieve("q", limit=4)
+
+    assert [h["chunk_id"] for h in reranked] == [h["chunk_id"] for h in fused]

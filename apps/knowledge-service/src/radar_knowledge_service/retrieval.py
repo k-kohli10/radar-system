@@ -43,6 +43,11 @@ log = get_logger("knowledge.retrieval")
 #: strategy in the implementation plan (BM25 top 20, kNN top 20, RRF top 10).
 DEFAULT_LEG_SIZE = 20
 
+#: Candidates fusion hands to reranking. The plan's "RRF -> top 10, rerank ->
+#: top 5": reranking sees more than the caller asked for, because a chunk it
+#: would promote to first has to be in front of it to be promoted at all.
+DEFAULT_FUSE_SIZE = 10
+
 
 class SearchBackend(Protocol):
     """The two search primitives, as this layer needs them.
@@ -72,6 +77,19 @@ class QueryEmbedder(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
+class Reranker(Protocol):
+    """The rerank stage, as this layer needs it.
+
+    Returns candidates reordered and never raises: reranking improves an ordering
+    that is already usable, so its failure degrades to the fused result rather
+    than costing the incident its context.
+    """
+
+    async def rerank(
+        self, query: str, candidates: list[dict[str, Any]], *, limit: int | None = ...
+    ) -> list[dict[str, Any]]: ...
+
+
 class HybridRetriever:
     """Retrieves runbook chunks by fusing lexical and vector search."""
 
@@ -80,11 +98,22 @@ class HybridRetriever:
         *,
         backend: SearchBackend,
         embedder: QueryEmbedder,
+        reranker: Reranker | None = None,
         leg_size: int = DEFAULT_LEG_SIZE,
+        fuse_size: int = DEFAULT_FUSE_SIZE,
     ) -> None:
+        """``reranker`` is optional, and its absence is a supported configuration.
+
+        Retrieval without it returns the fused ordering, which is what the
+        recorded stage baselines measure. Making it optional is also what lets
+        the pipeline be measured at each stage boundary rather than only end to
+        end.
+        """
         self._backend = backend
         self._embedder = embedder
+        self._reranker = reranker
         self._leg_size = leg_size
+        self._fuse_size = fuse_size
 
     async def retrieve(
         self,
@@ -125,13 +154,20 @@ class HybridRetriever:
         for hit in (*vectorial, *lexical):
             by_id.setdefault(hit["chunk_id"], hit)
 
+        # Fuse to `fuse_size` rather than to `limit` when a reranker is present:
+        # reranking can only reorder what it is given, so truncating to the
+        # caller's limit first would hide from it exactly the candidates it might
+        # promote. Without a reranker there is nothing downstream to feed, so the
+        # fused list is cut to `limit` directly.
+        fuse_limit = max(self._fuse_size, limit) if self._reranker else limit
         fused_ids = reciprocal_rank_fusion(
             [
                 [hit["chunk_id"] for hit in lexical],
                 [hit["chunk_id"] for hit in vectorial],
             ],
-            limit=limit,
+            limit=fuse_limit,
         )
+        fused = [by_id[chunk_id] for chunk_id in fused_ids]
 
         log.info(
             "knowledge.retrieved",
@@ -139,6 +175,10 @@ class HybridRetriever:
             service_name=service_name,
             bm25_hits=len(lexical),
             knn_hits=len(vectorial),
-            fused=len(fused_ids),
+            fused=len(fused),
+            reranked=self._reranker is not None,
         )
-        return [by_id[chunk_id] for chunk_id in fused_ids]
+
+        if self._reranker is None:
+            return fused
+        return await self._reranker.rerank(query, fused, limit=limit)
