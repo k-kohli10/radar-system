@@ -122,6 +122,53 @@
 # that caught the embedding non-determinism. A probe with rank_stable=false
 # supports no claim about any stage, in either direction.
 
+# RERANK'S EVIDENCE BASE — PRE-REGISTERED BEFORE ANY RERANK CODE EXISTS
+# ----------------------------------------------------------------------
+# The hybrid slice changed what evidence is available, so the criterion is fixed
+# again here BEFORE building the stage it judges. What changed, from
+# baseline-hybrid.json:
+#
+#   inventory-phantom-out-of-stock   rank 2 -> 1   fixed by fusion
+#   payment-no-answer                rank 2 -> 1   fixed by fusion
+#   inventory-slow-then-recovering   rank 4 -> 3   improved, still wrong
+#   the other three                  rank 1        unchanged
+#
+# So five of six probes now sit at rank 1 and only ONE pre-registered miss is
+# left for reranking to fix. That is thinner evidence than the three-miss setup
+# this evaluation was designed around, and it has to be said plainly rather than
+# quietly absorbed: a stage judged on one probe can be fixed by luck.
+#
+# THE CRITERION, both parts required:
+#
+#   (a) FIX     inventory-slow-then-recovering reaches best_rank == 1.
+#   (b) HOLD    all five probes already at best_rank == 1 stay at best_rank == 1.
+#
+# Part (b) is not padding. Reranking reorders the whole candidate list, so it can
+# demote a correct answer as easily as promote one — and a stage that fixes one
+# probe while breaking two has made retrieval worse, which a one-probe criterion
+# would score as success. The five hits are the regression guard they naturally
+# are, and they cost nothing to check because they are already measured.
+#
+# Both parts are judged on rank, against the rank_stable evidence in the recorded
+# baselines. A movement on a probe whose rank is not stable proves nothing.
+#
+# WHY THE FIX-OPPORTUNITY SHRANK — AND WHY THAT IS NOT A FAILURE
+# ---------------------------------------------------------------
+# `payment-no-answer` was reserved as the clean rerank test on the stated
+# assumption that BM25 would be inert on it, both runbooks being lexically alike
+# about an unresponsive processor. That assumption was WRONG: BM25 ranks the
+# correct runbook in three of its top four, and fusion fixed the probe. Overlap
+# between competing runbooks does not neutralise BM25 when the query's own terms
+# match one of them better.
+#
+# The assumption is left recorded as it was made. Fusion doing more than expected
+# is a good outcome for retrieval and an inconvenient one for the evaluation, and
+# those are different things — the second is not a reason to restate the first.
+#
+# If reranking then earns its place on one probe plus a clean regression record,
+# that is the honest strength of the evidence, and the phase should say so rather
+# than imply the three-miss case it no longer has.
+
 # ATTRIBUTION: WHICH STAGE GETS CREDIT FOR MOVING A MARGIN
 # ---------------------------------------------------------
 # PRE-REGISTERED BEFORE THE RETRIEVAL SLICES EXIST, for the same reason the
