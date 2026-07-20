@@ -50,7 +50,10 @@ pytestmark = [pytest.mark.live, pytest.mark.infra]
 CORPUS = Path(__file__).resolve().parents[2] / "docs" / "runbooks"
 ES_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
 GATEWAY_URL = os.environ.get("RADAR_GATEWAY_URL", "http://127.0.0.1:8098")
-TOKEN_FILE = Path.home() / ".radar-dev/secrets/knowledge-service/gateway_token"
+#: Per-mode, because knowledge-service holds two gateway tokens: one granting
+#: `embed` (this file) and one granting `reason` for reranking. Indexing needs
+#: only the first.
+TOKEN_FILE = Path.home() / ".radar-dev/secrets/knowledge-service/gateway_token_embed"
 TEST_INDEX = "radar-runbooks-e2e"
 
 #: Indexed first. The runbook added mid-test is deliberately NOT in this set.

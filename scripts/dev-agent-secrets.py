@@ -48,6 +48,41 @@ POSTGRES_PATH = "secret/data/radar/postgres"
 #: name. A service that lacks one simply does not get that file.
 SERVICE_FIELDS = ("agent_token", "gateway_token", "dispatch_tokens")
 
+#: Gateway-token fields are also matched by PREFIX, because a service granted more
+#: than one mode holds one token per mode (``gateway_token_embed``,
+#: ``gateway_token_reason``) rather than a single ``gateway_token``. Listing them
+#: here by hand would mean this file has to be edited every time a grant is added
+#: in dev-mint-tokens.py — the drift that script's docstring exists to prevent.
+GATEWAY_FIELD_PREFIX = "gateway_token"
+
+
+def secret_fields(secret: dict[str, Any]) -> list[str]:
+    """Which of a secret's fields become files, in a stable order."""
+    return sorted(
+        {
+            field
+            for field in secret
+            if field in SERVICE_FIELDS or field.startswith(GATEWAY_FIELD_PREFIX)
+        }
+    )
+
+
+def prune_stale_gateway_files(directory: Path, keep: set[str]) -> None:
+    """Delete gateway-token files Vault no longer has.
+
+    Without this, dropping a grant — or a service going from one grant to
+    per-mode tokens — leaves the old file on disk holding a token nothing
+    refreshes and the gateway may have already revoked. A service reading it
+    fails at call time with a 401 that looks like a gateway problem, when the
+    real cause is a file that should not still exist. Writing new files without
+    removing dead ones is the same silent-staleness this repo keeps designing
+    against.
+    """
+    for path in sorted(directory.glob(f"{GATEWAY_FIELD_PREFIX}*")):
+        if path.name not in keep:
+            path.unlink()
+            print(f"    removed {path.name} (no longer in Vault)")
+
 
 def read_env() -> dict[str, str]:
     env_path = REPO_ROOT / ".env"
@@ -121,10 +156,12 @@ def main() -> None:
                 directory = root_dir / service
                 directory.mkdir(parents=True, exist_ok=True)
                 print(f"  {service}/")
-                for field in SERVICE_FIELDS:
+                fields = secret_fields(secret)
+                for field in fields:
                     value = secret.get(field)
                     if value:
                         write_secret_file(directory, field, value)
+                prune_stale_gateway_files(directory, keep=set(fields))
                 # Every agent talks to Postgres, and each reads the DSN from its
                 # own mount — so it is copied per service, not shared.
                 write_secret_file(directory, "postgres_dsn", dsn)

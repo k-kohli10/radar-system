@@ -84,7 +84,7 @@ async def main() -> None:
     probes = yaml.safe_load(PROBES.read_text())["probes"]
     assert probes, f"no probes parsed from {PROBES} — measuring nothing"
 
-    token = (SECRETS / "knowledge-service/gateway_token").read_text().strip()
+    token = (SECRETS / "knowledge-service/gateway_token_embed").read_text().strip()
 
     async with httpx.AsyncClient(timeout=None) as es:
         count = (await es.get(f"{ES}/{INDEX}/_count")).json()["count"]
