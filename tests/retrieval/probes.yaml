@@ -63,6 +63,65 @@
 # it would have removed this competitor for free, which is a point in favour of
 # filtering before scoring rather than after.
 
+# TWO METRICS, AND WHY NEITHER ALONE SURVIVES THE PIPELINE
+# ---------------------------------------------------------
+# PRE-REGISTERED BEFORE THE HYBRID SLICE EXISTS.
+#
+# The score margin was the right metric for a pure kNN baseline. It does not
+# survive RRF: reciprocal-rank fusion combines result lists BY RANK and discards
+# the scores, and BM25 scores are on a different scale from cosine anyway. After
+# fusion there is no score margin to compare — not a noisier one, none. So "the
+# margin moved" would have no defined meaning against a fused pipeline, and the
+# pre-registered numbers would quietly stop referring to anything.
+#
+# Both metrics are therefore recorded at every stage boundary:
+#
+#   MARGIN (cosine, kNN leg only)   Continuous with this baseline — literally the
+#     same quantity — so the pre-registered numbers keep their thread. Isolates
+#     the embedding stage: it answers "did vector search's view of this probe
+#     change?", which stays meaningful even when the pipeline no longer ends
+#     there.
+#
+#   BEST_RANK (final ordering)      1-indexed position of the highest-ranked chunk
+#     belonging to the expected runbook. Describes what the pipeline actually
+#     returns, which is a ranking. A NEW quantity, so it needs its own
+#     pre-registered baseline — recorded in baseline.json alongside the margins.
+#
+# The difference between them is the point: the kNN-leg margin isolates the
+# embedding stage, best_rank captures the whole pipeline, and what BM25, RRF, and
+# reranking contributed is exactly the gap. Margin alone measures one leg and
+# calls it the pipeline; rank alone orphans the pre-registered baseline.
+#
+# WHAT COUNTS AS "FIXED" — DEFINED BEFORE ANY POST-SLICE NUMBER
+# --------------------------------------------------------------
+#   fixed  ==  best_rank == 1
+#
+# Rank 1, not a softer bar, and the alternatives were considered and rejected:
+#
+#   - "outranks the runbook that beat it in the baseline" — a pairwise duel. Too
+#     weak: it can be satisfied while a DIFFERENT wrong runbook takes rank 1,
+#     which is not a fix by any reading.
+#   - "appears in the reasoner's top 5" — too weak in the other direction. All
+#     three misses ALREADY satisfy it at baseline (they sit at rank 2), so it
+#     would score them fixed before anything was built.
+#
+# `in_reasoner_top5` is still recorded, because the plan's retrieval strategy
+# ends at top-5 and a probe moving 7 -> 2 is real progress worth seeing. It is
+# NOT the success criterion, and must not be quoted as one.
+#
+# RANK NEEDS ITS OWN STABILITY FLOOR
+# ----------------------------------
+# The ~1.3e-4 spread in baseline.json is a statement about SCORES. It says
+# nothing about whether that wobble is enough to swap two near-tied chunks and
+# move a rank — and where a probe's margin is -0.001536, the chunks either side
+# of the boundary are near-tied almost by definition. A rank that flips on its
+# own between identical runs cannot be credited to reranking.
+#
+# So best_rank is measured across the same REPEATS as the margin, from the same
+# searches, and `rank_stable` is recorded per probe. Same repeats-beat-one logic
+# that caught the embedding non-determinism. A probe with rank_stable=false
+# supports no claim about any stage, in either direction.
+
 # ATTRIBUTION: WHICH STAGE GETS CREDIT FOR MOVING A MARGIN
 # ---------------------------------------------------------
 # PRE-REGISTERED BEFORE THE RETRIEVAL SLICES EXIST, for the same reason the

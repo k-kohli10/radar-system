@@ -1,6 +1,6 @@
 {
-  "measured_at": "2026-07-20T00:46:29.471070+00:00",
-  "commit": "e6bb1128bb210abaace30ea7e553ef04bc1c34ae",
+  "measured_at": "2026-07-20T01:22:07.173789+00:00",
+  "commit": "c855f45b4de556566b96934f3ec83dc832d09713",
   "branch": "phase-8-knowledge-service",
   "index": {
     "name": "radar-runbooks",
@@ -35,27 +35,38 @@
       "query": "Customers ordered more units than we physically have. Available count went below zero overnight and the warehouse cannot fulfil some of the orders we already took payment for.",
       "expects": "inventory-oversell-incident",
       "outcome": "hit",
-      "margin": 0.058234,
+      "margin": 0.058337,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
       "repeats": {
         "n": 5,
         "margins": [
           0.058337,
           0.058337,
-          0.058234,
           0.058337,
-          0.058234
+          0.058337,
+          0.058337
         ],
-        "spread": 0.000103,
-        "sign_unstable": false
+        "spread": 0.0,
+        "sign_unstable": false,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true
       },
       "expected_best": {
-        "score": 0.781303,
+        "score": 0.781612,
         "section": "Summary",
         "chunk_id": "8bb0fb828390ee648ef10499a6dbf900a26526747e43af20721ffaf9531b985b"
       },
       "winning_other": {
         "runbook_id": "order-service-high-failure-rate",
-        "score": 0.723068,
+        "score": 0.723275,
         "section": "Impact",
         "chunk_id": "5d6e81c2551cb08fcb3fee2529b1f431b07e10ce44c7e65a0109d7db4bb42123"
       },
@@ -78,6 +89,9 @@
       "expects": "inventory-stock-reservation-leak",
       "outcome": "miss",
       "margin": -0.007843,
+      "best_rank": 2,
+      "fixed": false,
+      "in_reasoner_top5": true,
       "repeats": {
         "n": 5,
         "margins": [
@@ -88,7 +102,15 @@
           -0.007843
         ],
         "spread": 0.0,
-        "sign_unstable": false
+        "sign_unstable": false,
+        "ranks": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "rank_stable": true
       },
       "expected_best": {
         "score": 0.759659,
@@ -120,6 +142,9 @@
       "expects": "inventory-cache-invalidation-storm",
       "outcome": "miss",
       "margin": -0.041441,
+      "best_rank": 4,
+      "fixed": false,
+      "in_reasoner_top5": true,
       "repeats": {
         "n": 5,
         "margins": [
@@ -127,10 +152,18 @@
           -0.041441,
           -0.041441,
           -0.041441,
-          -0.041458
+          -0.041441
         ],
-        "spread": 1.7e-05,
-        "sign_unstable": false
+        "spread": 0.0,
+        "sign_unstable": false,
+        "ranks": [
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "rank_stable": true
       },
       "expected_best": {
         "score": 0.763404,
@@ -162,17 +195,28 @@
       "expects": "payment-decline-rate",
       "outcome": "hit",
       "margin": 0.03271,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
       "repeats": {
         "n": 5,
         "margins": [
           0.03271,
           0.03271,
           0.03271,
-          0.032579,
-          0.03271
+          0.03271,
+          0.032579
         ],
         "spread": 0.000131,
-        "sign_unstable": false
+        "sign_unstable": false,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true
       },
       "expected_best": {
         "score": 0.783891,
@@ -204,6 +248,9 @@
       "expects": "payment-gateway-errors",
       "outcome": "miss",
       "margin": -0.001536,
+      "best_rank": 2,
+      "fixed": false,
+      "in_reasoner_top5": true,
       "repeats": {
         "n": 5,
         "margins": [
@@ -211,10 +258,18 @@
           -0.001536,
           -0.001536,
           -0.001536,
-          -0.001536
+          -0.001487
         ],
-        "spread": 0.0,
-        "sign_unstable": false
+        "spread": 4.9e-05,
+        "sign_unstable": false,
+        "ranks": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "rank_stable": true
       },
       "expected_best": {
         "score": 0.781205,
@@ -245,27 +300,38 @@
       "query": "Some customers were charged but we have no order for them in our system. Nothing is down and no alert fired \u2014 finance found the discrepancy during end-of-day checks.",
       "expects": "payment-reconciliation-mismatch",
       "outcome": "hit",
-      "margin": 0.079338,
+      "margin": 0.079498,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
       "repeats": {
         "n": 5,
         "margins": [
           0.079338,
           0.079338,
-          0.079338,
+          0.079498,
           0.079338,
           0.079338
         ],
-        "spread": 0.0,
-        "sign_unstable": false
+        "spread": 0.00016,
+        "sign_unstable": false,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true
       },
       "expected_best": {
-        "score": 0.816994,
+        "score": 0.81711,
         "section": "Summary",
         "chunk_id": "6acf589312ce8df1a1166216ea75a83782cb0d8f7adeca747389d0db7b4c07c7"
       },
       "winning_other": {
         "runbook_id": "payment-decline-rate",
-        "score": 0.737655,
+        "score": 0.737612,
         "section": "Impact",
         "chunk_id": "861d1e02b9f16746969c36281ed02d93d402af354a748a69f754d7125314f3ba"
       },

@@ -131,17 +131,37 @@ async def main() -> None:
             )
             return None if correct is None else correct["_score"] - wrong["_score"]
 
+        def best_rank_of(hits: list[dict[str, Any]], expected: str) -> int | None:
+            """1-indexed position of the expected runbook's best chunk.
+
+            The rank metric, and the one that survives RRF: fusion reorders by
+            rank and discards scores, so once the hybrid slice lands this is the
+            only one of the two quantities the pipeline still produces.
+            """
+            for position, hit in enumerate(hits, start=1):
+                if hit["_source"]["runbook_id"] == expected:
+                    return position
+            return None
+
         results: list[dict[str, Any]] = []
         for probe in probes:
             query = " ".join(probe["query"].split())
             expected = probe["expects"]
 
             # Repeats first: the spread is what makes the headline margin
-            # interpretable, so it is not optional extra detail.
-            repeats = [margin_of(await search(query), expected) for _ in range(REPEATS)]
+            # interpretable, so it is not optional extra detail. Ranks are
+            # collected from the SAME searches — a rank is only comparable to the
+            # margin that produced it.
+            repeat_hits = [await search(query) for _ in range(REPEATS)]
+            repeats = [margin_of(h, expected) for h in repeat_hits]
+            ranks = [best_rank_of(h, expected) for h in repeat_hits]
             measured = [m for m in repeats if m is not None]
             spread = round(max(measured) - min(measured), 6) if measured else None
             flips = len({m > 0 for m in measured}) > 1
+            # Rank needs its own stability floor. The margin spread is a
+            # statement about scores; it says nothing about whether a ~1e-4
+            # wobble is enough to swap two near-tied chunks and move a rank.
+            rank_stable = len(set(ranks)) == 1
 
             hits = await search(query)
             correct = next(
@@ -163,6 +183,7 @@ async def main() -> None:
                 if correct is not None
                 else None
             )
+            best_rank = best_rank_of(hits, expected)
 
             results.append(
                 {
@@ -175,6 +196,12 @@ async def main() -> None:
                         else ("hit" if margin > 0 else "miss")
                     ),
                     "margin": margin,
+                    # The rank metric. `fixed` is the pre-registered success
+                    # criterion — see probes.yaml for its exact definition and
+                    # why rank 1 rather than a softer bar.
+                    "best_rank": best_rank,
+                    "fixed": best_rank == 1,
+                    "in_reasoner_top5": best_rank is not None and best_rank <= 5,
                     "repeats": {
                         "n": REPEATS,
                         "margins": [
@@ -185,6 +212,8 @@ async def main() -> None:
                         # disagreed about hit vs miss. Such a probe cannot
                         # support any claim about reranking either way.
                         "sign_unstable": flips,
+                        "ranks": ranks,
+                        "rank_stable": rank_stable,
                     },
                     "expected_best": (
                         {
@@ -229,15 +258,21 @@ async def main() -> None:
     }
     BASELINE.write_text(json.dumps(baseline, indent=2) + "\n")
 
-    print(f"{'probe':<32} {'outcome':<12} {'margin':>10} {'spread':>10}  stable")
+    header = (
+        f"{'probe':<32} {'outcome':<8} {'margin':>10} {'spread':>9} "
+        f"{'rank':>5} {'fixed':>6}  rank-stable"
+    )
+    print(header)
     for row in results:
         margin = "n/a" if row["margin"] is None else f"{row['margin']:+.6f}"
         spread = row["repeats"]["spread"]
         spread_s = "n/a" if spread is None else f"{spread:.6f}"
-        stable = "NO" if row["repeats"]["sign_unstable"] else "yes"
+        rank = row["best_rank"]
         print(
-            f"{row['id']:<32} {row['outcome']:<12} "
-            f"{margin:>10} {spread_s:>10}  {stable}"
+            f"{row['id']:<32} {row['outcome']:<8} {margin:>10} {spread_s:>9} "
+            f"{'-' if rank is None else rank:>5} "
+            f"{'yes' if row['fixed'] else 'no':>6}  "
+            f"{'yes' if row['repeats']['rank_stable'] else 'NO'}"
         )
     print(f"\nwrote {BASELINE.relative_to(ROOT)}")
 
