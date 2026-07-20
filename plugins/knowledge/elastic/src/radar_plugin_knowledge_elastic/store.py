@@ -40,6 +40,7 @@ BACKEND = "elastic"
 #: used to pre-filter (``services``) or to build the reasoner's context bundle.
 _TEXT_FIELD = "text"
 _VECTOR_FIELD = "embedding"
+_INDEXED_AT_FIELD = "indexed_at"
 
 
 def build_mapping(dims: int, *, similarity: str = "cosine") -> dict[str, Any]:
@@ -53,6 +54,21 @@ def build_mapping(dims: int, *, similarity: str = "cosine") -> dict[str, Any]:
     Metadata fields are ``keyword`` rather than ``text`` because they are
     filtered on exactly (``services`` pre-filters retrieval to one service) and
     must not be analysed into tokens.
+
+    ``indexed_at`` records when a chunk was written. It is NOT for staleness
+    detection — chunk ids are content hashes and superseded chunks are deleted,
+    so a chunk in the index necessarily matches the current file and cannot be
+    stale.
+
+    It is stamped **per indexing run**, not per runbook: every chunk a run writes
+    carries one identical value. Per-runbook would only restate
+    ``runbook_documents.indexed_at``, which Postgres already answers; per-run
+    answers what Postgres cannot — "which chunks did run N write" — as a single
+    term query rather than a reconstructed range. That also makes incremental
+    indexing *visible*: after a run that edited one section, exactly one document
+    carries the newest timestamp, observable in Kibana rather than only in logs
+    and tests. It is deliberately absent from the chunk id, so it can never cause
+    churn.
     """
     return {
         "properties": {
@@ -71,6 +87,7 @@ def build_mapping(dims: int, *, similarity: str = "cosine") -> dict[str, Any]:
             "severity": {"type": "keyword"},
             "alert_name": {"type": "keyword"},
             "ordinal": {"type": "integer"},
+            _INDEXED_AT_FIELD: {"type": "date"},
         }
     }
 

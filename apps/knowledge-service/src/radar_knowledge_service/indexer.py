@@ -34,6 +34,7 @@ indexed and re-doing it on the next run would be pointless work.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -110,8 +111,20 @@ class DimensionMismatchError(RuntimeError):
     """
 
 
-def chunk_to_document(chunk: Chunk, embedding: list[float]) -> dict[str, Any]:
-    """Pair one chunk with its vector, in the shape the index mapping expects."""
+def chunk_to_document(
+    chunk: Chunk, embedding: list[float], indexed_at: datetime
+) -> dict[str, Any]:
+    """Pair one chunk with its vector, in the shape the index mapping expects.
+
+    ``indexed_at`` is passed in rather than computed here so every chunk written
+    by one run shares a single timestamp. That makes "which chunks did this run
+    touch" an exact query instead of a range that has to guess at clock skew
+    between documents.
+
+    It is not part of ``chunk_id`` (a content hash), so it can never trigger a
+    re-embed — see ``build_mapping`` in the Elasticsearch plugin for why the
+    field exists at all.
+    """
     return {
         "chunk_id": chunk.chunk_id,
         "runbook_id": chunk.runbook_id,
@@ -123,6 +136,7 @@ def chunk_to_document(chunk: Chunk, embedding: list[float]) -> dict[str, Any]:
         "severity": chunk.severity,
         "alert_name": chunk.alert_name,
         "ordinal": chunk.ordinal,
+        "indexed_at": indexed_at.isoformat(),
     }
 
 
@@ -177,13 +191,20 @@ class RunbookIndexer:
 
         result = IndexRunResult(skipped=len(corpus_diff.unchanged))
 
+        # One timestamp for the whole run, taken before any writing: every chunk
+        # this run writes carries it, whichever runbook it came from. Stamping
+        # per-runbook instead would only restate `runbook_documents.indexed_at`,
+        # which Postgres already answers; per-run answers what Postgres cannot —
+        # "which chunks did run N write" — as a single-term query.
+        written_at = utcnow()
+
         for runbook_id in corpus_diff.removed:
             result = await self._remove_runbook(runbook_id, result)
 
         for runbook_id in corpus_diff.changed:
             _, source = corpus[runbook_id]
             result = await self._index_runbook(
-                runbook_id, source, on_disk[runbook_id], result
+                runbook_id, source, on_disk[runbook_id], result, written_at
             )
 
         log.info(
@@ -213,7 +234,12 @@ class RunbookIndexer:
             return {runbook_id: digest for runbook_id, digest in rows.all()}
 
     async def _index_runbook(
-        self, runbook_id: str, source: str, document_hash: str, result: IndexRunResult
+        self,
+        runbook_id: str,
+        source: str,
+        document_hash: str,
+        result: IndexRunResult,
+        written_at: datetime,
     ) -> IndexRunResult:
         chunks = chunk_runbook(source)
 
@@ -229,7 +255,7 @@ class RunbookIndexer:
         if diff.to_embed:
             vectors = await self._embedder.embed([c.text for c in diff.to_embed])
             documents = [
-                chunk_to_document(chunk, vector)
+                chunk_to_document(chunk, vector, written_at)
                 for chunk, vector in zip(diff.to_embed, vectors, strict=True)
             ]
             indexed = await self._index.index(documents, refresh=True)

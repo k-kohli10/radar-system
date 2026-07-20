@@ -18,6 +18,7 @@ Two things get real infrastructure rather than fakes:
 from __future__ import annotations
 
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -145,12 +146,34 @@ def test_chunk_to_document_carries_the_prefilter_key() -> None:
 
     chunk = chunk_runbook((CORPUS / "order-service-high-memory.md").read_text())[0]
 
-    document = chunk_to_document(chunk, [0.1] * DIMS)
+    stamped = datetime(2026, 7, 19, 12, 0, tzinfo=UTC)
+    document = chunk_to_document(chunk, [0.1] * DIMS, stamped)
 
     assert document["chunk_id"] == chunk.chunk_id
     assert document["services"] == ["order-service"]
     assert document["alert_name"] == "OrderServiceHighMemory"
     assert document["embedding"] == [0.1] * DIMS
+    assert document["indexed_at"] == "2026-07-19T12:00:00+00:00"
+
+
+def test_the_timestamp_cannot_change_a_chunks_identity() -> None:
+    """Same content at two different times must be the SAME document.
+
+    `chunk_id` is the Elasticsearch `_id`, so if the timestamp leaked into it,
+    every run would write a NEW document instead of overwriting — duplicating
+    the corpus and defeating incremental indexing entirely. This asserts the
+    ids match while the timestamps differ, which is the property; asserting
+    only that `compute_chunk_id` is deterministic would prove nothing about it.
+    """
+    from radar_knowledge_service.chunking import chunk_runbook
+
+    chunk = chunk_runbook((CORPUS / "order-service-high-memory.md").read_text())[0]
+
+    early = chunk_to_document(chunk, [0.1] * DIMS, datetime(2026, 1, 1, tzinfo=UTC))
+    later = chunk_to_document(chunk, [0.1] * DIMS, datetime(2026, 7, 19, tzinfo=UTC))
+
+    assert early["indexed_at"] != later["indexed_at"]
+    assert early["chunk_id"] == later["chunk_id"]
 
 
 # --------------------------------------------------------------- first run
@@ -191,6 +214,31 @@ async def test_a_first_run_records_the_manifest_with_real_metadata(
     assert row.chunk_count == 8
     assert row.index_status == "indexed"
     assert row.indexed_at is not None
+
+
+async def test_one_run_stamps_every_runbooks_chunks_identically(
+    db: Database, tmp_path: Path
+) -> None:
+    """The timestamp is per RUN, not per runbook — that is what earns it a place.
+
+    Stamped per runbook it would only restate `runbook_documents.indexed_at`,
+    which Postgres already answers. Per run it answers what Postgres cannot:
+    "which chunks did run N write", as one term query. This indexes two runbooks
+    in a single run and pins the stamp to ONE distinct value across both; taking
+    `utcnow()` per runbook instead puts a manifest commit between the two calls
+    and yields two.
+    """
+    corpus = _corpus_copy(
+        tmp_path, "order-service-high-memory", "checkout-timeout-rate"
+    )
+    index = FakeIndex()
+
+    await _indexer(db, corpus, index, FakeEmbedder()).run()
+
+    stamps = {document["indexed_at"] for document in index.documents.values()}
+    runbooks = {document["runbook_id"] for document in index.documents.values()}
+    assert len(runbooks) == 2, "the run must have spanned both runbooks"
+    assert len(stamps) == 1
 
 
 # ------------------------------------------------------ the scale guarantee

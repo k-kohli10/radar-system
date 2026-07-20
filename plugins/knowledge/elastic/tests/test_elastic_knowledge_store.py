@@ -42,6 +42,7 @@ def _doc(chunk_id: str, *, dims: int = 1536, **overrides: Any) -> dict[str, Any]
         "severity": "medium",
         "alert_name": "OrderServiceHighMemory",
         "ordinal": 0,
+        "indexed_at": "2026-07-19T12:00:00+00:00",
     }
     document.update(overrides)
     return document
@@ -73,6 +74,14 @@ def test_text_is_analysed_for_bm25_and_filter_fields_are_not() -> None:
     assert properties["text"]["type"] == "text"
     for field in ("services", "severity", "alert_name", "runbook_id", "chunk_id"):
         assert properties[field]["type"] == "keyword", field
+
+
+def test_mapping_carries_an_indexed_at_date() -> None:
+    """Makes incremental indexing observable: after an edit, exactly one
+    document carries a newer timestamp. Not for staleness — chunk ids are
+    content hashes, so a stored chunk always matches the current file.
+    """
+    assert build_mapping(1536)["properties"]["indexed_at"] == {"type": "date"}
 
 
 def test_dims_is_required_with_no_default() -> None:
