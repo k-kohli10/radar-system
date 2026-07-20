@@ -2225,6 +2225,67 @@ test(knowledge): add crag grading tests
 test(e2e): add knowledge-assisted rca test
 ```
 
+### Added during implementation
+
+Commits this phase produced that the list above does not name. Recorded here
+because the plan is the source of truth, and a phase whose real history diverges
+from its stated deliverables should say so rather than let the gap accumulate
+silently.
+
+```
+test(knowledge): prove incremental pickup end to end on real infrastructure
+feat(knowledge): stamp indexed chunks with a per-run timestamp
+test(knowledge): pre-register retrieval probes and record the pre-rerank baseline
+docs(knowledge): pre-register the three-bucket attribution model for retrieval
+feat(knowledge): grant knowledge-service a second gateway token for reason mode
+test(knowledge): pre-register the rank metric and its stability floor
+```
+
+Why each was needed:
+
+- **The incremental-pickup e2e** proves the phase's central claim — adding a
+  runbook re-embeds only that runbook, and the new content is then retrievable —
+  on real Elasticsearch, gateway, OpenAI, and Postgres together. The planned
+  `test(e2e): add knowledge-assisted rca test` covers the reasoner using
+  retrieved content, which is a different claim.
+- **The per-run `indexed_at` stamp** makes "which chunks did run N write" a
+  single-term query. Per-runbook would only restate `runbook_documents.indexed_at`,
+  which Postgres already answers.
+- **The three pre-registration commits** (probes, attribution model, rank metric)
+  exist so `feat(knowledge): add cross-encoder reranking` can be judged rather
+  than assumed. Reranking is the phase's most expensive stage; without margins
+  and ranks recorded BEFORE it exists, "rerank improved retrieval" is a claim
+  with no baseline to test it against, and the stage cannot be told apart from
+  the pre-filter or from RRF. The planned
+  `test(knowledge): add retrieval tests against known runbook content` tests that
+  retrieval works; this measures what each stage contributes.
+- **The second gateway token** is a hard prerequisite: reranking calls the
+  gateway in `reason` mode, the service held only an `embed` grant, and "one
+  token = one mode" is a Locked Decision — so it needed a second token, not a
+  widened one.
+
+`feat(knowledge): add hybrid bm25 and knn retrieval with rrf` was implemented as
+three commits rather than one, split on the pure-core/thin-shell seam this
+codebase uses elsewhere: the fusion and query-assembly core (pure, mutation
+tested), the Elasticsearch search primitives (I/O, tested against real ES), and
+the wiring that composes them.
+
+Additional deliverables:
+```
+apps/knowledge-service/src/radar_knowledge_service/fusion.py
+apps/knowledge-service/src/radar_knowledge_service/query.py
+tests/retrieval/probes.yaml        # pre-registered queries and success criteria
+tests/retrieval/baseline.json      # recorded margins, ranks, stability floors
+scripts/measure-retrieval-baseline.py
+```
+
+Still outstanding before phase close: an entrypoint for the indexer (`main.py` /
+`make index`) — the done-condition implies someone can RUN it — and surfacing
+each runbook's `status: fixture` into the indexed documents, so the reasoner
+knows it is grounding on unreviewed content. The e2e's gateway URL default
+(8098) does not match what `make gateway` serves (8081); reconcile in the
+entrypoint work, where the silent-skip that hides it also gets fixed.
+
 Done when: RCA for an order-service alert references content from the order-service runbook.
 Verify by reading the recommendation row in Postgres manually.
 
