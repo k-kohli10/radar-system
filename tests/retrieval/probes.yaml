@@ -122,6 +122,55 @@
 # that caught the embedding non-determinism. A probe with rank_stable=false
 # supports no claim about any stage, in either direction.
 
+# METHOD CORRECTION: REPEATS 5 -> 20, DECLARED BEFORE RE-MEASURING
+# -----------------------------------------------------------------
+# WHY, and why this is not tuning. Five repeats was chosen when every stage was
+# rank-stable and the only nondeterminism was ~1e-4 embedding jitter that never
+# flipped a rank. Reranking broke that assumption: it varies between identical
+# inputs, and five repeats demonstrably cannot characterise it. The proof is in
+# the record — the first rerank run measured
+# `checkout-customers-leaving-more-than-usual` as [1,1,1,1,1], stable at rank 1,
+# which would have been reported as the repair case working. A second run of the
+# identical measurement gave [3,1,1,3,1]. Five repeats produced a confident false
+# positive on the phase's headline metric.
+#
+# THE TEST THAT MAKES THIS A METHOD CORRECTION RATHER THAN FISHING: would this
+# change be made regardless of which direction it moved the result? Yes. n=5 is
+# now known to be underpowered for a nondeterministic stage, and that is true
+# whether raising it makes reranking look better or worse. It very plausibly
+# makes it look WORSE — see the predictions below.
+#
+# APPLIED UNIFORMLY. All 20 repeats, all 17 probes, every stage re-measured —
+# not extra repeats on the two probes that failed. Raising n only where the
+# result is inconvenient is exactly how a fishing expedition is built, and the
+# HOLD set has the same claim to scrutiny: its stability was also established at
+# n=5, and may not survive n=20.
+#
+# THE CRITERION IS UNCHANGED. Still FIX both targets, HOLD all 15, still judged
+# on `rank_stable AND best_rank == 1`. Only the sample size moves. A change to
+# what counts as success, made now, would be the thing this whole file exists to
+# prevent.
+#
+# PREDICTIONS, recorded so the re-measurement can contradict them:
+#
+#   1. Neither fix target will reach rank 1 on all 20 repeats. (If one does, the
+#      instability was an artefact of small samples and reranking deserves a
+#      second look.)
+#   2. At least one of the 15 HOLD probes will show instability that n=5 hid.
+#      This is the prediction most likely to be wrong, and the one that would
+#      most change the picture — it would mean reranking destabilises cases it
+#      currently appears to hold.
+#   3. The pre-rerank stages (knn_raw, knn_filtered, hybrid) will stay rank-stable
+#      at n=20, because their only nondeterminism is embedding jitter already
+#      measured at ~1e-4 and shown not to move ranks.
+#
+# NO FIX IS APPLIED IN THIS STEP. Temperature, the score scale, and the tiebreak
+# rule are all plausible remedies and all remain untouched. Changing one now,
+# after seeing the criterion fail, would mean selecting a configuration BECAUSE
+# it passes on the exact probes judging it. Any remedy comes after this, declared
+# as its own hypothesis with its predicted mechanism, and measured against this
+# same criterion.
+
 # RERANK'S EVIDENCE BASE — PRE-REGISTERED BEFORE ANY RERANK CODE EXISTS
 # ----------------------------------------------------------------------
 # The hybrid slice changed what evidence is available, so the criterion is fixed

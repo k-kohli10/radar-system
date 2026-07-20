@@ -62,7 +62,11 @@ INDEX = "radar-runbooks"
 GATEWAY = "http://127.0.0.1:8081"
 DIMS = 1536
 LIMIT = 10
-REPEATS = 5
+#: Raised from 5 after reranking was shown to vary between identical
+#: inputs, and five repeats produced a confident false positive on the
+#: headline metric. Declared in tests/retrieval/probes.yaml before
+#: re-measuring. Applied uniformly to every probe and every stage.
+REPEATS = 20
 
 
 def _git(*args: str) -> str:
