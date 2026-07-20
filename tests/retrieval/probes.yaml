@@ -1,0 +1,135 @@
+# Pre-registered retrieval probes.
+#
+# WHAT THIS IS
+# ------------
+# A fixed set of queries, each declaring the runbook it SHOULD retrieve, written
+# down BEFORE reranking exists. The retrieval slices measure against these exact
+# queries, so "did rerank fix the misses" compares like with like.
+#
+# PROVENANCE — READ BEFORE CITING ANY NUMBER
+# ------------------------------------------
+# An earlier session measured two misses (inventory -0.033, payment -0.004) on a
+# full-precision raw kNN search. Those queries were never written down and are
+# gone. Treat -0.033/-0.004 as an INFORMAL SIGNAL that these two families are
+# hard — not as a rigorous baseline, and NOT as numbers comparable to the ones in
+# baseline.json. This file is the first durable pre-registration; the recorded
+# margins in baseline.json are the real baseline.
+#
+# NO CHERRY-PICKING
+# -----------------
+# Every probe here is measured and recorded, hit or miss. The set was fixed
+# before any margin was known. Selecting only the queries that miss would make
+# any later "rerank fixed N of N" claim meaningless, because the set would have
+# been chosen to be fixable.
+#
+# WRITING A PROBE
+# ---------------
+# Queries describe SYMPTOMS, the way an incident arrives — never the runbook's
+# title. A query containing the title is answered by BM25 lexical overlap and
+# proves nothing about whether the vectors separate confusable siblings, which is
+# the entire question. Both families below share a `services` value, so the
+# retrieval pre-filter cannot separate them; only the embeddings can.
+
+# HOW THE `confusable_with` PREDICTIONS ACTUALLY FARED
+# ----------------------------------------------------
+# ANNOTATION ADDED AFTER THE FIRST MEASUREMENT. The probes above are unchanged —
+# a prediction contradicted by measurement is evidence, and editing it to match
+# the outcome is precisely the record-shaping pre-registration exists to prevent.
+#
+# Against baseline.json's `winning_other`:
+#
+#   inventory-phantom-out-of-stock   miss  first guess exactly right
+#   inventory-slow-then-recovering   miss  first guess exactly right
+#   payment-no-answer                miss  second listed guess right (failover,
+#                                          not declines as led with)
+#   payment-issuer-refusals          hit   first guess exactly right
+#   inventory-negative-stock         hit   NOT predicted — beaten by
+#                                          order-service-high-failure-rate
+#   payment-charged-for-nothing      hit   NOT predicted — beaten by
+#                                          payment-decline-rate
+#
+# Read the two columns together. For a MISS, `winning_other` is what actually
+# beat the expected runbook, and the prediction record there is good: two exact,
+# one right-but-second. For a HIT it is merely the runner-up, which nothing turns
+# on — so the two unpredicted entries are the cheap kind of wrong.
+#
+# The one genuinely surprising result is `inventory-negative-stock`, whose
+# runner-up is `order-service-high-failure-rate` — a DIFFERENT SERVICE. The
+# corpus was built on the premise that the hard problem is disambiguating within
+# a service, and here the nearest competitor came from outside it. Oversell is
+# partly an order-fulfilment story ("orders we already took payment for"), so
+# query intent crossed the service boundary the `services` field would have
+# pre-filtered on. Worth watching once the retrieval slices add that pre-filter:
+# it would have removed this competitor for free, which is a point in favour of
+# filtering before scoring rather than after.
+
+probes:
+  # --- inventory family ----------------------------------------------------
+  # All four share services: [inventory-service].
+  - id: inventory-negative-stock
+    query: >-
+      Customers ordered more units than we physically have. Available count went
+      below zero overnight and the warehouse cannot fulfil some of the orders we
+      already took payment for.
+    expects: inventory-oversell-incident
+    confusable_with: [inventory-stock-reservation-leak]
+    why: >-
+      Both end with stock numbers that do not match reality. The separator is
+      that oversell has already sold goods that do not exist, while a leak only
+      makes real goods look unavailable — opposite directions, similar wording.
+
+  - id: inventory-phantom-out-of-stock
+    query: >-
+      Products are showing as out of stock on the site but the warehouse says
+      the units are physically on the shelf. Availability keeps dropping even
+      though nothing is selling.
+    expects: inventory-stock-reservation-leak
+    confusable_with: [inventory-oversell-incident]
+    why: The mirror image of the probe above; catches a model that collapses both into "stock numbers wrong".
+
+  - id: inventory-slow-then-recovering
+    query: >-
+      Inventory availability calls got very slow all at once and are gradually
+      getting faster again on their own. Database load spiked at the same moment
+      without any increase in traffic.
+    expects: inventory-cache-invalidation-storm
+    confusable_with: [inventory-check-latency]
+    why: >-
+      Reads as plain latency. The distinguishing detail is shape over time —
+      spike-then-decay — which the runbook names as the separator from a
+      genuinely slow service.
+
+  # --- payment family ------------------------------------------------------
+  # All five share services: [payment-gateway].
+  - id: payment-issuer-refusals
+    query: >-
+      A lot more card payments are being refused than usual. The calls are
+      completing normally and we are getting a clear answer back each time, the
+      answer is just no.
+    expects: payment-decline-rate
+    confusable_with: [payment-gateway-errors]
+    why: >-
+      THE designed confusion in this corpus: both runbooks open by contrasting
+      declines (call succeeded, issuer said no) against errors (call failed).
+      The query deliberately states the separator without using either term.
+
+  - id: payment-no-answer
+    query: >-
+      Payment authorization requests are failing to complete — we are not
+      getting a response back at all, so customers cannot check out. Started
+      about ten minutes ago.
+    expects: payment-gateway-errors
+    confusable_with: [payment-decline-rate, payment-processor-failover]
+    why: The mirror of the probe above, plus pull from failover, which is also about an unusable processor.
+
+  - id: payment-charged-for-nothing
+    query: >-
+      Some customers were charged but we have no order for them in our system.
+      Nothing is down and no alert fired — finance found the discrepancy during
+      end-of-day checks.
+    expects: payment-reconciliation-mismatch
+    confusable_with: [payment-gateway-errors]
+    why: >-
+      A money problem with no availability symptom. Catches retrieval that
+      routes anything containing "payment" plus "failed" to the loud
+      availability runbooks.

@@ -1,0 +1,286 @@
+{
+  "measured_at": "2026-07-20T00:46:29.471070+00:00",
+  "commit": "e6bb1128bb210abaace30ea7e553ef04bc1c34ae",
+  "branch": "phase-8-knowledge-service",
+  "index": {
+    "name": "radar-runbooks",
+    "docs": 136,
+    "vector_field": {
+      "type": "dense_vector",
+      "dims": 1536,
+      "index": true,
+      "similarity": "cosine",
+      "index_options": {
+        "type": "int8_hnsw",
+        "m": 16,
+        "ef_construction": 100
+      }
+    },
+    "quantization": "int8_hnsw"
+  },
+  "search": {
+    "type": "knn",
+    "k": 10,
+    "num_candidates": 136,
+    "services_prefilter": false
+  },
+  "embedding": {
+    "model": "text-embedding-3-small",
+    "dims": 1536
+  },
+  "metric": "expected_best_score - winning_other_best_score",
+  "probes": [
+    {
+      "id": "inventory-negative-stock",
+      "query": "Customers ordered more units than we physically have. Available count went below zero overnight and the warehouse cannot fulfil some of the orders we already took payment for.",
+      "expects": "inventory-oversell-incident",
+      "outcome": "hit",
+      "margin": 0.058234,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.058337,
+          0.058337,
+          0.058234,
+          0.058337,
+          0.058234
+        ],
+        "spread": 0.000103,
+        "sign_unstable": false
+      },
+      "expected_best": {
+        "score": 0.781303,
+        "section": "Summary",
+        "chunk_id": "8bb0fb828390ee648ef10499a6dbf900a26526747e43af20721ffaf9531b985b"
+      },
+      "winning_other": {
+        "runbook_id": "order-service-high-failure-rate",
+        "score": 0.723068,
+        "section": "Impact",
+        "chunk_id": "5d6e81c2551cb08fcb3fee2529b1f431b07e10ce44c7e65a0109d7db4bb42123"
+      },
+      "top_runbooks": [
+        "inventory-oversell-incident",
+        "inventory-oversell-incident",
+        "inventory-oversell-incident",
+        "order-service-high-failure-rate",
+        "order-service-high-failure-rate",
+        "inventory-oversell-incident",
+        "inventory-oversell-incident",
+        "payment-reconciliation-mismatch",
+        "order-service-fulfilment-queue-backlog",
+        "order-service-fulfilment-queue-backlog"
+      ]
+    },
+    {
+      "id": "inventory-phantom-out-of-stock",
+      "query": "Products are showing as out of stock on the site but the warehouse says the units are physically on the shelf. Availability keeps dropping even though nothing is selling.",
+      "expects": "inventory-stock-reservation-leak",
+      "outcome": "miss",
+      "margin": -0.007843,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          -0.007843,
+          -0.007843,
+          -0.007843,
+          -0.007843,
+          -0.007843
+        ],
+        "spread": 0.0,
+        "sign_unstable": false
+      },
+      "expected_best": {
+        "score": 0.759659,
+        "section": "Symptoms",
+        "chunk_id": "e6c5030f1cf6cd946513e206530d5ade53e3d1c73ba7efe3f0a8d090689ff2c3"
+      },
+      "winning_other": {
+        "runbook_id": "inventory-oversell-incident",
+        "score": 0.767502,
+        "section": "Symptoms",
+        "chunk_id": "24d81e8841d4585753e3d96a9db492e668d2b370c98a5ce7af6b4e8d6bec1096"
+      },
+      "top_runbooks": [
+        "inventory-oversell-incident",
+        "inventory-stock-reservation-leak",
+        "inventory-stock-reservation-leak",
+        "inventory-oversell-incident",
+        "inventory-stock-reservation-leak",
+        "inventory-stock-reservation-leak",
+        "inventory-oversell-incident",
+        "inventory-check-latency",
+        "inventory-check-latency",
+        "inventory-stock-reservation-leak"
+      ]
+    },
+    {
+      "id": "inventory-slow-then-recovering",
+      "query": "Inventory availability calls got very slow all at once and are gradually getting faster again on their own. Database load spiked at the same moment without any increase in traffic.",
+      "expects": "inventory-cache-invalidation-storm",
+      "outcome": "miss",
+      "margin": -0.041441,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          -0.041441,
+          -0.041441,
+          -0.041441,
+          -0.041441,
+          -0.041458
+        ],
+        "spread": 1.7e-05,
+        "sign_unstable": false
+      },
+      "expected_best": {
+        "score": 0.763404,
+        "section": "Symptoms",
+        "chunk_id": "0831a749e383cdb923a23e0952c2549322e596c62dfc85eec98ef226b860ce76"
+      },
+      "winning_other": {
+        "runbook_id": "inventory-check-latency",
+        "score": 0.804845,
+        "section": "Likely Causes",
+        "chunk_id": "a14743a200f192738b071cb26d448c9c665787fca444618c970be081ad48286a"
+      },
+      "top_runbooks": [
+        "inventory-check-latency",
+        "inventory-check-latency",
+        "inventory-check-latency",
+        "inventory-cache-invalidation-storm",
+        "inventory-oversell-incident",
+        "inventory-cache-invalidation-storm",
+        "inventory-check-latency",
+        "inventory-check-latency",
+        "inventory-check-latency",
+        "inventory-check-latency"
+      ]
+    },
+    {
+      "id": "payment-issuer-refusals",
+      "query": "A lot more card payments are being refused than usual. The calls are completing normally and we are getting a clear answer back each time, the answer is just no.",
+      "expects": "payment-decline-rate",
+      "outcome": "hit",
+      "margin": 0.03271,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.03271,
+          0.03271,
+          0.03271,
+          0.032579,
+          0.03271
+        ],
+        "spread": 0.000131,
+        "sign_unstable": false
+      },
+      "expected_best": {
+        "score": 0.783891,
+        "section": "Likely Causes",
+        "chunk_id": "86e05954f5a36816c810aa2eece7233d3df02d2694584f5781856f71cbbe2237"
+      },
+      "winning_other": {
+        "runbook_id": "payment-gateway-errors",
+        "score": 0.751181,
+        "section": "Summary",
+        "chunk_id": "8a9383f31c4f9259e460b69094150b6a539317d168c560da9d753703953e0288"
+      },
+      "top_runbooks": [
+        "payment-decline-rate",
+        "payment-decline-rate",
+        "payment-decline-rate",
+        "payment-decline-rate",
+        "payment-decline-rate",
+        "payment-gateway-errors",
+        "payment-gateway-errors",
+        "payment-decline-rate",
+        "payment-gateway-errors",
+        "payment-decline-rate"
+      ]
+    },
+    {
+      "id": "payment-no-answer",
+      "query": "Payment authorization requests are failing to complete \u2014 we are not getting a response back at all, so customers cannot check out. Started about ten minutes ago.",
+      "expects": "payment-gateway-errors",
+      "outcome": "miss",
+      "margin": -0.001536,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          -0.001536,
+          -0.001536,
+          -0.001536,
+          -0.001536,
+          -0.001536
+        ],
+        "spread": 0.0,
+        "sign_unstable": false
+      },
+      "expected_best": {
+        "score": 0.781205,
+        "section": "Impact",
+        "chunk_id": "25b67e1890894e0d04d46db5af0621025132a88b7bb2dc654654bd8b4943169d"
+      },
+      "winning_other": {
+        "runbook_id": "payment-processor-failover",
+        "score": 0.782741,
+        "section": "Symptoms",
+        "chunk_id": "78a2cfd470ddfc5ff671d6b178350df905ccdd9b36ef7f014ae750bbc68db017"
+      },
+      "top_runbooks": [
+        "payment-processor-failover",
+        "payment-gateway-errors",
+        "payment-gateway-errors",
+        "payment-gateway-errors",
+        "payment-reconciliation-mismatch",
+        "payment-gateway-errors",
+        "payment-gateway-errors",
+        "payment-gateway-errors",
+        "payment-gateway-errors",
+        "payment-reconciliation-mismatch"
+      ]
+    },
+    {
+      "id": "payment-charged-for-nothing",
+      "query": "Some customers were charged but we have no order for them in our system. Nothing is down and no alert fired \u2014 finance found the discrepancy during end-of-day checks.",
+      "expects": "payment-reconciliation-mismatch",
+      "outcome": "hit",
+      "margin": 0.079338,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.079338,
+          0.079338,
+          0.079338,
+          0.079338,
+          0.079338
+        ],
+        "spread": 0.0,
+        "sign_unstable": false
+      },
+      "expected_best": {
+        "score": 0.816994,
+        "section": "Summary",
+        "chunk_id": "6acf589312ce8df1a1166216ea75a83782cb0d8f7adeca747389d0db7b4c07c7"
+      },
+      "winning_other": {
+        "runbook_id": "payment-decline-rate",
+        "score": 0.737655,
+        "section": "Impact",
+        "chunk_id": "861d1e02b9f16746969c36281ed02d93d402af354a748a69f754d7125314f3ba"
+      },
+      "top_runbooks": [
+        "payment-reconciliation-mismatch",
+        "payment-reconciliation-mismatch",
+        "payment-reconciliation-mismatch",
+        "payment-reconciliation-mismatch",
+        "payment-reconciliation-mismatch",
+        "payment-reconciliation-mismatch",
+        "payment-reconciliation-mismatch",
+        "payment-decline-rate",
+        "payment-reconciliation-mismatch",
+        "order-service-high-failure-rate"
+      ]
+    }
+  ]
+}
