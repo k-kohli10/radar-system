@@ -285,3 +285,228 @@ async def test_real_elasticsearch_deletes_stale_chunks(
     await live_store.delete_chunks({"bbb"}, refresh=True)
 
     assert await live_store.chunk_ids_for("order-service-high-memory") == {"aaa"}
+
+
+# ------------------------------------------------------------ search: shapes
+
+
+async def test_bm25_filters_by_service_without_scoring_it() -> None:
+    """The pre-filter must narrow, not boost.
+
+    A `must` clause on the service would let a chunk rank higher for naming its
+    own service, which every chunk of that service does — a scoring signal that
+    carries no information. Asserting the clause lands under `filter` pins the
+    distinction that mocked tests exist to catch.
+    """
+    with patch(CLIENT_PATH) as es_cls:
+        client = es_cls.return_value
+        client.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+        await _store().search_bm25("memory pressure", service_name="order-service")
+
+    query = client.search.await_args.kwargs["query"]
+    assert query["bool"]["filter"] == [{"term": {"services": "order-service"}}]
+    assert query["bool"]["must"] == [{"match": {"text": "memory pressure"}}]
+
+
+async def test_bm25_without_a_service_is_an_unwrapped_match() -> None:
+    with patch(CLIENT_PATH) as es_cls:
+        client = es_cls.return_value
+        client.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+        await _store().search_bm25("memory pressure")
+
+    assert client.search.await_args.kwargs["query"] == {
+        "match": {"text": "memory pressure"}
+    }
+
+
+async def test_knn_filters_inside_the_knn_clause_not_afterwards() -> None:
+    """Post-filtering would return fewer than `size` hits.
+
+    Elasticsearch applies a kNN `filter` during the search, so it still finds
+    `size` matching neighbours. Filtering after the fact searches the whole
+    corpus and then discards, silently shrinking the result set — which for a
+    fused pipeline means one leg quietly contributing less than the other.
+    """
+    with patch(CLIENT_PATH) as es_cls:
+        client = es_cls.return_value
+        client.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+        await _store().search_knn([0.1] * 1536, service_name="payment-gateway", size=20)
+
+    knn = client.search.await_args.kwargs["knn"]
+    assert knn["filter"] == {"term": {"services": "payment-gateway"}}
+    assert knn["k"] == 20
+
+
+async def test_knn_num_candidates_defaults_to_ten_times_size() -> None:
+    """Explicit, because too few candidates makes results depend on traversal."""
+    with patch(CLIENT_PATH) as es_cls:
+        client = es_cls.return_value
+        client.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+        await _store().search_knn([0.1] * 1536, size=20)
+        assert client.search.await_args.kwargs["knn"]["num_candidates"] == 200
+
+        await _store().search_knn([0.1] * 1536, size=20, num_candidates=136)
+        assert client.search.await_args.kwargs["knn"]["num_candidates"] == 136
+
+
+async def test_searches_do_not_return_the_embedding_vector() -> None:
+    """1536 floats per hit that no caller reads."""
+    with patch(CLIENT_PATH) as es_cls:
+        client = es_cls.return_value
+        client.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+        await _store().search_bm25("q")
+        assert "embedding" not in client.search.await_args.kwargs["source_includes"]
+
+        await _store().search_knn([0.1] * 1536)
+        assert "embedding" not in client.search.await_args.kwargs["source_includes"]
+
+
+async def test_hits_carry_the_id_and_score_alongside_the_source() -> None:
+    """Fusion needs the id; the recorded baseline needs the score."""
+    with patch(CLIENT_PATH) as es_cls:
+        client = es_cls.return_value
+        client.search = AsyncMock(
+            return_value={
+                "hits": {
+                    "hits": [
+                        {"_id": "abc", "_score": 1.5, "_source": {"section": "Summary"}}
+                    ]
+                }
+            }
+        )
+
+        hits = await _store().search_bm25("q")
+
+    assert hits == [{"section": "Summary", "chunk_id": "abc", "score": 1.5}]
+
+
+# --------------------------------------------------- search: real Elasticsearch
+
+
+#: Two vectors that differ in DIRECTION, not just magnitude.
+#:
+#: The index uses cosine similarity, which is scale-invariant: [0.10]*1536 and
+#: [0.02]*1536 are scalar multiples, so their cosine similarity is exactly 1.0
+#: and no kNN search can rank one above the other. An earlier version of this
+#: fixture used uniform vectors and produced a test that could never pass —
+#: caught by real Elasticsearch, which is the point of running these against it.
+#: Loading opposite halves makes them orthogonal.
+_HALF = 1536 // 2
+_MEMORY_VECTOR = [0.1] * _HALF + [0.0] * _HALF
+_PAYMENT_VECTOR = [0.0] * _HALF + [0.1] * _HALF
+
+
+async def _seed(store: ElasticKnowledgeStore) -> None:
+    """Two runbooks whose text overlaps in meaning but not in key terms."""
+    await store.ensure_index()
+    await store.index(
+        [
+            _doc(
+                "mem-1",
+                runbook_id="order-service-high-memory",
+                section="Summary",
+                text="Resident memory has stayed above the heap threshold.",
+                services=["order-service"],
+                embedding=_MEMORY_VECTOR,
+            ),
+            _doc(
+                "pay-1",
+                runbook_id="payment-gateway-errors",
+                section="Summary",
+                text="Authorization calls are returning gateway faults.",
+                services=["payment-gateway"],
+                embedding=_PAYMENT_VECTOR,
+            ),
+        ],
+        refresh=True,
+    )
+
+
+@pytest.mark.infra
+async def test_real_elasticsearch_ranks_bm25_by_term_overlap(
+    live_store: ElasticKnowledgeStore,
+) -> None:
+    """The question a mock cannot answer: does ES rank these the way we assume?
+
+    A mock returns whatever it is handed, so it would "prove" any ranking at
+    all. Hybrid retrieval is built on BM25 keying on distinguishing terms — if
+    that assumption is wrong, fusion is fusing something other than believed.
+    """
+    await _seed(live_store)
+
+    hits = await live_store.search_bm25("resident memory heap threshold")
+
+    assert hits, "BM25 matched nothing — the analyzer is not doing what we assume"
+    assert hits[0]["runbook_id"] == "order-service-high-memory"
+    assert hits[0]["score"] > 0
+
+
+@pytest.mark.infra
+async def test_real_elasticsearch_bm25_prefilter_excludes_other_services(
+    live_store: ElasticKnowledgeStore,
+) -> None:
+    """The filter must remove the other service entirely, not just rank it lower."""
+    await _seed(live_store)
+
+    hits = await live_store.search_bm25(
+        "gateway faults authorization", service_name="order-service"
+    )
+
+    assert all(h["runbook_id"] == "order-service-high-memory" for h in hits)
+
+
+@pytest.mark.infra
+async def test_real_elasticsearch_knn_ranks_by_vector_proximity(
+    live_store: ElasticKnowledgeStore,
+) -> None:
+    """Nearest neighbour is nearest, against the real index and its quantization."""
+    await _seed(live_store)
+
+    hits = await live_store.search_knn(_MEMORY_VECTOR)
+
+    assert hits, "kNN returned nothing"
+    assert hits[0]["chunk_id"] == "mem-1"
+
+
+@pytest.mark.infra
+async def test_real_elasticsearch_knn_prefilter_excludes_other_services(
+    live_store: ElasticKnowledgeStore,
+) -> None:
+    """Filtered kNN must return the nearest neighbour WITHIN the service.
+
+    The vector asked for is nearest to the order-service chunk, so an unfiltered
+    search returns it. Under the payment-gateway filter the only correct answer
+    is the payment chunk — and getting it proves the filter reached the search
+    rather than being applied to its results.
+    """
+    await _seed(live_store)
+
+    hits = await live_store.search_knn(_MEMORY_VECTOR, service_name="payment-gateway")
+
+    assert [h["chunk_id"] for h in hits] == ["pay-1"]
+
+
+@pytest.mark.infra
+async def test_real_elasticsearch_bm25_and_knn_disagree_on_the_same_query(
+    live_store: ElasticKnowledgeStore,
+) -> None:
+    """The premise of hybrid retrieval, verified rather than assumed.
+
+    Fusing two rankings is only worth doing if they can differ. This asks both
+    legs for the same intent — a query whose words match the payment chunk while
+    its vector is nearest the memory chunk — and requires them to disagree. If
+    they always agreed, RRF would be an expensive identity function and the
+    hybrid slice could claim credit it had not earned.
+    """
+    await _seed(live_store)
+
+    lexical = await live_store.search_bm25("authorization gateway faults")
+    vector = await live_store.search_knn(_MEMORY_VECTOR)
+
+    assert lexical[0]["chunk_id"] == "pay-1"
+    assert vector[0]["chunk_id"] == "mem-1"

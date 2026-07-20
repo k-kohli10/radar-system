@@ -4,14 +4,32 @@ Portable by design: depends on ``radar-contracts`` and the ``elasticsearch`` SDK
 only, never on the plugin-sdk or any RADAR service. The consuming application
 registers this class with its own plugin registry and constructs it from config.
 
-This is the **write side** of the index — the mapping, upserts, and the two
-operations incremental indexing needs to reconcile a runbook's chunks (list what
-is currently stored, delete what is no longer produced). Hybrid BM25 + kNN
-retrieval lands alongside it and completes ``KnowledgeStore`` conformance; until
-then this class deliberately does NOT implement ``retrieve``, because a stub
-raising ``NotImplementedError`` would satisfy ``isinstance`` against the Protocol
-while failing at runtime — conformance that lies is worse than conformance that
-is absent.
+This class provides the index's **storage and search primitives**: the mapping,
+upserts, the two operations incremental indexing needs to reconcile a runbook's
+chunks, and the two searches hybrid retrieval fuses — :meth:`search_bm25` and
+:meth:`search_knn`. Each search method is exactly one Elasticsearch call and
+makes no decisions.
+
+WHERE ``KnowledgeStore.retrieve`` CONFORMANCE LIVES — AND WHY NOT HERE
+----------------------------------------------------------------------
+An earlier version of this docstring said hybrid retrieval would land here and
+complete ``KnowledgeStore`` conformance. That was not achievable, and the reason
+is structural rather than a matter of effort: ``retrieve`` takes a query STRING,
+so something must embed it, and this plugin holds no embedding client — by
+design, since the gateway is the only component with provider keys and a plugin
+depends on no RADAR service.
+
+So ``retrieve`` conformance lives on the knowledge service's retrieval layer,
+which has the embedder and composes these primitives: embed the query, run both
+searches, fuse the rankings in the service's pure ``fusion`` module. That also
+keeps the fusion DECISION out of the vendor shell, matching how chunking and
+reconciliation are pure while this class stays dumb.
+
+This is the same judgement that previously left ``retrieve`` unimplemented here
+rather than stubbed: a ``NotImplementedError`` stub would satisfy ``isinstance``
+against the Protocol while failing at runtime, and conformance that lies is worse
+than conformance that is absent. Claiming it in a docstring was the same lie one
+step removed.
 
 **The vector dimension is the one real coupling to the embedding model.** It is
 baked into the ``dense_vector`` mapping at index-creation time and cannot be
@@ -41,6 +59,21 @@ BACKEND = "elastic"
 _TEXT_FIELD = "text"
 _VECTOR_FIELD = "embedding"
 _INDEXED_AT_FIELD = "indexed_at"
+
+#: Fields returned by the search methods. ``embedding`` is deliberately absent:
+#: it is 1536 floats per hit, the caller already has the query vector, and
+#: shipping it back would dominate the response for no reader.
+_RETRIEVAL_SOURCE = [
+    "runbook_id",
+    "title",
+    "section",
+    _TEXT_FIELD,
+    "services",
+    "severity",
+    "alert_name",
+    "ordinal",
+    _INDEXED_AT_FIELD,
+]
 
 
 def build_mapping(dims: int, *, similarity: str = "cosine") -> dict[str, Any]:
@@ -190,6 +223,69 @@ class ElasticKnowledgeStore:
             )
         return len(documents)
 
+    async def search_bm25(
+        self, query: str, *, service_name: str | None = None, size: int = 20
+    ) -> list[dict[str, Any]]:
+        """Lexical search over ``text``. Returns hits, best first.
+
+        One of the two legs hybrid retrieval fuses. It contributes what vector
+        search structurally cannot: exact term matching. An embedding places a
+        query near text with similar MEANING, which is why it confuses runbooks
+        describing opposite conditions in the same vocabulary — BM25 keys on the
+        distinguishing words themselves.
+
+        ``service_name`` applies the pre-filter as a ``filter`` clause rather
+        than a query clause, so it constrains which documents match without
+        contributing to the relevance score. A filter that scored would let the
+        service term inflate rankings, making a chunk look more relevant for
+        naming its own service.
+        """
+        response = await self._client.search(
+            index=self._index,
+            query=_with_service_filter(
+                {"match": {_TEXT_FIELD: query}}, service_name=service_name
+            ),
+            source_includes=_RETRIEVAL_SOURCE,
+            size=size,
+        )
+        return _hits(response)
+
+    async def search_knn(
+        self,
+        vector: list[float],
+        *,
+        service_name: str | None = None,
+        size: int = 20,
+        num_candidates: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Vector search over ``embedding``. Returns hits, best first.
+
+        The other leg. ``num_candidates`` controls how much of the HNSW graph is
+        explored and defaults to ``10 * size``, Elasticsearch's own guidance: the
+        graph is approximate, and too few candidates makes results depend on
+        which nodes the traversal happened to visit. The retrieval baseline sets
+        it to the whole corpus precisely to remove that variable from a
+        measurement — see ``scripts/measure-retrieval-baseline.py``.
+
+        The service pre-filter is passed inside the ``knn`` clause, not applied
+        afterwards. Filtering after the fact would search the whole corpus and
+        then discard non-matching hits, returning FEWER than ``size`` results
+        from a search that had no idea it was being narrowed.
+        """
+        knn: dict[str, Any] = {
+            "field": _VECTOR_FIELD,
+            "query_vector": vector,
+            "k": size,
+            "num_candidates": num_candidates if num_candidates else size * 10,
+        }
+        if service_name is not None:
+            knn["filter"] = {"term": {"services": service_name}}
+
+        response = await self._client.search(
+            index=self._index, knn=knn, source_includes=_RETRIEVAL_SOURCE, size=size
+        )
+        return _hits(response)
+
     async def chunk_ids_for(self, runbook_id: str) -> set[str]:
         """Chunk ids currently stored for one runbook.
 
@@ -228,6 +324,34 @@ class ElasticKnowledgeStore:
 
 def _as_list(hosts: str | list[str]) -> list[str]:
     return [hosts] if isinstance(hosts, str) else hosts
+
+
+def _with_service_filter(
+    query: dict[str, Any], *, service_name: str | None
+) -> dict[str, Any]:
+    """Wrap ``query`` so ``service_name`` narrows it without scoring."""
+    if service_name is None:
+        return query
+    return {
+        "bool": {
+            "must": [query],
+            "filter": [{"term": {"services": service_name}}],
+        }
+    }
+
+
+def _hits(response: Any) -> list[dict[str, Any]]:
+    """Flatten an Elasticsearch response into chunk dicts carrying their score.
+
+    ``chunk_id`` is taken from ``_id`` rather than from ``_source``: they are the
+    same value (documents are keyed by it), and reading the one Elasticsearch
+    ranked guarantees the score and the id describe the same document even if a
+    source field were ever to drift.
+    """
+    return [
+        {**hit["_source"], "chunk_id": hit["_id"], "score": hit["_score"]}
+        for hit in response["hits"]["hits"]
+    ]
 
 
 def _count_failures(response: dict[str, Any]) -> int:
