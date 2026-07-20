@@ -63,6 +63,56 @@
 # it would have removed this competitor for free, which is a point in favour of
 # filtering before scoring rather than after.
 
+# ATTRIBUTION: WHICH STAGE GETS CREDIT FOR MOVING A MARGIN
+# ---------------------------------------------------------
+# PRE-REGISTERED BEFORE THE RETRIEVAL SLICES EXIST, for the same reason the
+# margins themselves are: decided after the fact, attribution follows whatever
+# story is convenient.
+#
+# baseline.json is raw kNN with NO `services` pre-filter. The assembled pipeline
+# will filter, then combine BM25 with kNN via RRF, then rerank. Comparing a
+# filtered pipeline against this unfiltered baseline therefore credits three
+# different mechanisms to whichever one happens to be under discussion. Three
+# buckets, and a probe must be assigned one BEFORE its post-slice number is read:
+#
+#   FILTER  the `services` pre-filter removed the competitor that was winning.
+#           Costs nothing and involves no scoring — if a margin moves here, no
+#           other stage may claim it.
+#   HYBRID  BM25 + kNN via RRF changed the ordering. Expected to help where the
+#           query and the right runbook share distinctive vocabulary that cosine
+#           similarity alone smears across siblings.
+#   RERANK  a cross-encoder reordered candidates that survived both stages above.
+#           Only creditable when neither of the other two can account for it.
+#
+# WHICH PROBES ARE FILTER-SENSITIVE — MEASURED, NOT ASSUMED
+# ---------------------------------------------------------
+# Computed by intersecting each probe's top-10 with the expected runbook's
+# `services`:
+#
+#   inventory-negative-stock         HIT   filter removes 5 of 10, INCLUDING the
+#                                          winner (order-service-high-failure-
+#                                          rate). Margin moves on filter alone.
+#   payment-charged-for-nothing      HIT   filter removes 1 of 10, NOT the
+#                                          winner. Margin unchanged.
+#   the other four                         filter removes nothing.
+#
+# The load-bearing consequence: ALL THREE MISSES ARE FILTER-INSENSITIVE. Every
+# candidate in their top-10 already shares the expected runbook's service, so the
+# pre-filter cannot move them by even one position. The confound is real but it
+# lands on a HIT, where nothing was at stake. Attribution for the three probes
+# that actually have to be fixed stays clean between HYBRID and RERANK.
+#
+# `payment-no-answer` is the cleanest rerank test in the set: filter changes
+# nothing (top-10 is entirely payment-*), and BM25 has little to work with
+# because the competing runbooks are lexically alike about an unresponsive
+# processor. If that margin crosses zero, rerank did it — provided the movement
+# exceeds the ~1.3e-4 noise floor in baseline.json, which at -0.001536 is a real
+# but not generous margin of interpretation.
+#
+# When the filtered pipeline lands, re-run the baseline WITH the pre-filter and
+# record it alongside rather than replacing this one. Two baselines make the
+# filter's contribution readable directly instead of inferred.
+
 probes:
   # --- inventory family ----------------------------------------------------
   # All four share services: [inventory-service].
