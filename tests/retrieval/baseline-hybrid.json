@@ -1,0 +1,196 @@
+{
+  "measured_at": "2026-07-20T02:12:00.790008+00:00",
+  "commit": "5b1be367ce81fed795b8ffb7a281b20316773123",
+  "index": {
+    "name": "radar-runbooks",
+    "docs": 136,
+    "quantization": "int8_hnsw"
+  },
+  "embedding": {
+    "model": "text-embedding-3-small",
+    "dims": 1536
+  },
+  "stage": "hybrid",
+  "description": "BM25 + kNN fused with RRF, filtered \u2014 HYBRID bucket",
+  "search": {
+    "k": 10,
+    "leg_size": 20,
+    "num_candidates": 136
+  },
+  "probes": [
+    {
+      "id": "inventory-negative-stock",
+      "expects": "inventory-oversell-incident",
+      "service_name": "inventory-service",
+      "margin": 0.079883,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.079883,
+          0.079883,
+          0.079883,
+          0.079883,
+          0.079883
+        ],
+        "spread": 0.0,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "inventory-phantom-out-of-stock",
+      "expects": "inventory-stock-reservation-leak",
+      "service_name": "inventory-service",
+      "margin": -0.007843,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          -0.007843,
+          -0.007871,
+          -0.007843,
+          -0.007843,
+          -0.007843
+        ],
+        "spread": 2.9e-05,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "inventory-slow-then-recovering",
+      "expects": "inventory-cache-invalidation-storm",
+      "service_name": "inventory-service",
+      "margin": -0.041441,
+      "best_rank": 3,
+      "fixed": false,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          -0.041441,
+          -0.041441,
+          -0.041441,
+          -0.041441,
+          -0.041441
+        ],
+        "spread": 0.0,
+        "ranks": [
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "payment-issuer-refusals",
+      "expects": "payment-decline-rate",
+      "service_name": "payment-gateway",
+      "margin": 0.03271,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.03271,
+          0.032579,
+          0.032579,
+          0.03271,
+          0.03271
+        ],
+        "spread": 0.000131,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "payment-no-answer",
+      "expects": "payment-gateway-errors",
+      "service_name": "payment-gateway",
+      "margin": -0.001536,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          -0.001536,
+          -0.001536,
+          -0.001487,
+          -0.001536,
+          -0.001536
+        ],
+        "spread": 4.9e-05,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "payment-charged-for-nothing",
+      "expects": "payment-reconciliation-mismatch",
+      "service_name": "payment-gateway",
+      "margin": 0.079338,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.079338,
+          0.079338,
+          0.079338,
+          0.079338,
+          0.079338
+        ],
+        "spread": 0.0,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    }
+  ]
+}
