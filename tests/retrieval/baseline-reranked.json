@@ -1,0 +1,559 @@
+{
+  "measured_at": "2026-07-20T20:39:36.458668+00:00",
+  "commit": "37ecee69d5a0ecc4369fd859ae6e21bf0d213eee",
+  "stage": "reranked",
+  "description": "BM25 + kNN + RRF, filtered, then cross-encoder rerank",
+  "search": {
+    "limit": 10,
+    "leg_size": 20,
+    "fuse_size": 10
+  },
+  "rerank": {
+    "mode": "reason",
+    "model": "gpt-4o",
+    "batched": true
+  },
+  "criterion": {
+    "fix_targets": {
+      "inventory-slow-then-recovering": null,
+      "checkout-customers-leaving-more-than-usual": null
+    },
+    "fix_met": false,
+    "hold_count": 15,
+    "hold_met": true,
+    "hold_broken": [],
+    "every_call_executed": true,
+    "criterion_met": false
+  },
+  "probes": [
+    {
+      "id": "inventory-negative-stock",
+      "expects": "inventory-oversell-incident",
+      "service_name": "inventory-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "inventory-phantom-out-of-stock",
+      "expects": "inventory-stock-reservation-leak",
+      "service_name": "inventory-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "inventory-slow-then-recovering",
+      "expects": "inventory-cache-invalidation-storm",
+      "service_name": "inventory-service",
+      "hybrid_rank": 3,
+      "best_rank": null,
+      "ranks_seen": [
+        1,
+        3
+      ],
+      "fixed": false,
+      "moved": true,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          3,
+          1,
+          1,
+          1,
+          3
+        ],
+        "rank_stable": false,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "payment-issuer-refusals",
+      "expects": "payment-decline-rate",
+      "service_name": "payment-gateway",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "payment-no-answer",
+      "expects": "payment-gateway-errors",
+      "service_name": "payment-gateway",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "payment-charged-for-nothing",
+      "expects": "payment-reconciliation-mismatch",
+      "service_name": "payment-gateway",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "order-accepted-but-never-fulfilled",
+      "expects": "order-service-high-failure-rate",
+      "service_name": "order-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "order-fulfilment-falling-behind",
+      "expects": "order-service-fulfilment-queue-backlog",
+      "service_name": "order-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "order-waiting-on-db-connections",
+      "expects": "order-service-connection-pool-exhaustion",
+      "service_name": "order-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "order-memory-climbing-steadily",
+      "expects": "order-service-high-memory",
+      "service_name": "order-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "order-worse-since-release",
+      "expects": "order-service-deployment-rollback",
+      "service_name": "order-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "checkout-too-slow-to-complete",
+      "expects": "checkout-timeout-rate",
+      "service_name": "checkout-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "checkout-customers-leaving-more-than-usual",
+      "expects": "checkout-cart-abandonment-spike",
+      "service_name": "checkout-service",
+      "hybrid_rank": 2,
+      "best_rank": null,
+      "ranks_seen": [
+        1,
+        3
+      ],
+      "fixed": false,
+      "moved": true,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          3,
+          1,
+          1,
+          3,
+          1
+        ],
+        "rank_stable": false,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "checkout-basket-keeps-resetting",
+      "expects": "checkout-session-state-loss",
+      "service_name": "checkout-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "inventory-checks-consistently-slow",
+      "expects": "inventory-check-latency",
+      "service_name": "inventory-service",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "payment-move-to-backup-processor",
+      "expects": "payment-processor-failover",
+      "service_name": "payment-gateway",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    },
+    {
+      "id": "payment-replacing-processor-keys",
+      "expects": "payment-credential-rotation",
+      "service_name": "payment-gateway",
+      "hybrid_rank": 1,
+      "best_rank": 1,
+      "ranks_seen": [
+        1
+      ],
+      "fixed": true,
+      "moved": false,
+      "repeats": {
+        "n": 5,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "outcomes": [
+          "executed",
+          "executed",
+          "executed",
+          "executed",
+          "executed"
+        ],
+        "all_executed": true
+      }
+    }
+  ]
+}
