@@ -1,6 +1,6 @@
 {
-  "measured_at": "2026-07-20T02:12:00.790008+00:00",
-  "commit": "5b1be367ce81fed795b8ffb7a281b20316773123",
+  "measured_at": "2026-07-20T05:52:47.983142+00:00",
+  "commit": "9bb7f41fa7aae3b410d32abb8560ff3fcff736dc",
   "index": {
     "name": "radar-runbooks",
     "docs": 136,
@@ -51,7 +51,7 @@
       "id": "inventory-phantom-out-of-stock",
       "expects": "inventory-stock-reservation-leak",
       "service_name": "inventory-service",
-      "margin": -0.007843,
+      "margin": -0.007871,
       "best_rank": 2,
       "fixed": false,
       "in_reasoner_top5": true,
@@ -59,10 +59,10 @@
         "n": 5,
         "margins": [
           -0.007843,
-          -0.007871,
           -0.007843,
           -0.007843,
-          -0.007843
+          -0.007843,
+          -0.007871
         ],
         "spread": 2.9e-05,
         "ranks": [
@@ -88,12 +88,12 @@
         "n": 5,
         "margins": [
           -0.041441,
-          -0.041441,
+          -0.041458,
           -0.041441,
           -0.041441,
           -0.041441
         ],
-        "spread": 0.0,
+        "spread": 1.7e-05,
         "ranks": [
           4,
           4,
@@ -116,9 +116,9 @@
       "repeats": {
         "n": 5,
         "margins": [
+          0.032579,
           0.03271,
-          0.032579,
-          0.032579,
+          0.03271,
           0.03271,
           0.03271
         ],
@@ -145,9 +145,9 @@
       "repeats": {
         "n": 5,
         "margins": [
-          -0.001536,
-          -0.001536,
           -0.001487,
+          -0.001536,
+          -0.001536,
           -0.001536,
           -0.001536
         ],
@@ -176,11 +176,330 @@
         "margins": [
           0.079338,
           0.079338,
-          0.079338,
+          0.079498,
           0.079338,
           0.079338
         ],
+        "spread": 0.00016,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "order-accepted-but-never-fulfilled",
+      "expects": "order-service-high-failure-rate",
+      "service_name": "order-service",
+      "margin": 0.028815,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.028815,
+          0.028815,
+          0.028871,
+          0.028871,
+          0.028815
+        ],
+        "spread": 5.5e-05,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "order-fulfilment-falling-behind",
+      "expects": "order-service-fulfilment-queue-backlog",
+      "service_name": "order-service",
+      "margin": 0.035163,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.035163,
+          0.035163,
+          0.035163,
+          0.035163,
+          0.035163
+        ],
         "spread": 0.0,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "order-waiting-on-db-connections",
+      "expects": "order-service-connection-pool-exhaustion",
+      "service_name": "order-service",
+      "margin": 0.055652,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.055652,
+          0.055652,
+          0.055652,
+          0.055652,
+          0.055652
+        ],
+        "spread": 0.0,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "order-memory-climbing-steadily",
+      "expects": "order-service-high-memory",
+      "service_name": "order-service",
+      "margin": 0.082762,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.082762,
+          0.082762,
+          0.082762,
+          0.082762,
+          0.082762
+        ],
+        "spread": 0.0,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "order-worse-since-release",
+      "expects": "order-service-deployment-rollback",
+      "service_name": "order-service",
+      "margin": 0.003597,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.003597,
+          0.003597,
+          0.003597,
+          0.003597,
+          0.003597
+        ],
+        "spread": 0.0,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "checkout-too-slow-to-complete",
+      "expects": "checkout-timeout-rate",
+      "service_name": "checkout-service",
+      "margin": 0.03289,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.03289,
+          0.03289,
+          0.03289,
+          0.03289,
+          0.03289
+        ],
+        "spread": 0.0,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "checkout-customers-leaving-more-than-usual",
+      "expects": "checkout-cart-abandonment-spike",
+      "service_name": "checkout-service",
+      "margin": -0.004974,
+      "best_rank": 2,
+      "fixed": false,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          -0.004828,
+          -0.004828,
+          -0.004828,
+          -0.004828,
+          -0.004974
+        ],
+        "spread": 0.000146,
+        "ranks": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "checkout-basket-keeps-resetting",
+      "expects": "checkout-session-state-loss",
+      "service_name": "checkout-service",
+      "margin": 0.046656,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.046656,
+          0.046656,
+          0.046656,
+          0.046748,
+          0.046656
+        ],
+        "spread": 9.2e-05,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "inventory-checks-consistently-slow",
+      "expects": "inventory-check-latency",
+      "service_name": "inventory-service",
+      "margin": 0.057199,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.057199,
+          0.057199,
+          0.05735,
+          0.057199,
+          0.057199
+        ],
+        "spread": 0.000151,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "payment-move-to-backup-processor",
+      "expects": "payment-processor-failover",
+      "service_name": "payment-gateway",
+      "margin": 0.038688,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.038688,
+          0.038688,
+          0.038688,
+          0.038688,
+          0.038688
+        ],
+        "spread": 0.0,
+        "ranks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "rank_stable": true,
+        "sign_unstable": false
+      }
+    },
+    {
+      "id": "payment-replacing-processor-keys",
+      "expects": "payment-credential-rotation",
+      "service_name": "payment-gateway",
+      "margin": 0.02362,
+      "best_rank": 1,
+      "fixed": true,
+      "in_reasoner_top5": true,
+      "repeats": {
+        "n": 5,
+        "margins": [
+          0.02362,
+          0.02362,
+          0.023613,
+          0.02362,
+          0.02362
+        ],
+        "spread": 7e-06,
         "ranks": [
           1,
           1,

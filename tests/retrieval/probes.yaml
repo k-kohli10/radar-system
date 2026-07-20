@@ -289,3 +289,150 @@ probes:
       A money problem with no availability symptom. Catches retrieval that
       routes anything containing "payment" plus "failed" to the loud
       availability runbooks.
+
+  # === ADDED FOR COVERAGE, before reranking was built =======================
+  #
+  # The six probes above sampled 6 of 17 runbooks and left two services —
+  # order-service and checkout-service — with no probe at all. Since the corpus
+  # was built to force WITHIN-service disambiguation, sampling a third of it
+  # tested a third of the thing under test.
+  #
+  # The rule for this set is one probe per runbook, so every runbook is the
+  # expected target exactly once. That is a rule rather than a selection: it
+  # cannot be tuned toward probes that happen to pass, because there was no
+  # freedom about which runbooks to include. Results are recorded hit or miss,
+  # as with the original six.
+
+  # --- order-service -------------------------------------------------------
+  # Five runbooks, all sharing services: [order-service].
+  - id: order-accepted-but-never-fulfilled
+    query: >-
+      Customers are getting successful confirmation pages and their cards are
+      charged, but the orders never show up downstream for the warehouse to
+      pick. The service reports itself healthy.
+    expects: order-service-high-failure-rate
+    confusable_with: [order-service-fulfilment-queue-backlog]
+    why: >-
+      The hardest pair in this service: both end with orders not reaching
+      fulfilment. The separator is that here the order was never published at
+      all, whereas a backlog means it was published and is waiting.
+
+  - id: order-fulfilment-falling-behind
+    query: >-
+      Orders are piling up waiting to be processed downstream and the queue
+      depth keeps climbing. Nothing is lost and nothing errors — the workers
+      just are not keeping up with how fast orders arrive.
+    expects: order-service-fulfilment-queue-backlog
+    confusable_with: [order-service-high-failure-rate]
+    why: The mirror of the probe above; catches a model that collapses both into "orders not fulfilled".
+
+  - id: order-waiting-on-db-connections
+    query: >-
+      Requests are timing out while waiting to acquire a database connection.
+      The database itself looks healthy and underloaded, with low CPU and fast
+      query times.
+    expects: order-service-connection-pool-exhaustion
+    confusable_with: [order-service-high-memory]
+    why: >-
+      The runbook names this as the failure most often misdiagnosed as a slow
+      database. The query deliberately states the healthy-database evidence that
+      rules that out.
+
+  - id: order-memory-climbing-steadily
+    query: >-
+      Resident memory on the service has been climbing for an hour and is now
+      well above its normal plateau. Nothing has failed yet and latency is
+      normal.
+    expects: order-service-high-memory
+    confusable_with: [order-service-connection-pool-exhaustion]
+    why: >-
+      A leading indicator with no failure yet — tests whether retrieval needs a
+      visible outage to route correctly.
+
+      LEXICALLY TRIVIAL, DELIBERATELY RECORDED. This runbook's title reduces to
+      the single content word "memory", so any query describing the symptom
+      naturally contains it and BM25 should find this one easily. Contorting the
+      query to avoid the word would make it something no engineer would type,
+      which is a worse distortion than the easiness. Read this probe as coverage
+      and regression, not as a discrimination test — it says little about
+      whether a stage can separate confusable siblings.
+
+  - id: order-worse-since-release
+    query: >-
+      Everything was fine until the release went out forty minutes ago and error
+      rates have been elevated ever since. We need to decide whether to reverse
+      it, and there was a schema migration in the release.
+    expects: order-service-deployment-rollback
+    confusable_with: [order-service-high-failure-rate]
+    why: >-
+      Several runbooks say "check for a recent deploy"; only this one is about
+      performing the reversal. The migration detail is the distinguishing
+      constraint, since it is what makes a plain rollback unsafe.
+
+  # --- checkout-service ----------------------------------------------------
+  # Three runbooks, all sharing services: [checkout-service].
+  - id: checkout-too-slow-to-complete
+    query: >-
+      Checkout attempts are exceeding their time budget and failing before the
+      purchase completes. Nothing has been charged and no order exists — the
+      customer simply cannot buy.
+    expects: checkout-timeout-rate
+    confusable_with: [checkout-cart-abandonment-spike]
+    why: >-
+      Both end with an uncompleted purchase. The separator is that this one is a
+      system timeout while abandonment is a customer decision.
+
+  - id: checkout-customers-leaving-more-than-usual
+    query: >-
+      Far more people than usual are reaching the payment step and then leaving
+      without buying. Every request succeeds and response times look normal.
+    expects: checkout-cart-abandonment-spike
+    confusable_with: [checkout-timeout-rate, checkout-session-state-loss]
+    why: A behavioural signal with a technically healthy system — the case where retrieval must not reach for an outage runbook.
+
+  - id: checkout-basket-keeps-resetting
+    query: >-
+      Customers are being thrown back to an earlier step with an empty basket
+      partway through buying. The service returns success for every request, but
+      the progress they had is gone.
+    expects: checkout-session-state-loss
+    confusable_with: [checkout-cart-abandonment-spike]
+    why: >-
+      Presents as abandonment from a dashboard, which is exactly the confusion
+      to test: successful responses about the WRONG state.
+
+  # --- the remaining inventory and payment runbooks ------------------------
+  - id: inventory-checks-consistently-slow
+    query: >-
+      Availability lookups are taking well over half a second at the ninety
+      fifth percentile and have been steady at that level all morning. They all
+      return correct answers, just slowly.
+    expects: inventory-check-latency
+    confusable_with: [inventory-cache-invalidation-storm]
+    why: >-
+      The counterpart to the cache-storm probe: sustained slowness rather than
+      spike-then-decay. The pair tests whether shape over time is retrievable
+      at all, since the two runbooks name it as their separator.
+
+  - id: payment-move-to-backup-processor
+    query: >-
+      Our main card processor has been unusable for twenty minutes and we need
+      to send traffic to the backup instead. We also need to know how to move
+      back afterwards.
+    expects: payment-processor-failover
+    confusable_with: [payment-gateway-errors]
+    why: >-
+      About the REMEDY rather than the symptom. Tests whether a query phrased as
+      an action retrieves the procedure, or gets pulled to the runbook
+      describing the condition that prompted it.
+
+  - id: payment-replacing-processor-keys
+    query: >-
+      We need to replace the API credentials for the card processor after a
+      suspected leak, without taking payments down while we do it.
+    expects: payment-credential-rotation
+    confusable_with: [payment-gateway-errors]
+    why: >-
+      A planned operation, not an incident. The corpus's only maintenance
+      procedure, and the clearest test of whether retrieval distinguishes "this
+      is broken" from "I am about to change this".
