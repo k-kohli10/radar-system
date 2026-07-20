@@ -125,29 +125,59 @@
 # RERANK'S EVIDENCE BASE — PRE-REGISTERED BEFORE ANY RERANK CODE EXISTS
 # ----------------------------------------------------------------------
 # The hybrid slice changed what evidence is available, so the criterion is fixed
-# again here BEFORE building the stage it judges. What changed, from
-# baseline-hybrid.json:
+# again here BEFORE building the stage it judges. From baseline-hybrid.json,
+# across all 17 probes:
 #
-#   inventory-phantom-out-of-stock   rank 2 -> 1   fixed by fusion
-#   payment-no-answer                rank 2 -> 1   fixed by fusion
-#   inventory-slow-then-recovering   rank 4 -> 3   improved, still wrong
-#   the other three                  rank 1        unchanged
+#   inventory-phantom-out-of-stock            rank 2 -> 1   fixed by fusion
+#   payment-no-answer                         rank 2 -> 1   fixed by fusion
+#   inventory-slow-then-recovering            rank 4 -> 3   improved, still wrong
+#   checkout-customers-leaving-more-than-usual rank 1 -> 2  BROKEN by fusion
+#   the other thirteen                        rank 1        unchanged
 #
-# So five of six probes now sit at rank 1 and only ONE pre-registered miss is
-# left for reranking to fix. That is thinner evidence than the three-miss setup
-# this evaluation was designed around, and it has to be said plainly rather than
-# quietly absorbed: a stage judged on one probe can be fixed by luck.
+# CORRECTION TO AN EARLIER RECORD. When this section was first written the probe
+# set was six, and it recorded the hybrid slice as "fixed two, improved one".
+# That was incomplete, not wrong: the regression above already existed, and a
+# set covering 6 of 17 runbooks could not see it. The hybrid slice's real record
+# is FIXED TWO, IMPROVED ONE, BROKE ONE. The commit message for that slice says
+# the former and is left as written — history records what was believed when it
+# was written; this file records what is true now.
+#
+# The hybrid CODE is not at fault and is not being changed. RRF is behaving
+# exactly as designed and as `test_the_rank_constant_decides_how_deep
+# _corroboration_still_wins` documents: it prefers what both legs agree on over
+# what one leg is confident about. Here kNN ranked the correct runbook first,
+# BM25 led with the wrong one, and corroboration promoted the wrong one. That
+# tradeoff is the price of fusion, now with a live instance attached to it.
 #
 # THE CRITERION, both parts required:
 #
-#   (a) FIX     inventory-slow-then-recovering reaches best_rank == 1.
-#   (b) HOLD    all five probes already at best_rank == 1 stay at best_rank == 1.
+#   (a) FIX   BOTH of these reach best_rank == 1:
+#               - inventory-slow-then-recovering              (currently 3)
+#               - checkout-customers-leaving-more-than-usual  (currently 2)
+#   (b) HOLD  all 15 probes already at best_rank == 1 stay at best_rank == 1.
+#
+# The two targets test DIFFERENT capabilities, which is why both are required
+# rather than either:
+#
+#   slow-then-recovering        Can reranking fix what vector search never got
+#                               right? A DEPTH problem — the correct chunk sits
+#                               behind three competitors and no stage has moved
+#                               it to the front.
+#   checkout-customers-leaving  Can reranking UNDO damage an earlier stage
+#                               caused? A REPAIR problem. If rerank restores
+#                               this one, that is evidence it corrects fusion's
+#                               known failure mode — the strongest single result
+#                               available here, because it is the one case where
+#                               a stage can be shown cleaning up after another
+#                               stage that demoted a correct answer.
 #
 # Part (b) is not padding. Reranking reorders the whole candidate list, so it can
-# demote a correct answer as easily as promote one — and a stage that fixes one
-# probe while breaking two has made retrieval worse, which a one-probe criterion
-# would score as success. The five hits are the regression guard they naturally
-# are, and they cost nothing to check because they are already measured.
+# demote a correct answer as easily as promote one — and a stage that fixes two
+# probes while breaking three has made retrieval worse, which a fix-only
+# criterion would score as success. The 15 hits are the regression guard they
+# naturally are, and they cost nothing to check because they are already
+# measured. Fusion breaking a probe is exactly the scenario that justifies this,
+# and it is no longer hypothetical.
 #
 # Both parts are judged on rank, against the rank_stable evidence in the recorded
 # baselines. A movement on a probe whose rank is not stable proves nothing.
@@ -165,9 +195,10 @@
 # is a good outcome for retrieval and an inconvenient one for the evaluation, and
 # those are different things — the second is not a reason to restate the first.
 #
-# If reranking then earns its place on one probe plus a clean regression record,
-# that is the honest strength of the evidence, and the phase should say so rather
-# than imply the three-miss case it no longer has.
+# The probe set was expanded to one-per-runbook partly in response: judged on a
+# single probe, reranking could be fixed by luck and nothing would distinguish
+# that from the stage working. Two targets exercising different capabilities,
+# against 15 hold probes, is an evaluation rather than an anecdote.
 
 # ATTRIBUTION: WHICH STAGE GETS CREDIT FOR MOVING A MARGIN
 # ---------------------------------------------------------
