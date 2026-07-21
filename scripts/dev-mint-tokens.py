@@ -102,8 +102,11 @@ GATEWAY_GRANTS: dict[str, tuple[str, ...]] = {
     # calls OpenAI directly — the gateway is the only thing holding provider keys
     # — so indexing and retrieval both depend on the embed grant existing.
     #
-    # `reason` is for cross-encoder reranking, which scores query/chunk pairs
-    # with an LLM. Separate token, separate grant: a leaked embed token cannot be
+    # `reason` is for CRAG grading, which asks an LLM whether each retrieved
+    # chunk actually supports the incident. It was originally granted for
+    # cross-encoder reranking; that stage was measured and removed (see
+    # tests/retrieval/probes.yaml), and the grant stays because CRAG needs the
+    # same mode. Separate token, separate grant: a leaked embed token cannot be
     # spent on reasoning, which is the more expensive mode by an order of
     # magnitude.
     "knowledge-service": ("embed", "reason"),

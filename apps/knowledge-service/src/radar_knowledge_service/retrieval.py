@@ -15,10 +15,34 @@ that sequence already lives somewhere pure and tested: fusion in
 is the I/O shell, matching how :mod:`radar_knowledge_service.indexer` sits over
 ``reconciliation``.
 
-Cross-encoder reranking and CRAG grading are later stages and are NOT here. What
-this returns is the fused top-``limit``, which the retrieval baseline measures
-directly — so the numbers in ``tests/retrieval/baseline.json`` describe this
-code, not an aspirational pipeline.
+CRAG grading is a later stage and is not here. What this returns is the fused
+top-``limit``, which the retrieval baselines measure directly — so the numbers in
+``tests/retrieval/`` describe this code, not an aspirational pipeline.
+
+WHY THERE IS NO CROSS-ENCODER RERANK STAGE
+-------------------------------------------
+There was one. It was built, measured against a criterion pre-registered before
+it existed, and removed on the evidence. The full record is in
+``tests/retrieval/probes.yaml`` and ``baseline-reranked.json``; in short, at 20
+repeats per probe:
+
+- it did not reliably fix either probe it was meant to fix — the depth case
+  reached rank 1 in 9 runs of 20, the repair case in 16 of 20;
+- it was the ONLY source of run-to-run variance in the pipeline. Filter, kNN and
+  fusion return identical ranks on all 17 probes at n=20;
+- it destabilised a probe that had been rank 1 at every earlier stage;
+- it cost a ``reason``-mode LLM call on every incident.
+
+It did improve the average. That is not the same as improving the system: an
+on-call engineer sees ONE retrieval, not a distribution, so an 80% chance of the
+right runbook means one incident in five is grounded in the wrong one, varying
+between identical alerts on different days. Deterministic-and-slightly-worse
+beats better-on-average-but-unpredictable when each incident is a single draw
+and the result has to be debuggable.
+
+The baselines and probes stay in the repository deliberately: they are the
+evidence for this decision, and deleting them would leave the absence of a
+rerank stage looking like an oversight.
 
 WHY THE LEGS ARE SEARCHED WIDER THAN THE RESULT
 -----------------------------------------------
@@ -42,11 +66,6 @@ log = get_logger("knowledge.retrieval")
 #: Candidates requested from each leg before fusion. Matches the retrieval
 #: strategy in the implementation plan (BM25 top 20, kNN top 20, RRF top 10).
 DEFAULT_LEG_SIZE = 20
-
-#: Candidates fusion hands to reranking. The plan's "RRF -> top 10, rerank ->
-#: top 5": reranking sees more than the caller asked for, because a chunk it
-#: would promote to first has to be in front of it to be promoted at all.
-DEFAULT_FUSE_SIZE = 10
 
 
 class SearchBackend(Protocol):
@@ -77,19 +96,6 @@ class QueryEmbedder(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
-class Reranker(Protocol):
-    """The rerank stage, as this layer needs it.
-
-    Returns candidates reordered and never raises: reranking improves an ordering
-    that is already usable, so its failure degrades to the fused result rather
-    than costing the incident its context.
-    """
-
-    async def rerank(
-        self, query: str, candidates: list[dict[str, Any]], *, limit: int | None = ...
-    ) -> list[dict[str, Any]]: ...
-
-
 class HybridRetriever:
     """Retrieves runbook chunks by fusing lexical and vector search."""
 
@@ -98,22 +104,11 @@ class HybridRetriever:
         *,
         backend: SearchBackend,
         embedder: QueryEmbedder,
-        reranker: Reranker | None = None,
         leg_size: int = DEFAULT_LEG_SIZE,
-        fuse_size: int = DEFAULT_FUSE_SIZE,
     ) -> None:
-        """``reranker`` is optional, and its absence is a supported configuration.
-
-        Retrieval without it returns the fused ordering, which is what the
-        recorded stage baselines measure. Making it optional is also what lets
-        the pipeline be measured at each stage boundary rather than only end to
-        end.
-        """
         self._backend = backend
         self._embedder = embedder
-        self._reranker = reranker
         self._leg_size = leg_size
-        self._fuse_size = fuse_size
 
     async def retrieve(
         self,
@@ -154,18 +149,12 @@ class HybridRetriever:
         for hit in (*vectorial, *lexical):
             by_id.setdefault(hit["chunk_id"], hit)
 
-        # Fuse to `fuse_size` rather than to `limit` when a reranker is present:
-        # reranking can only reorder what it is given, so truncating to the
-        # caller's limit first would hide from it exactly the candidates it might
-        # promote. Without a reranker there is nothing downstream to feed, so the
-        # fused list is cut to `limit` directly.
-        fuse_limit = max(self._fuse_size, limit) if self._reranker else limit
         fused_ids = reciprocal_rank_fusion(
             [
                 [hit["chunk_id"] for hit in lexical],
                 [hit["chunk_id"] for hit in vectorial],
             ],
-            limit=fuse_limit,
+            limit=limit,
         )
         fused = [by_id[chunk_id] for chunk_id in fused_ids]
 
@@ -176,9 +165,5 @@ class HybridRetriever:
             bm25_hits=len(lexical),
             knn_hits=len(vectorial),
             fused=len(fused),
-            reranked=self._reranker is not None,
         )
-
-        if self._reranker is None:
-            return fused
-        return await self._reranker.rerank(query, fused, limit=limit)
+        return fused

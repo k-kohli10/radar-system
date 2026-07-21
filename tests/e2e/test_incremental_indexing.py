@@ -18,9 +18,10 @@ Claim 2 without claim 1 would pass for a full rebuild. Together they say the
 thing the phase actually claims: new knowledge becomes retrievable, and it costs
 only what changed.
 
-SCOPE NOTE: retrieval here is a direct kNN search, because hybrid BM25+kNN with
-RRF, reranking, and CRAG grading are later slices. This proves the indexed
-vectors are searchable; the assembled retrieval pipeline gets its own e2e.
+SCOPE NOTE: retrieval here is a direct kNN search rather than the assembled
+hybrid pipeline. This test is about INDEXING — that new content lands and is
+searchable — so it deliberately does not depend on the retrieval stages, which
+are measured separately against the probes in ``tests/retrieval/``.
 
 Requires both markers' prerequisites, so it is opt-in twice over::
 
@@ -51,8 +52,8 @@ CORPUS = Path(__file__).resolve().parents[2] / "docs" / "runbooks"
 ES_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
 GATEWAY_URL = os.environ.get("RADAR_GATEWAY_URL", "http://127.0.0.1:8098")
 #: Per-mode, because knowledge-service holds two gateway tokens: one granting
-#: `embed` (this file) and one granting `reason` for reranking. Indexing needs
-#: only the first.
+#: `embed` (this file) and one granting `reason`, which CRAG grading will use.
+#: Indexing needs only the first.
 TOKEN_FILE = Path.home() / ".radar-dev/secrets/knowledge-service/gateway_token_embed"
 TEST_INDEX = "radar-runbooks-e2e"
 

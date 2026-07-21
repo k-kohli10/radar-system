@@ -8,7 +8,7 @@ what the on-call documentation actually says about that alert.
 
 Two hard rules shape the design:
 
-- **Only the gateway talks to models.** Embeddings, reranking, and CRAG grading
+- **Only the gateway talks to models.** Embeddings and CRAG grading
   all go through ``llm-gateway``. This service holds no provider API key and
   imports no provider SDK, so swapping the embedding model is gateway config,
   not a change here. The one thing that is not free: the vector dimension is
