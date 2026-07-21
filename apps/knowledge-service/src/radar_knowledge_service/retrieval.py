@@ -96,6 +96,18 @@ class QueryEmbedder(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
+class Grader(Protocol):
+    """The CRAG stage, as this layer needs it.
+
+    Returns the usable chunks and never raises. An empty result means the grader
+    judged nothing relevant — a real answer, and the reason the stage exists.
+    """
+
+    async def grade(
+        self, query: str, chunks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]: ...
+
+
 class HybridRetriever:
     """Retrieves runbook chunks by fusing lexical and vector search."""
 
@@ -104,10 +116,18 @@ class HybridRetriever:
         *,
         backend: SearchBackend,
         embedder: QueryEmbedder,
+        grader: Grader | None = None,
         leg_size: int = DEFAULT_LEG_SIZE,
     ) -> None:
+        """``grader`` is optional, and its absence is a supported configuration.
+
+        Without it, retrieval returns the fused ordering ungraded — which is what
+        the recorded stage baselines in ``tests/retrieval/`` measure, and why
+        those numbers describe fusion rather than fusion-plus-grading.
+        """
         self._backend = backend
         self._embedder = embedder
+        self._grader = grader
         self._leg_size = leg_size
 
     async def retrieve(
@@ -165,5 +185,13 @@ class HybridRetriever:
             bm25_hits=len(lexical),
             knn_hits=len(vectorial),
             fused=len(fused),
+            graded=self._grader is not None,
         )
-        return fused
+
+        if self._grader is None:
+            return fused
+        # Grading LAST, on the final candidates only: grading before truncation
+        # would spend the call judging chunks the caller will never see, and
+        # grading before fusion would judge each leg's view rather than the
+        # pipeline's answer.
+        return await self._grader.grade(query, fused)

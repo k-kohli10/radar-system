@@ -75,9 +75,14 @@ class FakeEmbedder:
 
 
 def _retriever(
-    backend: FakeBackend, embedder: FakeEmbedder | None = None
+    backend: FakeBackend,
+    embedder: FakeEmbedder | None = None,
+    *,
+    grader: Any = None,
 ) -> HybridRetriever:
-    return HybridRetriever(backend=backend, embedder=embedder or FakeEmbedder())
+    return HybridRetriever(
+        backend=backend, embedder=embedder or FakeEmbedder(), grader=grader
+    )
 
 
 async def test_both_legs_are_searched() -> None:
@@ -216,3 +221,72 @@ async def test_an_empty_query_is_refused(blank: str) -> None:
         await _retriever(backend).retrieve(blank)
 
     assert backend.calls == []
+
+
+# --------------------------------------------------------------- CRAG wiring
+
+
+class FakeGrader:
+    """Records what it was given and returns a chosen subset."""
+
+    def __init__(self, keep: list[str] | None = None) -> None:
+        self.keep = keep
+        self.calls: list[tuple[str, list[str]]] = []
+
+    async def grade(
+        self, query: str, chunks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        self.calls.append((query, [c["chunk_id"] for c in chunks]))
+        if self.keep is None:
+            return chunks
+        return [c for c in chunks if c["chunk_id"] in self.keep]
+
+
+async def test_without_a_grader_retrieval_returns_the_fused_order() -> None:
+    """The configuration the recorded stage baselines measure."""
+    backend = FakeBackend(bm25=[_hit("a")], knn=[_hit("a")])
+
+    results = await _retriever(backend).retrieve("q")
+
+    assert [h["chunk_id"] for h in results] == ["a"]
+
+
+async def test_the_grader_receives_the_final_candidates_and_the_query() -> None:
+    """Grading judges the pipeline's answer, not an intermediate view.
+
+    Grading before truncation would spend the call on chunks the caller never
+    sees; grading before fusion would judge each leg separately rather than the
+    result.
+    """
+    hits = [_hit("a"), _hit("b"), _hit("c")]
+    backend = FakeBackend(bm25=hits, knn=hits)
+    grader = FakeGrader()
+
+    await _retriever(backend, grader=grader).retrieve("orders failing", limit=2)
+
+    query, seen = grader.calls[0]
+    assert query == "orders failing"
+    assert len(seen) == 2, "the grader must see exactly what the caller asked for"
+
+
+async def test_a_grader_rejecting_everything_yields_an_empty_context() -> None:
+    """End to end through the retriever: no usable context reaches the caller.
+
+    This is the path that lets the reasoner be told the corpus has nothing for
+    an incident rather than being handed the closest wrong runbook.
+    """
+    hits = [_hit("a"), _hit("b")]
+    backend = FakeBackend(bm25=hits, knn=hits)
+
+    results = await _retriever(backend, grader=FakeGrader(keep=[])).retrieve("q")
+
+    assert results == []
+
+
+async def test_the_graders_verdict_is_what_retrieval_returns() -> None:
+    hits = [_hit("a"), _hit("b"), _hit("c")]
+    backend = FakeBackend(bm25=hits, knn=hits)
+
+    results = await _retriever(backend, grader=FakeGrader(keep=["b"])).retrieve("q")
+
+    assert [h["chunk_id"] for h in results] == ["b"]
