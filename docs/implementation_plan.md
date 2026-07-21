@@ -2264,6 +2264,41 @@ Why each was needed:
   token = one mode" is a Locked Decision — so it needed a second token, not a
   widened one.
 
+### `feat(knowledge): add cross-encoder reranking` — implemented, then REMOVED
+
+The deliverable was built in full (pure core, gateway client, wiring), measured
+against a criterion pre-registered before the stage existed, and then removed.
+The evidence is checked in: `tests/retrieval/probes.yaml` holds the criterion and
+the predictions, `tests/retrieval/baseline-reranked.json` holds the result with
+`criterion_met: false`.
+
+At 20 repeats per probe, reranking:
+
+1. **did not reliably fix either target** — the depth case reached rank 1 in 9
+   runs of 20, the repair case in 16 of 20;
+2. **was the pipeline's only source of run-to-run variance** — filter, kNN and
+   RRF return identical ranks on all 17 probes at n=20;
+3. **destabilised a probe** that had been rank 1 at every earlier stage;
+4. **cost a `reason`-mode LLM call on every incident.**
+
+It improved the average, which is not the same as improving the system. An
+on-call engineer sees one retrieval, not a distribution, so 16-in-20 means one
+incident in five grounds the RCA in the wrong runbook — and differently on
+different days for the same alert. Deterministic and slightly worse beats better
+on average but unpredictable, when each incident is a single draw and the result
+has to be debuggable afterwards.
+
+Retrieval is therefore **filter -> BM25 + kNN -> RRF -> CRAG**, with no rerank
+step, and the plan's retrieval strategy (step 6) does not describe what is built.
+`retrieval.py` carries the same summary where the stage used to be, so the
+absence reads as a finding rather than an oversight.
+
+An honest note on what this cost: the stage was built before it was measured,
+because the pre-registered criterion needed something to measure. That order was
+deliberate and the work was not wasted — the negative result is only credible
+because the implementation was a real one — but it does mean a full slice of
+code was written, proven, and deleted.
+
 `feat(knowledge): add hybrid bm25 and knn retrieval with rrf` was implemented as
 three commits rather than one, split on the pure-core/thin-shell seam this
 codebase uses elsewhere: the fusion and query-assembly core (pure, mutation
