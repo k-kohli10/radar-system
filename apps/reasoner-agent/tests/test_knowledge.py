@@ -362,3 +362,37 @@ def test_a_result_cannot_carry_chunks_it_does_not_vouch_for() -> None:
 
     with pytest.raises(ValueError, match="must carry chunks"):
         KnowledgeResult(outcome=RetrievalOutcome.GROUNDED, chunks=[])
+
+
+# ----------------------------------------------------------------- the prompt
+
+
+def test_the_prompt_pins_the_empty_context_rule() -> None:
+    """The rule that makes CRAG's empty verdict matter, guarded against edits.
+
+    A prompt is prose, and prose gets "tidied". These assertions are not about
+    wording — they pin that the three load-bearing instructions EXIST: ground in
+    the context when present, treat an empty slot as a fact about coverage, and
+    never invent a runbook to fill it. Deleting any of them turns the empty
+    path's honestly-ungrounded RCA back into plausible fabrication, silently,
+    with every other test green.
+    """
+    from radar_reasoner_agent.llm import SYSTEM_PROMPT
+
+    prompt = SYSTEM_PROMPT.lower()
+    assert "retrieved_context" in prompt
+    # Grounding when present…
+    assert "ground your analysis" in prompt
+    # …honesty when absent…
+    assert "do not cover this incident" in prompt
+    # …and the anti-fabrication boundary itself.
+    assert "never invent" in prompt
+
+
+def test_the_prompt_tells_the_model_to_weight_grades() -> None:
+    """The grades exist for the model, not just the audit trail: sufficient
+    outranks partial, and the prompt is the only place that rule can live."""
+    from radar_reasoner_agent.llm import SYSTEM_PROMPT
+
+    assert "sufficient" in SYSTEM_PROMPT
+    assert "partial" in SYSTEM_PROMPT
