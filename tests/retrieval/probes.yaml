@@ -249,6 +249,42 @@
 # that from the stage working. Two targets exercising different capabilities,
 # against 15 hold probes, is an evaluation rather than an anecdote.
 
+# MEASURED PROPERTY: NO-COVERAGE DETECTION DEPENDS ON QUERY SPECIFICITY
+# -----------------------------------------------------------------------
+# Found while building the knowledge-assisted RCA e2e (2026-07-21), measured
+# rather than assumed:
+#
+#   symptom-rich no-coverage query      reliably EMPTY   (3/3 direct; the CRAG
+#                                        gate e2e's 9/9 is the same shape)
+#   alert-shaped no-coverage query      BOUNDARY-UNSTABLE: 2/5 empty, 3/5 kept
+#   (unknown alert -> _default steps)    one chunk, inventory-check-latency/
+#                                        Investigation at `partial`
+#
+# ROOT CAUSE — the query, not the grader. An unknown alert's query is
+# `service + alert_name + the planner's _default steps`, and those steps say
+# "Review error rate and latency trends in the last 30 minutes": the query
+# itself asks for latency review, so grading the latency runbook's
+# Investigation section `partial` ("related, useful background") against it is
+# a DEFENSIBLE reading of the instructions. Substituting steps without the word
+# "latency" produced 3/3 empty. CRAG is judging the query it was given; the
+# query for an unknown alert is dominated by generic plan language that grazes
+# the corpus.
+#
+# CONSEQUENCE FOR TESTS: per the rerank lesson, a probe on the decision
+# boundary supports no claim in either direction — so no test asserts an
+# outcome for the alert-shaped no-coverage query. The e2e's no-coverage case
+# carries a symptom-rich plan template instead, which is also the realistic
+# deployment shape: plans exist for alerts runbooks do not cover.
+#
+# PRE-REGISTERED FUTURE WORK (roadmap, not this phase): the principled fix is
+# QUERY QUALITY, not grader tuning — tightening CRAG's prompt until the
+# boundary case passes would be selecting a config because it passes on the
+# probe judging it. Hypothesis to declare and measure when taken up: weighting
+# service/alert identity over generic plan-step language in build_query (or
+# raising _default's specificity) moves alert-shaped no-coverage queries off
+# the boundary. Judge against the 17-probe set PLUS the alert-shaped case
+# above, criterion fixed before the change is made.
+
 # ATTRIBUTION: WHICH STAGE GETS CREDIT FOR MOVING A MARGIN
 # ---------------------------------------------------------
 # PRE-REGISTERED BEFORE THE RETRIEVAL SLICES EXIST, for the same reason the
