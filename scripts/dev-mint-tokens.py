@@ -207,6 +207,27 @@ def mint_agent_tokens(vault: Vault, *, rotate: str | None) -> dict[str, str]:
     return tokens
 
 
+def write_knowledge_grant(vault: Vault, agent_tokens: dict[str, str]) -> None:
+    """Give the reasoner a copy of the knowledge-service's agent token.
+
+    The reasoner calls ``POST /v1/context`` on the knowledge service (Phase 8's
+    context API), and the caller presents the TARGET's token — the same rule the
+    worker's ``dispatch_tokens`` follows. Rewritten on every run from the token
+    just established, so a knowledge-service rotation converges here without a
+    second command; a hand-maintained copy would drift exactly the way the
+    dispatch map used to.
+    """
+    token = agent_tokens["knowledge-service"]
+    path = service_path("reasoner-agent")
+    secret = vault.read(path)
+    secret["knowledge_token"] = token
+    vault.write(path, secret)
+    print(
+        f"  reasoner-agent   knowledge_token rebuilt {brief(token)} "
+        f"(-> knowledge-service)"
+    )
+
+
 def rebuild_dispatch_map(vault: Vault, agent_tokens: dict[str, str]) -> None:
     """Rewrite the worker's ``dispatch_tokens`` from the tokens just established.
 
@@ -355,6 +376,7 @@ def main() -> None:
                 print(f"ROTATING {args.rotate} — restart that pod and outbox-worker\n")
             agent_tokens = mint_agent_tokens(vault, rotate=args.rotate)
             rebuild_dispatch_map(vault, agent_tokens)
+            write_knowledge_grant(vault, agent_tokens)
             mint_gateway_tokens(vault, rotate=args.rotate)
             mint_webhook_tokens(vault)
     except httpx.ConnectError:

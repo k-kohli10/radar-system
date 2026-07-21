@@ -36,6 +36,14 @@ POSTGRES_DSN_SECRET = "postgres_dsn"
 GATEWAY_TOKEN_SECRET = "gateway_token"
 """Vault secret filename holding this service's OUTBOUND llm-gateway token."""
 
+KNOWLEDGE_TOKEN_SECRET = "knowledge_token"
+"""Vault secret filename holding a COPY of the knowledge-service's agent token.
+
+The caller presents the TARGET's token — the same rule the outbox worker follows
+with ``dispatch_tokens``. Minted into this service's secret by dev-mint-tokens.py,
+which rewrites it on every run so a knowledge-service rotation converges here too.
+"""
+
 SERVICE_NAME = "reasoner-agent"
 """This service's identity: outbox target, processed_events actor, Vault path."""
 
@@ -48,6 +56,9 @@ class ReasonerSettings(RadarSettings):
     #: The llm-gateway base URL. The k8s in-cluster address by default; dev points it
     #: at localhost through the same setting, never a test-only branch in code.
     gateway_url: str = "http://llm-gateway.radar.svc.cluster.local:8080"
+
+    #: The knowledge-service base URL, same convention as ``gateway_url``.
+    knowledge_url: str = "http://knowledge-service.radar.svc.cluster.local:8080"
 
 
 def load_postgres_dsn(*, directory: Path | None = None) -> str:
@@ -76,3 +87,16 @@ def load_gateway_token(*, directory: Path | None = None) -> SecretStr:
     secret = read_secret(GATEWAY_TOKEN_SECRET, directory=directory)
     assert secret is not None  # required=True: read_secret raised if absent
     return secret
+
+
+def load_knowledge_token(*, directory: Path | None = None) -> SecretStr | None:
+    """Read the knowledge-service token, or ``None`` when it is not configured.
+
+    OPTIONAL, unlike every other secret here, and deliberately so: retrieval is
+    an enhancement, and a deployment without a knowledge service (any environment
+    replaying pre-Phase-8 behaviour) must run the reasoner unchanged rather than
+    fail readiness for a feature it does not use. A missing token means retrieval
+    is never attempted — recorded as such on the stored bundle — which is
+    different from attempted-and-failed, and both are different from grounded.
+    """
+    return read_secret(KNOWLEDGE_TOKEN_SECRET, required=False, directory=directory)

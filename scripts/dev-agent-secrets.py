@@ -46,7 +46,7 @@ POSTGRES_PATH = "secret/data/radar/postgres"
 
 #: Fields copied verbatim from a service's Vault secret into a file of the same
 #: name. A service that lacks one simply does not get that file.
-SERVICE_FIELDS = ("agent_token", "gateway_token", "dispatch_tokens")
+SERVICE_FIELDS = ("agent_token", "gateway_token", "dispatch_tokens", "knowledge_token")
 
 #: Gateway-token fields are also matched by PREFIX, because a service granted more
 #: than one mode holds one token per mode (``gateway_token_embed``,

@@ -49,7 +49,8 @@ from sqlalchemy.exc import IntegrityError
 
 from radar_reasoner_agent.config import SERVICE_NAME
 from radar_reasoner_agent.context import ContextNotAvailableError, build_context_bundle
-from radar_reasoner_agent.fallback import resolve
+from radar_reasoner_agent.fallback import RetrievalMetadata, resolve
+from radar_reasoner_agent.knowledge import KnowledgeClient, RetrievalOutcome
 from radar_reasoner_agent.llm import GatewayClient
 from radar_reasoner_agent.storage import (
     IncidentNotFoundError,
@@ -68,6 +69,7 @@ def create_events_router(
     *,
     get_database: Callable[[], Database | None],
     get_gateway: Callable[[], GatewayClient | None],
+    get_knowledge: Callable[[], KnowledgeClient | None] = lambda: None,
     events_auth: EventsAuth,
     metrics: ReasonerMetrics,
 ) -> APIRouter:
@@ -151,17 +153,46 @@ def create_events_router(
                 steps=len(bundle.investigation_steps),
             )
 
-        # ---- 3: the LLM call. NO TRANSACTION IS OPEN. ----
+        # ---- 3: the remote calls. NO TRANSACTION IS OPEN. ----
         #
-        # A minute-long call to a third party must not hold a database connection and
-        # a row lock. The transaction above is closed; the one below has not started.
+        # Long calls to other services must not hold a database connection and a
+        # row lock. The transaction above is closed; the one below has not started.
         #
-        # `complete` does not raise (it returns a typed LLMFailure), and neither does
-        # the parser inside `resolve`. So there is no exception path between here and
-        # the write — and `resolve` is total over the result space. An incident that
-        # reaches this line WILL have a recommendation to store.
+        # 3a: retrieval, when a knowledge service is configured. `fetch` never
+        # raises; its three-way outcome is CARRIED, not collapsed:
+        #   grounded    -> the bundle's retrieved_context fills, the RCA can cite
+        #   empty       -> stays [], honestly ungrounded: no runbook covers this
+        #   unavailable -> stays [], ungrounded because retrieval FAILED
+        # The last two look identical on the bundle, which is exactly why the
+        # metadata rides to the stored wrapper — collapsing them would waste the
+        # distinction CRAG and the context API preserved this far.
+        knowledge = get_knowledge()
+        retrieval: RetrievalMetadata | None = None
+        if knowledge is not None:
+            fetched = await knowledge.fetch(bundle)
+            retrieval = RetrievalMetadata(
+                outcome=fetched.outcome.value,
+                chunk_count=len(fetched.chunks),
+                detail=fetched.detail,
+                elapsed_ms=fetched.elapsed_ms,
+            )
+            # The outcome check is belt-and-braces, not load-bearing:
+            # KnowledgeResult enforces structurally that non-grounded results
+            # carry no chunks, so copying them unconditionally would be
+            # behaviourally identical (a [] over a []). The guard stays as the
+            # readable statement of intent; the mutation that deletes it is
+            # EQUIVALENT and survives by construction — the enforcement lives in
+            # KnowledgeResult.__post_init__ and its test, not here.
+            if fetched.outcome is RetrievalOutcome.GROUNDED:
+                bundle = bundle.model_copy(update={"retrieved_context": fetched.chunks})
+
+        # 3b: the LLM call. `complete` does not raise (it returns a typed
+        # LLMFailure), and neither does the parser inside `resolve`. So there is
+        # no exception path between here and the write — and `resolve` is total
+        # over the result space. An incident that reaches this line WILL have a
+        # recommendation to store.
         llm_result = await gateway.complete(bundle)
-        outcome = resolve(bundle, llm_result)
+        outcome = resolve(bundle, llm_result, retrieval=retrieval)
 
         # ---- 4: the write, atomically. ----
         #

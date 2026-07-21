@@ -180,6 +180,38 @@ class FallbackMetadata(BaseModel):
     elapsed_ms: int | None = None
 
 
+class RetrievalMetadata(BaseModel):
+    """How the bundle's ``retrieved_context`` came to be. Stored, not prompted.
+
+    Phase 8: retrieval has THREE outcomes, and two of them produce an identical
+    empty ``retrieved_context`` on the bundle. This sibling record is what keeps
+    them apart in the audit trail:
+
+    - ``grounded``     chunks were retrieved and graded; the model saw them.
+    - ``empty``        CRAG judged nothing in the corpus relevant. The RCA is
+                       honestly ungrounded — a claim about COVERAGE.
+    - ``unavailable``  the knowledge service could not answer. The RCA is
+                       ungrounded because retrieval FAILED — a claim about an
+                       OUTAGE, and treating it as the first would be a lie.
+
+    ``None`` on the wrapper means retrieval was never attempted (the knowledge
+    service is not configured) — pre-Phase-8 behaviour, still supported.
+
+    Like ``FallbackMetadata`` it lives OUTSIDE the bundle: the bundle is
+    serialized straight into the prompt, and this is bookkeeping the model has
+    no business reading.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    outcome: str
+    #: How many chunks the model was shown. Zero for empty and unavailable.
+    chunk_count: int = 0
+    #: Failure class or HTTP status when unavailable; never a vendor message.
+    detail: str | None = None
+    elapsed_ms: int | None = None
+
+
 class StoredContextBundle(BaseModel):
     """What lands in ``recommendations.context_bundle``.
 
@@ -204,6 +236,8 @@ class StoredContextBundle(BaseModel):
     bundle: ContextBundle
     #: ``None`` on a real analysis. Present on every fallback.
     fallback: FallbackMetadata | None = None
+    #: ``None`` when retrieval was never attempted. See :class:`RetrievalMetadata`.
+    retrieval: RetrievalMetadata | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,8 +296,17 @@ class ReasoningOutcome:
     latency_ms: int | None
 
 
-def resolve(bundle: ContextBundle, result: LLMResult) -> ReasoningOutcome:
+def resolve(
+    bundle: ContextBundle,
+    result: LLMResult,
+    *,
+    retrieval: RetrievalMetadata | None = None,
+) -> ReasoningOutcome:
     """Turn whatever happened into the one recommendation this incident will get.
+
+    ``retrieval`` records how the bundle's ``retrieved_context`` came to be and
+    rides through to the stored wrapper untouched — it is bookkeeping, and no
+    branch below reads it.
 
     Total over the result space, and that totality is the invariant. There is one path
     to a real analysis — the call succeeded AND the answer parsed — and every other
@@ -277,7 +320,7 @@ def resolve(bundle: ContextBundle, result: LLMResult) -> ReasoningOutcome:
             match parsed:
                 case ParsedRCA():
                     # THE one path that does not fall back.
-                    return _from_analysis(bundle, result, parsed)
+                    return _from_analysis(bundle, result, parsed, retrieval=retrieval)
                 case RCAParseFailure():
                     # The model answered, and the answer was unusable. The CALL still
                     # happened: hand the whole LLMSuccess over, so the raw text, the
@@ -288,6 +331,7 @@ def resolve(bundle: ContextBundle, result: LLMResult) -> ReasoningOutcome:
                         detail=parsed.detail,
                         call=result,
                         elapsed_ms=result.latency_ms,
+                        retrieval=retrieval,
                     )
                 case _:
                     assert_never(parsed)
@@ -301,6 +345,7 @@ def resolve(bundle: ContextBundle, result: LLMResult) -> ReasoningOutcome:
                 detail=result.detail,
                 call=None,
                 elapsed_ms=result.elapsed_ms,
+                retrieval=retrieval,
             )
         case _:
             assert_never(result)
@@ -348,7 +393,11 @@ def generate_template_rca(bundle: ContextBundle) -> ParsedRCA:
 
 
 def _from_analysis(
-    bundle: ContextBundle, success: LLMSuccess, parsed: ParsedRCA
+    bundle: ContextBundle,
+    success: LLMSuccess,
+    parsed: ParsedRCA,
+    *,
+    retrieval: RetrievalMetadata | None,
 ) -> ReasoningOutcome:
     """A real analysis: a model answered, and the answer was usable."""
     log.info(
@@ -364,7 +413,9 @@ def _from_analysis(
         root_cause=parsed.root_cause,
         confidence=parsed.confidence,
         recommended_actions=list(parsed.recommended_actions),
-        context_bundle=StoredContextBundle(bundle=bundle, fallback=None),
+        context_bundle=StoredContextBundle(
+            bundle=bundle, fallback=None, retrieval=retrieval
+        ),
         is_fallback=False,
         # A real provider, and never "none" — the agreement test in both directions
         # depends on these two being set together, here, and nowhere else.
@@ -385,6 +436,7 @@ def _from_failure(
     detail: str,
     call: LLMSuccess | None,
     elapsed_ms: int | None,
+    retrieval: RetrievalMetadata | None = None,
 ) -> ReasoningOutcome:
     """The template path. Every trigger lands here, differing only in ``reason``.
 
@@ -428,6 +480,7 @@ def _from_failure(
                 detail=detail,
                 elapsed_ms=elapsed_ms,
             ),
+            retrieval=retrieval,
         ),
         is_fallback=True,
         # Set together with is_fallback, in one place. A row cannot claim to be a
