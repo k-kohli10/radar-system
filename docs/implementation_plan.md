@@ -2192,36 +2192,56 @@ these end to end with the chaos endpoints, not with hand-written incidents.
 
 Deliverables:
 ```
-docs/runbooks/order-service-high-failure-rate.md
-docs/runbooks/order-service-high-memory.md
-docs/runbooks/checkout-timeout-rate.md
-docs/runbooks/inventory-check-latency.md
-docs/runbooks/payment-gateway-errors.md
-docs/runbooks/payment-decline-rate.md
-apps/knowledge-service/
-plugins/traces/elastic/
+docs/runbooks/                      # 17 runbooks as built: the 6 Tier-1 below
+                                    # plus 11 depth runbooks (see its README)
+apps/knowledge-service/             # package: radar_knowledge_service
+plugins/knowledge/elastic/          # the dense-vector index + search primitives
+plugins/traces/elastic/             # DEFERRED to Phase 10 — see below
 ```
 
-Commits:
+`plugins/traces/elastic/` is **deferred to Phase 10**, for the same reason
+Prometheus/alertmanager wiring was: it is an OTel traces backend, and everything
+that would consume it — the collector, Fluent Bit, the tracing path, the
+dashboards — lands in Phase 10. Nothing in Phase 8 references it, and its
+done-condition does not depend on it. Building it here would have added a
+component with no consumers to tick a list item.
+
+Commits (planned, with as-built names where they differ):
 ```
 docs(runbooks): add order service high failure rate runbook
+    -> shipped as "add runbook frontmatter contract and order service
+       failure rate runbook" (the contract landed with the first runbook)
 docs(runbooks): add order service high memory runbook
 docs(runbooks): add checkout timeout rate runbook
 docs(runbooks): add inventory latency runbook
 docs(runbooks): add payment gateway errors runbook
 docs(runbooks): add payment decline rate runbook
+    + 4 unplanned: "add {order,checkout,inventory,payment} ... depth runbooks"
+      — the 11 depth runbooks, so retrieval must disambiguate WITHIN a service
 feat(knowledge): add runbook indexer with sha256 change detection
+    + "add runbook chunker with content-addressed chunk ids" and
+      "add incremental indexing reconciliation" — the pure cores the
+      indexer is a shell over
 feat(knowledge): add elasticsearch dense vector index setup
+    -> shipped under feat(plugin-knowledge-elastic): the mapping lives in
+       the plugin, not the service
 feat(knowledge): add embedding calls via llm-gateway embed mode
 feat(knowledge): add hybrid bm25 and knn retrieval with rrf
-feat(knowledge): add cross-encoder reranking
+    -> three commits on the pure-core/thin-shell seam: the fusion + query
+       core, feat(plugin-knowledge-elastic) search primitives, and the
+       composition
 feat(knowledge): add crag grading via llm-gateway reason mode
+    -> two commits: the pure core, then the gateway call + wiring
 feat(knowledge): add context api for reasoner
-feat(plugin-traces-elastic): add otel traces elasticsearch backend
+feat(plugin-traces-elastic): add otel traces elasticsearch backend   [-> Phase 10]
 feat(reasoner): upgrade to v2 context bundle with knowledge retrieval
 feat(reasoner): update system prompt to reference retrieved context
 test(knowledge): add retrieval tests against known runbook content
+    -> the pre-registered probe set and per-stage baselines under
+       tests/retrieval/, plus each module's own suite
 test(knowledge): add crag grading tests
+    -> apps/knowledge-service/tests/test_crag*.py, plus the empty-context
+       e2e that gated the stage
 test(e2e): add knowledge-assisted rca test
 ```
 
@@ -2305,21 +2325,36 @@ codebase uses elsewhere: the fusion and query-assembly core (pure, mutation
 tested), the Elasticsearch search primitives (I/O, tested against real ES), and
 the wiring that composes them.
 
-Additional deliverables:
+Additional deliverables, as built:
 ```
-apps/knowledge-service/src/radar_knowledge_service/fusion.py
-apps/knowledge-service/src/radar_knowledge_service/query.py
-tests/retrieval/probes.yaml        # pre-registered queries and success criteria
-tests/retrieval/baseline.json      # recorded margins, ranks, stability floors
+apps/knowledge-service/src/radar_knowledge_service/
+    chunking.py reconciliation.py indexer.py embeddings.py   # indexing
+    query.py fusion.py retrieval.py                          # retrieval core
+    crag.py crag_client.py                                   # grading
+    api.py main.py config.py                                 # the context API
+    index.py                                                 # `make index`
+apps/reasoner-agent/src/radar_reasoner_agent/knowledge.py    # the v2 client
+tests/retrieval/probes.yaml          # pre-registered queries + success criteria
+tests/retrieval/baseline*.json       # per-stage margins, ranks, stability floors
 scripts/measure-retrieval-baseline.py
+scripts/measure-retrieval-stages.py
+tests/e2e/test_incremental_indexing.py
+tests/e2e/test_crag_empty_context.py
+tests/e2e/test_knowledge_assisted_rca.py
 ```
 
-Still outstanding before phase close: an entrypoint for the indexer (`main.py` /
-`make index`) — the done-condition implies someone can RUN it — and surfacing
-each runbook's `status: fixture` into the indexed documents, so the reasoner
-knows it is grounding on unreviewed content. The e2e's gateway URL default
-(8098) does not match what `make gateway` serves (8081); reconcile in the
-entrypoint work, where the silent-skip that hides it also gets fixed.
+Three items listed here as outstanding during the phase were closed before it
+ended: the indexer entrypoint (`make index`), `status: fixture` carried through
+to the context API, and the e2e gateway-port reconciliation — whose fix also
+made an explicitly-set-but-unreachable `RADAR_GATEWAY_URL` FAIL rather than skip,
+since a skip there reads as "opted out" when the truth is "misconfigured".
+
+One limitation is recorded rather than fixed, and pre-registered in
+`docs/roadmap.md`: no-coverage detection is reliable for symptom-rich queries but
+boundary-unstable for the alert-shaped query an UNKNOWN alert produces, because
+the planner's `_default` steps dominate that query and their generic language
+("review latency trends") grazes runbook content. Measured 2/5 empty. The fix is
+query quality, not grader tuning.
 
 Done when: RCA for an order-service alert references content from the order-service runbook.
 Verify by reading the recommendation row in Postgres manually.
