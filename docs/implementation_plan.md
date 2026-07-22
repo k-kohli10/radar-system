@@ -238,8 +238,10 @@ Kibana Watcher evaluates log patterns on schedule
 RADAR ingestion normalizes -> deduplicates -> outbox -> pipeline starts
 ```
 
-Alert rules live in radar-infra/prometheus/alerting-rules.yml.
-They are config, not application code.
+The e-commerce alert rules live in `deploy/prometheus/alerting-rules.yml` in
+this repo (see "Alert rules" below); RADAR's own service alerts live in
+radar-infra and are a Phase 10 deliverable. Both are config, not application
+code.
 
 ---
 
@@ -2409,7 +2411,21 @@ Prometheus alerting rules in radar-infra
 OTel trace coverage across all services confirmed
 Fluent Bit log shipping confirmed
 docs/operations/ runbooks for RADAR itself
+deploy/prometheus/prometheus.yml + a compose mount   # see below
+plugins/traces/elastic/                              # deferred from Phase 8
 ```
+
+**The dev stack's Prometheus is deliberately unwired until here.**
+`deploy/prometheus/alerting-rules.yml` exists and is proven — two e2e tests mount
+it against a real Prometheus and drive an alert through to ingestion — but
+nothing in `deploy/compose/` mounts it, so the dev Prometheus runs on its default
+config with no rules and no scrape targets.
+
+Mounting the rules WITHOUT scrape configs would be worse than leaving it empty:
+every alert would sit permanently inactive with no metrics behind it, looking
+configured while being structurally unable to fire. Rules and scrape targets
+land together, here, with alertmanager — which is what makes the
+scrape -> fire -> webhook path real rather than declared.
 
 Commits:
 ```
