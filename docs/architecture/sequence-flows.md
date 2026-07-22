@@ -9,6 +9,7 @@ sequenceDiagram
     participant watcher as watcher-agent
     participant planner as planner-agent
     participant reasoner as reasoner-agent
+    participant knowledge as knowledge-service
     participant llm as llm-gateway
     participant feedback as feedback-service
     participant Slack
@@ -20,12 +21,33 @@ sequenceDiagram
     watcher->>planner: via outbox-worker
     Note over planner: build plan, INSERT reasoning_requested outbox
     planner->>reasoner: via outbox-worker
-    reasoner->>llm: POST /v1/complete
+    reasoner->>knowledge: POST /v1/context (service, alert, plan steps)
+    Note over knowledge: pre-filter by service<br/>BM25 + kNN -> RRF -> CRAG grade
+    knowledge-->>reasoner: graded chunks (or an empty context)
+    reasoner->>llm: POST /v1/complete (bundle carries retrieved_context)
     llm-->>reasoner: RCA completion
     Note over reasoner: INSERT recommendation, outbox(recommendation.created)
     reasoner->>feedback: via outbox-worker
     feedback->>Slack: POST Slack card
 ```
+
+The knowledge call is a DIRECT HTTP call, not an outbox hop, and that is not an
+exception to the no-direct-HTTP rule: the rule governs AGENT-TO-AGENT handoffs,
+which are pipeline state transitions. The knowledge service is not an agent in
+the pipeline — it consumes no events and emits none. The reasoner queries it the
+same way it queries the llm-gateway.
+
+**Retrieval has three outcomes, and the reasoner keeps them apart:**
+
+| outcome | what the model sees | why it matters |
+|---|---|---|
+| grounded | the graded chunks | the RCA can cite the runbook |
+| empty (`200`, no chunks) | an empty slot | CRAG judged nothing relevant — the RCA says no runbook covers this |
+| unavailable (`503`, timeout, transport) | an empty slot | retrieval FAILED; the corpus may well cover it |
+
+The last two are identical to the model, deliberately — it should reason the same
+way either time. The difference is recorded on the stored context bundle, so an
+RCA's grounding state stays auditable.
 
 Every arrow labeled "via outbox-worker" is: agent commits state + outbox row in one
 transaction → outbox-worker polls, claims the row (`FOR UPDATE SKIP LOCKED`), and
@@ -126,6 +148,39 @@ sequenceDiagram
 
 No incident is ever left without a recommendation, even during a full LLM provider
 outage. See [docs/adr/0004-llm-gateway.md](../adr/0004-llm-gateway.md).
+
+### 3a. Retrieval degradation — a different failure, a different cost
+
+The knowledge call has its own failure path, and it costs strictly less: the
+reasoner proceeds with an EMPTY `retrieved_context` and still calls the LLM, so
+the incident gets a real RCA that is merely ungrounded — not a template.
+
+```mermaid
+sequenceDiagram
+    participant reasoner as reasoner-agent
+    participant knowledge as knowledge-service
+    participant llm as llm-gateway
+
+    reasoner->>knowledge: POST /v1/context
+    alt knowledge or Elasticsearch is down
+        knowledge-->>reasoner: 503 (or timeout / transport error)
+    end
+    Note over reasoner: retrieval recorded as `unavailable`<br/>retrieved_context stays []
+    reasoner->>llm: POST /v1/complete (ungrounded bundle)
+    llm-->>reasoner: RCA completion
+    Note over reasoner: INSERT recommendation (is_fallback=FALSE)
+```
+
+Two degradations, ordered by what they cost the incident:
+
+- **retrieval unavailable** → an ungrounded but genuine LLM analysis.
+- **LLM unavailable** → the template RCA of §3, which is the last resort.
+
+The reasoner's knowledge budget (20s) is deliberately shorter than the knowledge
+service's own CRAG budget (30s): a pathologically slow grading call costs the
+incident its grounding rather than the worker's dispatch margin. Both budgets
+live in `radar_common.timeouts`, where an import-time assertion keeps their sum
+below the outbox worker's dispatch timeout.
 
 ## 4. Feedback Loop
 

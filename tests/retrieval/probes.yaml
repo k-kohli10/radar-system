@@ -1,0 +1,554 @@
+# Pre-registered retrieval probes.
+#
+# WHAT THIS IS
+# ------------
+# A fixed set of queries, each declaring the runbook it SHOULD retrieve, written
+# down BEFORE reranking exists. The retrieval slices measure against these exact
+# queries, so "did rerank fix the misses" compares like with like.
+#
+# PROVENANCE — READ BEFORE CITING ANY NUMBER
+# ------------------------------------------
+# An earlier session measured two misses (inventory -0.033, payment -0.004) on a
+# full-precision raw kNN search. Those queries were never written down and are
+# gone. Treat -0.033/-0.004 as an INFORMAL SIGNAL that these two families are
+# hard — not as a rigorous baseline, and NOT as numbers comparable to the ones in
+# baseline.json. This file is the first durable pre-registration; the recorded
+# margins in baseline.json are the real baseline.
+#
+# NO CHERRY-PICKING
+# -----------------
+# Every probe here is measured and recorded, hit or miss. The set was fixed
+# before any margin was known. Selecting only the queries that miss would make
+# any later "rerank fixed N of N" claim meaningless, because the set would have
+# been chosen to be fixable.
+#
+# WRITING A PROBE
+# ---------------
+# Queries describe SYMPTOMS, the way an incident arrives — never the runbook's
+# title. A query containing the title is answered by BM25 lexical overlap and
+# proves nothing about whether the vectors separate confusable siblings, which is
+# the entire question. Both families below share a `services` value, so the
+# retrieval pre-filter cannot separate them; only the embeddings can.
+
+# HOW THE `confusable_with` PREDICTIONS ACTUALLY FARED
+# ----------------------------------------------------
+# ANNOTATION ADDED AFTER THE FIRST MEASUREMENT. The probes above are unchanged —
+# a prediction contradicted by measurement is evidence, and editing it to match
+# the outcome is precisely the record-shaping pre-registration exists to prevent.
+#
+# Against baseline.json's `winning_other`:
+#
+#   inventory-phantom-out-of-stock   miss  first guess exactly right
+#   inventory-slow-then-recovering   miss  first guess exactly right
+#   payment-no-answer                miss  second listed guess right (failover,
+#                                          not declines as led with)
+#   payment-issuer-refusals          hit   first guess exactly right
+#   inventory-negative-stock         hit   NOT predicted — beaten by
+#                                          order-service-high-failure-rate
+#   payment-charged-for-nothing      hit   NOT predicted — beaten by
+#                                          payment-decline-rate
+#
+# Read the two columns together. For a MISS, `winning_other` is what actually
+# beat the expected runbook, and the prediction record there is good: two exact,
+# one right-but-second. For a HIT it is merely the runner-up, which nothing turns
+# on — so the two unpredicted entries are the cheap kind of wrong.
+#
+# The one genuinely surprising result is `inventory-negative-stock`, whose
+# runner-up is `order-service-high-failure-rate` — a DIFFERENT SERVICE. The
+# corpus was built on the premise that the hard problem is disambiguating within
+# a service, and here the nearest competitor came from outside it. Oversell is
+# partly an order-fulfilment story ("orders we already took payment for"), so
+# query intent crossed the service boundary the `services` field would have
+# pre-filtered on. Worth watching once the retrieval slices add that pre-filter:
+# it would have removed this competitor for free, which is a point in favour of
+# filtering before scoring rather than after.
+
+# TWO METRICS, AND WHY NEITHER ALONE SURVIVES THE PIPELINE
+# ---------------------------------------------------------
+# PRE-REGISTERED BEFORE THE HYBRID SLICE EXISTS.
+#
+# The score margin was the right metric for a pure kNN baseline. It does not
+# survive RRF: reciprocal-rank fusion combines result lists BY RANK and discards
+# the scores, and BM25 scores are on a different scale from cosine anyway. After
+# fusion there is no score margin to compare — not a noisier one, none. So "the
+# margin moved" would have no defined meaning against a fused pipeline, and the
+# pre-registered numbers would quietly stop referring to anything.
+#
+# Both metrics are therefore recorded at every stage boundary:
+#
+#   MARGIN (cosine, kNN leg only)   Continuous with this baseline — literally the
+#     same quantity — so the pre-registered numbers keep their thread. Isolates
+#     the embedding stage: it answers "did vector search's view of this probe
+#     change?", which stays meaningful even when the pipeline no longer ends
+#     there.
+#
+#   BEST_RANK (final ordering)      1-indexed position of the highest-ranked chunk
+#     belonging to the expected runbook. Describes what the pipeline actually
+#     returns, which is a ranking. A NEW quantity, so it needs its own
+#     pre-registered baseline — recorded in baseline.json alongside the margins.
+#
+# The difference between them is the point: the kNN-leg margin isolates the
+# embedding stage, best_rank captures the whole pipeline, and what BM25, RRF, and
+# reranking contributed is exactly the gap. Margin alone measures one leg and
+# calls it the pipeline; rank alone orphans the pre-registered baseline.
+#
+# WHAT COUNTS AS "FIXED" — DEFINED BEFORE ANY POST-SLICE NUMBER
+# --------------------------------------------------------------
+#   fixed  ==  best_rank == 1
+#
+# Rank 1, not a softer bar, and the alternatives were considered and rejected:
+#
+#   - "outranks the runbook that beat it in the baseline" — a pairwise duel. Too
+#     weak: it can be satisfied while a DIFFERENT wrong runbook takes rank 1,
+#     which is not a fix by any reading.
+#   - "appears in the reasoner's top 5" — too weak in the other direction. All
+#     three misses ALREADY satisfy it at baseline (they sit at rank 2), so it
+#     would score them fixed before anything was built.
+#
+# `in_reasoner_top5` is still recorded, because the plan's retrieval strategy
+# ends at top-5 and a probe moving 7 -> 2 is real progress worth seeing. It is
+# NOT the success criterion, and must not be quoted as one.
+#
+# RANK NEEDS ITS OWN STABILITY FLOOR
+# ----------------------------------
+# The ~1.3e-4 spread in baseline.json is a statement about SCORES. It says
+# nothing about whether that wobble is enough to swap two near-tied chunks and
+# move a rank — and where a probe's margin is -0.001536, the chunks either side
+# of the boundary are near-tied almost by definition. A rank that flips on its
+# own between identical runs cannot be credited to reranking.
+#
+# So best_rank is measured across the same REPEATS as the margin, from the same
+# searches, and `rank_stable` is recorded per probe. Same repeats-beat-one logic
+# that caught the embedding non-determinism. A probe with rank_stable=false
+# supports no claim about any stage, in either direction.
+
+# METHOD CORRECTION: REPEATS 5 -> 20, DECLARED BEFORE RE-MEASURING
+# -----------------------------------------------------------------
+# WHY, and why this is not tuning. Five repeats was chosen when every stage was
+# rank-stable and the only nondeterminism was ~1e-4 embedding jitter that never
+# flipped a rank. Reranking broke that assumption: it varies between identical
+# inputs, and five repeats demonstrably cannot characterise it. The proof is in
+# the record — the first rerank run measured
+# `checkout-customers-leaving-more-than-usual` as [1,1,1,1,1], stable at rank 1,
+# which would have been reported as the repair case working. A second run of the
+# identical measurement gave [3,1,1,3,1]. Five repeats produced a confident false
+# positive on the phase's headline metric.
+#
+# THE TEST THAT MAKES THIS A METHOD CORRECTION RATHER THAN FISHING: would this
+# change be made regardless of which direction it moved the result? Yes. n=5 is
+# now known to be underpowered for a nondeterministic stage, and that is true
+# whether raising it makes reranking look better or worse. It very plausibly
+# makes it look WORSE — see the predictions below.
+#
+# APPLIED UNIFORMLY. All 20 repeats, all 17 probes, every stage re-measured —
+# not extra repeats on the two probes that failed. Raising n only where the
+# result is inconvenient is exactly how a fishing expedition is built, and the
+# HOLD set has the same claim to scrutiny: its stability was also established at
+# n=5, and may not survive n=20.
+#
+# THE CRITERION IS UNCHANGED. Still FIX both targets, HOLD all 15, still judged
+# on `rank_stable AND best_rank == 1`. Only the sample size moves. A change to
+# what counts as success, made now, would be the thing this whole file exists to
+# prevent.
+#
+# PREDICTIONS, recorded so the re-measurement can contradict them:
+#
+#   1. Neither fix target will reach rank 1 on all 20 repeats. (If one does, the
+#      instability was an artefact of small samples and reranking deserves a
+#      second look.)
+#   2. At least one of the 15 HOLD probes will show instability that n=5 hid.
+#      This is the prediction most likely to be wrong, and the one that would
+#      most change the picture — it would mean reranking destabilises cases it
+#      currently appears to hold.
+#   3. The pre-rerank stages (knn_raw, knn_filtered, hybrid) will stay rank-stable
+#      at n=20, because their only nondeterminism is embedding jitter already
+#      measured at ~1e-4 and shown not to move ranks.
+#
+# NO FIX IS APPLIED IN THIS STEP. Temperature, the score scale, and the tiebreak
+# rule are all plausible remedies and all remain untouched. Changing one now,
+# after seeing the criterion fail, would mean selecting a configuration BECAUSE
+# it passes on the exact probes judging it. Any remedy comes after this, declared
+# as its own hypothesis with its predicted mechanism, and measured against this
+# same criterion.
+
+# RERANK'S EVIDENCE BASE — PRE-REGISTERED BEFORE ANY RERANK CODE EXISTS
+# ----------------------------------------------------------------------
+# The hybrid slice changed what evidence is available, so the criterion is fixed
+# again here BEFORE building the stage it judges. From baseline-hybrid.json,
+# across all 17 probes:
+#
+#   inventory-phantom-out-of-stock            rank 2 -> 1   fixed by fusion
+#   payment-no-answer                         rank 2 -> 1   fixed by fusion
+#   inventory-slow-then-recovering            rank 4 -> 3   improved, still wrong
+#   checkout-customers-leaving-more-than-usual rank 1 -> 2  BROKEN by fusion
+#   the other thirteen                        rank 1        unchanged
+#
+# CORRECTION TO AN EARLIER RECORD. When this section was first written the probe
+# set was six, and it recorded the hybrid slice as "fixed two, improved one".
+# That was incomplete, not wrong: the regression above already existed, and a
+# set covering 6 of 17 runbooks could not see it. The hybrid slice's real record
+# is FIXED TWO, IMPROVED ONE, BROKE ONE. The commit message for that slice says
+# the former and is left as written — history records what was believed when it
+# was written; this file records what is true now.
+#
+# The hybrid CODE is not at fault and is not being changed. RRF is behaving
+# exactly as designed and as `test_the_rank_constant_decides_how_deep
+# _corroboration_still_wins` documents: it prefers what both legs agree on over
+# what one leg is confident about. Here kNN ranked the correct runbook first,
+# BM25 led with the wrong one, and corroboration promoted the wrong one. That
+# tradeoff is the price of fusion, now with a live instance attached to it.
+#
+# THE CRITERION, both parts required:
+#
+#   (a) FIX   BOTH of these reach best_rank == 1:
+#               - inventory-slow-then-recovering              (currently 3)
+#               - checkout-customers-leaving-more-than-usual  (currently 2)
+#   (b) HOLD  all 15 probes already at best_rank == 1 stay at best_rank == 1.
+#
+# The two targets test DIFFERENT capabilities, which is why both are required
+# rather than either:
+#
+#   slow-then-recovering        Can reranking fix what vector search never got
+#                               right? A DEPTH problem — the correct chunk sits
+#                               behind three competitors and no stage has moved
+#                               it to the front.
+#   checkout-customers-leaving  Can reranking UNDO damage an earlier stage
+#                               caused? A REPAIR problem. If rerank restores
+#                               this one, that is evidence it corrects fusion's
+#                               known failure mode — the strongest single result
+#                               available here, because it is the one case where
+#                               a stage can be shown cleaning up after another
+#                               stage that demoted a correct answer.
+#
+# Part (b) is not padding. Reranking reorders the whole candidate list, so it can
+# demote a correct answer as easily as promote one — and a stage that fixes two
+# probes while breaking three has made retrieval worse, which a fix-only
+# criterion would score as success. The 15 hits are the regression guard they
+# naturally are, and they cost nothing to check because they are already
+# measured. Fusion breaking a probe is exactly the scenario that justifies this,
+# and it is no longer hypothetical.
+#
+# Both parts are judged on rank, against the rank_stable evidence in the recorded
+# baselines. A movement on a probe whose rank is not stable proves nothing.
+#
+# WHY THE FIX-OPPORTUNITY SHRANK — AND WHY THAT IS NOT A FAILURE
+# ---------------------------------------------------------------
+# `payment-no-answer` was reserved as the clean rerank test on the stated
+# assumption that BM25 would be inert on it, both runbooks being lexically alike
+# about an unresponsive processor. That assumption was WRONG: BM25 ranks the
+# correct runbook in three of its top four, and fusion fixed the probe. Overlap
+# between competing runbooks does not neutralise BM25 when the query's own terms
+# match one of them better.
+#
+# The assumption is left recorded as it was made. Fusion doing more than expected
+# is a good outcome for retrieval and an inconvenient one for the evaluation, and
+# those are different things — the second is not a reason to restate the first.
+#
+# The probe set was expanded to one-per-runbook partly in response: judged on a
+# single probe, reranking could be fixed by luck and nothing would distinguish
+# that from the stage working. Two targets exercising different capabilities,
+# against 15 hold probes, is an evaluation rather than an anecdote.
+
+# MEASURED PROPERTY: NO-COVERAGE DETECTION DEPENDS ON QUERY SPECIFICITY
+# -----------------------------------------------------------------------
+# Found while building the knowledge-assisted RCA e2e (2026-07-21), measured
+# rather than assumed:
+#
+#   symptom-rich no-coverage query      reliably EMPTY   (3/3 direct; the CRAG
+#                                        gate e2e's 9/9 is the same shape)
+#   alert-shaped no-coverage query      BOUNDARY-UNSTABLE: 2/5 empty, 3/5 kept
+#   (unknown alert -> _default steps)    one chunk, inventory-check-latency/
+#                                        Investigation at `partial`
+#
+# ROOT CAUSE — the query, not the grader. An unknown alert's query is
+# `service + alert_name + the planner's _default steps`, and those steps say
+# "Review error rate and latency trends in the last 30 minutes": the query
+# itself asks for latency review, so grading the latency runbook's
+# Investigation section `partial` ("related, useful background") against it is
+# a DEFENSIBLE reading of the instructions. Substituting steps without the word
+# "latency" produced 3/3 empty. CRAG is judging the query it was given; the
+# query for an unknown alert is dominated by generic plan language that grazes
+# the corpus.
+#
+# CONSEQUENCE FOR TESTS: per the rerank lesson, a probe on the decision
+# boundary supports no claim in either direction — so no test asserts an
+# outcome for the alert-shaped no-coverage query. The e2e's no-coverage case
+# carries a symptom-rich plan template instead, which is also the realistic
+# deployment shape: plans exist for alerts runbooks do not cover.
+#
+# PRE-REGISTERED FUTURE WORK (roadmap, not this phase): the principled fix is
+# QUERY QUALITY, not grader tuning — tightening CRAG's prompt until the
+# boundary case passes would be selecting a config because it passes on the
+# probe judging it. Hypothesis to declare and measure when taken up: weighting
+# service/alert identity over generic plan-step language in build_query (or
+# raising _default's specificity) moves alert-shaped no-coverage queries off
+# the boundary. Judge against the 17-probe set PLUS the alert-shaped case
+# above, criterion fixed before the change is made.
+
+# ATTRIBUTION: WHICH STAGE GETS CREDIT FOR MOVING A MARGIN
+# ---------------------------------------------------------
+# PRE-REGISTERED BEFORE THE RETRIEVAL SLICES EXIST, for the same reason the
+# margins themselves are: decided after the fact, attribution follows whatever
+# story is convenient.
+#
+# baseline.json is raw kNN with NO `services` pre-filter. The assembled pipeline
+# will filter, then combine BM25 with kNN via RRF, then rerank. Comparing a
+# filtered pipeline against this unfiltered baseline therefore credits three
+# different mechanisms to whichever one happens to be under discussion. Three
+# buckets, and a probe must be assigned one BEFORE its post-slice number is read:
+#
+#   FILTER  the `services` pre-filter removed the competitor that was winning.
+#           Costs nothing and involves no scoring — if a margin moves here, no
+#           other stage may claim it.
+#   HYBRID  BM25 + kNN via RRF changed the ordering. Expected to help where the
+#           query and the right runbook share distinctive vocabulary that cosine
+#           similarity alone smears across siblings.
+#   RERANK  a cross-encoder reordered candidates that survived both stages above.
+#           Only creditable when neither of the other two can account for it.
+#
+# WHICH PROBES ARE FILTER-SENSITIVE — MEASURED, NOT ASSUMED
+# ---------------------------------------------------------
+# Computed by intersecting each probe's top-10 with the expected runbook's
+# `services`:
+#
+#   inventory-negative-stock         HIT   filter removes 5 of 10, INCLUDING the
+#                                          winner (order-service-high-failure-
+#                                          rate). Margin moves on filter alone.
+#   payment-charged-for-nothing      HIT   filter removes 1 of 10, NOT the
+#                                          winner. Margin unchanged.
+#   the other four                         filter removes nothing.
+#
+# The load-bearing consequence: ALL THREE MISSES ARE FILTER-INSENSITIVE. Every
+# candidate in their top-10 already shares the expected runbook's service, so the
+# pre-filter cannot move them by even one position. The confound is real but it
+# lands on a HIT, where nothing was at stake. Attribution for the three probes
+# that actually have to be fixed stays clean between HYBRID and RERANK.
+#
+# `payment-no-answer` is the cleanest rerank test in the set: filter changes
+# nothing (top-10 is entirely payment-*), and BM25 has little to work with
+# because the competing runbooks are lexically alike about an unresponsive
+# processor. If that margin crosses zero, rerank did it — provided the movement
+# exceeds the ~1.3e-4 noise floor in baseline.json, which at -0.001536 is a real
+# but not generous margin of interpretation.
+#
+# When the filtered pipeline lands, re-run the baseline WITH the pre-filter and
+# record it alongside rather than replacing this one. Two baselines make the
+# filter's contribution readable directly instead of inferred.
+
+probes:
+  # --- inventory family ----------------------------------------------------
+  # All four share services: [inventory-service].
+  - id: inventory-negative-stock
+    query: >-
+      Customers ordered more units than we physically have. Available count went
+      below zero overnight and the warehouse cannot fulfil some of the orders we
+      already took payment for.
+    expects: inventory-oversell-incident
+    confusable_with: [inventory-stock-reservation-leak]
+    why: >-
+      Both end with stock numbers that do not match reality. The separator is
+      that oversell has already sold goods that do not exist, while a leak only
+      makes real goods look unavailable — opposite directions, similar wording.
+
+  - id: inventory-phantom-out-of-stock
+    query: >-
+      Products are showing as out of stock on the site but the warehouse says
+      the units are physically on the shelf. Availability keeps dropping even
+      though nothing is selling.
+    expects: inventory-stock-reservation-leak
+    confusable_with: [inventory-oversell-incident]
+    why: The mirror image of the probe above; catches a model that collapses both into "stock numbers wrong".
+
+  - id: inventory-slow-then-recovering
+    query: >-
+      Inventory availability calls got very slow all at once and are gradually
+      getting faster again on their own. Database load spiked at the same moment
+      without any increase in traffic.
+    expects: inventory-cache-invalidation-storm
+    confusable_with: [inventory-check-latency]
+    why: >-
+      Reads as plain latency. The distinguishing detail is shape over time —
+      spike-then-decay — which the runbook names as the separator from a
+      genuinely slow service.
+
+  # --- payment family ------------------------------------------------------
+  # All five share services: [payment-gateway].
+  - id: payment-issuer-refusals
+    query: >-
+      A lot more card payments are being refused than usual. The calls are
+      completing normally and we are getting a clear answer back each time, the
+      answer is just no.
+    expects: payment-decline-rate
+    confusable_with: [payment-gateway-errors]
+    why: >-
+      THE designed confusion in this corpus: both runbooks open by contrasting
+      declines (call succeeded, issuer said no) against errors (call failed).
+      The query deliberately states the separator without using either term.
+
+  - id: payment-no-answer
+    query: >-
+      Payment authorization requests are failing to complete — we are not
+      getting a response back at all, so customers cannot check out. Started
+      about ten minutes ago.
+    expects: payment-gateway-errors
+    confusable_with: [payment-decline-rate, payment-processor-failover]
+    why: The mirror of the probe above, plus pull from failover, which is also about an unusable processor.
+
+  - id: payment-charged-for-nothing
+    query: >-
+      Some customers were charged but we have no order for them in our system.
+      Nothing is down and no alert fired — finance found the discrepancy during
+      end-of-day checks.
+    expects: payment-reconciliation-mismatch
+    confusable_with: [payment-gateway-errors]
+    why: >-
+      A money problem with no availability symptom. Catches retrieval that
+      routes anything containing "payment" plus "failed" to the loud
+      availability runbooks.
+
+  # === ADDED FOR COVERAGE, before reranking was built =======================
+  #
+  # The six probes above sampled 6 of 17 runbooks and left two services —
+  # order-service and checkout-service — with no probe at all. Since the corpus
+  # was built to force WITHIN-service disambiguation, sampling a third of it
+  # tested a third of the thing under test.
+  #
+  # The rule for this set is one probe per runbook, so every runbook is the
+  # expected target exactly once. That is a rule rather than a selection: it
+  # cannot be tuned toward probes that happen to pass, because there was no
+  # freedom about which runbooks to include. Results are recorded hit or miss,
+  # as with the original six.
+
+  # --- order-service -------------------------------------------------------
+  # Five runbooks, all sharing services: [order-service].
+  - id: order-accepted-but-never-fulfilled
+    query: >-
+      Customers are getting successful confirmation pages and their cards are
+      charged, but the orders never show up downstream for the warehouse to
+      pick. The service reports itself healthy.
+    expects: order-service-high-failure-rate
+    confusable_with: [order-service-fulfilment-queue-backlog]
+    why: >-
+      The hardest pair in this service: both end with orders not reaching
+      fulfilment. The separator is that here the order was never published at
+      all, whereas a backlog means it was published and is waiting.
+
+  - id: order-fulfilment-falling-behind
+    query: >-
+      Orders are piling up waiting to be processed downstream and the queue
+      depth keeps climbing. Nothing is lost and nothing errors — the workers
+      just are not keeping up with how fast orders arrive.
+    expects: order-service-fulfilment-queue-backlog
+    confusable_with: [order-service-high-failure-rate]
+    why: The mirror of the probe above; catches a model that collapses both into "orders not fulfilled".
+
+  - id: order-waiting-on-db-connections
+    query: >-
+      Requests are timing out while waiting to acquire a database connection.
+      The database itself looks healthy and underloaded, with low CPU and fast
+      query times.
+    expects: order-service-connection-pool-exhaustion
+    confusable_with: [order-service-high-memory]
+    why: >-
+      The runbook names this as the failure most often misdiagnosed as a slow
+      database. The query deliberately states the healthy-database evidence that
+      rules that out.
+
+  - id: order-memory-climbing-steadily
+    query: >-
+      Resident memory on the service has been climbing for an hour and is now
+      well above its normal plateau. Nothing has failed yet and latency is
+      normal.
+    expects: order-service-high-memory
+    confusable_with: [order-service-connection-pool-exhaustion]
+    why: >-
+      A leading indicator with no failure yet — tests whether retrieval needs a
+      visible outage to route correctly.
+
+      LEXICALLY TRIVIAL, DELIBERATELY RECORDED. This runbook's title reduces to
+      the single content word "memory", so any query describing the symptom
+      naturally contains it and BM25 should find this one easily. Contorting the
+      query to avoid the word would make it something no engineer would type,
+      which is a worse distortion than the easiness. Read this probe as coverage
+      and regression, not as a discrimination test — it says little about
+      whether a stage can separate confusable siblings.
+
+  - id: order-worse-since-release
+    query: >-
+      Everything was fine until the release went out forty minutes ago and error
+      rates have been elevated ever since. We need to decide whether to reverse
+      it, and there was a schema migration in the release.
+    expects: order-service-deployment-rollback
+    confusable_with: [order-service-high-failure-rate]
+    why: >-
+      Several runbooks say "check for a recent deploy"; only this one is about
+      performing the reversal. The migration detail is the distinguishing
+      constraint, since it is what makes a plain rollback unsafe.
+
+  # --- checkout-service ----------------------------------------------------
+  # Three runbooks, all sharing services: [checkout-service].
+  - id: checkout-too-slow-to-complete
+    query: >-
+      Checkout attempts are exceeding their time budget and failing before the
+      purchase completes. Nothing has been charged and no order exists — the
+      customer simply cannot buy.
+    expects: checkout-timeout-rate
+    confusable_with: [checkout-cart-abandonment-spike]
+    why: >-
+      Both end with an uncompleted purchase. The separator is that this one is a
+      system timeout while abandonment is a customer decision.
+
+  - id: checkout-customers-leaving-more-than-usual
+    query: >-
+      Far more people than usual are reaching the payment step and then leaving
+      without buying. Every request succeeds and response times look normal.
+    expects: checkout-cart-abandonment-spike
+    confusable_with: [checkout-timeout-rate, checkout-session-state-loss]
+    why: A behavioural signal with a technically healthy system — the case where retrieval must not reach for an outage runbook.
+
+  - id: checkout-basket-keeps-resetting
+    query: >-
+      Customers are being thrown back to an earlier step with an empty basket
+      partway through buying. The service returns success for every request, but
+      the progress they had is gone.
+    expects: checkout-session-state-loss
+    confusable_with: [checkout-cart-abandonment-spike]
+    why: >-
+      Presents as abandonment from a dashboard, which is exactly the confusion
+      to test: successful responses about the WRONG state.
+
+  # --- the remaining inventory and payment runbooks ------------------------
+  - id: inventory-checks-consistently-slow
+    query: >-
+      Availability lookups are taking well over half a second at the ninety
+      fifth percentile and have been steady at that level all morning. They all
+      return correct answers, just slowly.
+    expects: inventory-check-latency
+    confusable_with: [inventory-cache-invalidation-storm]
+    why: >-
+      The counterpart to the cache-storm probe: sustained slowness rather than
+      spike-then-decay. The pair tests whether shape over time is retrievable
+      at all, since the two runbooks name it as their separator.
+
+  - id: payment-move-to-backup-processor
+    query: >-
+      Our main card processor has been unusable for twenty minutes and we need
+      to send traffic to the backup instead. We also need to know how to move
+      back afterwards.
+    expects: payment-processor-failover
+    confusable_with: [payment-gateway-errors]
+    why: >-
+      About the REMEDY rather than the symptom. Tests whether a query phrased as
+      an action retrieves the procedure, or gets pulled to the runbook
+      describing the condition that prompted it.
+
+  - id: payment-replacing-processor-keys
+    query: >-
+      We need to replace the API credentials for the card processor after a
+      suspected leak, without taking payments down while we do it.
+    expects: payment-credential-rotation
+    confusable_with: [payment-gateway-errors]
+    why: >-
+      A planned operation, not an incident. The corpus's only maintenance
+      procedure, and the clearest test of whether retrieval distinguishes "this
+      is broken" from "I am about to change this".

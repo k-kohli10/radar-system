@@ -18,6 +18,10 @@ section of the implementation plan):
 - **gateway tokens** — the llm-gateway's mode IAM. A separate value with its own
   grant (``service`` + one ``allowed_mode``), so the reasoner's authority to spend
   ``extended`` tokens rotates independently of its identity on the event bus.
+  A service needing two modes holds TWO tokens, one per mode — never one token
+  granting both, which the gateway's grant model does not represent anyway. Its
+  secret then carries ``gateway_token_<mode>`` fields instead of a bare
+  ``gateway_token``.
 
 Usage (normally via ``make tokens`` / ``make rotate SERVICE=...``)::
 
@@ -33,7 +37,10 @@ its data — the dev server is in-memory) is repaired by running it again.
 ``--rotate SERVICE`` is the renew/replace path: it generates a fresh token for
 that service and performs **both** writes — the service's own secret, and the
 worker's ``dispatch_tokens`` entry that points at it. A rotation that did only the
-first would leave the worker sending a token the target no longer accepts.
+first would leave the worker sending a token the target no longer accepts. For a
+service holding several gateway tokens it rotates ALL of them: a partial rotation
+leaves a mix of fresh and stale credentials, and the stale one fails on whichever
+code path happens to use that mode.
 
 Prints service names and 6-character prefixes. Never a token value.
 
@@ -64,6 +71,7 @@ AGENT_SERVICES = (
     "watcher-agent",
     "planner-agent",
     "reasoner-agent",
+    "knowledge-service",
 )
 
 #: Targets the outbox worker dispatches to. Its dispatch_tokens map is rebuilt
@@ -76,14 +84,47 @@ DISPATCH_TARGETS = (
     "reasoner-agent",
 )
 
-#: Gateway grants: service -> its single allowed mode. One token, one mode, per
-#: the Locked Decision. This table is AUTHORITATIVE: a service not listed here has
-#: no business calling the gateway, and its token is pruned from the map on the
-#: next run. Otherwise deleting a grant would be cosmetic — the credential would
-#: keep working, which is the opposite of what deleting it is supposed to mean.
-GATEWAY_GRANTS = {
-    "reasoner-agent": "extended",
+#: Gateway grants: service -> the modes it may use, ONE TOKEN PER MODE.
+#:
+#: "One token = one mode" is a Locked Decision and is unchanged here: a service
+#: needing two modes gets two separate tokens, each granting exactly one. It does
+#: NOT get one token granting two. That keeps the blast radius of a leak at one
+#: mode, and it is why this maps to a tuple rather than to a list of modes on a
+#: single grant.
+#:
+#: This table is AUTHORITATIVE: a (service, mode) pair not listed here is pruned
+#: from the map on the next run. Otherwise deleting a grant would be cosmetic —
+#: the credential would keep working, which is the opposite of what deleting it
+#: is supposed to mean.
+GATEWAY_GRANTS: dict[str, tuple[str, ...]] = {
+    "reasoner-agent": ("extended",),
+    # Phase 8: the knowledge service embeds runbook chunks and queries. It never
+    # calls OpenAI directly — the gateway is the only thing holding provider keys
+    # — so indexing and retrieval both depend on the embed grant existing.
+    #
+    # `reason` is for CRAG grading, which asks an LLM whether each retrieved
+    # chunk actually supports the incident. It was originally granted for
+    # cross-encoder reranking; that stage was measured and removed (see
+    # tests/retrieval/probes.yaml), and the grant stays because CRAG needs the
+    # same mode. Separate token, separate grant: a leaked embed token cannot be
+    # spent on reasoning, which is the more expensive mode by an order of
+    # magnitude.
+    "knowledge-service": ("embed", "reason"),
 }
+
+
+def gateway_field(mode: str) -> str:
+    """Field in a service's own Vault secret holding the token for ``mode``.
+
+    A service with a SINGLE grant also keeps the bare ``gateway_token`` field,
+    because that is the name its pod already reads (see the reasoner's
+    ``GATEWAY_TOKEN_SECRET``). Multi-grant services get per-mode fields only —
+    there is no defensible answer to which of two tokens the bare name would
+    mean, and a name that silently points at one of them is how the wrong
+    credential gets sent.
+    """
+    return f"gateway_token_{mode}"
+
 
 #: Inbound webhook tokens, one per alert source (ADR 0011): each source's token is
 #: its own secret so one can be revoked without touching the others. Minted here
@@ -166,6 +207,27 @@ def mint_agent_tokens(vault: Vault, *, rotate: str | None) -> dict[str, str]:
     return tokens
 
 
+def write_knowledge_grant(vault: Vault, agent_tokens: dict[str, str]) -> None:
+    """Give the reasoner a copy of the knowledge-service's agent token.
+
+    The reasoner calls ``POST /v1/context`` on the knowledge service (Phase 8's
+    context API), and the caller presents the TARGET's token — the same rule the
+    worker's ``dispatch_tokens`` follows. Rewritten on every run from the token
+    just established, so a knowledge-service rotation converges here without a
+    second command; a hand-maintained copy would drift exactly the way the
+    dispatch map used to.
+    """
+    token = agent_tokens["knowledge-service"]
+    path = service_path("reasoner-agent")
+    secret = vault.read(path)
+    secret["knowledge_token"] = token
+    vault.write(path, secret)
+    print(
+        f"  reasoner-agent   knowledge_token rebuilt {brief(token)} "
+        f"(-> knowledge-service)"
+    )
+
+
 def rebuild_dispatch_map(vault: Vault, agent_tokens: dict[str, str]) -> None:
     """Rewrite the worker's ``dispatch_tokens`` from the tokens just established.
 
@@ -184,47 +246,76 @@ def rebuild_dispatch_map(vault: Vault, agent_tokens: dict[str, str]) -> None:
 
 
 def mint_gateway_tokens(vault: Vault, *, rotate: str | None) -> None:
-    """Ensure every gateway-calling service has a token granting its one mode.
+    """Ensure every granted (service, mode) pair has its own token.
 
-    The gateway map is keyed BY TOKEN, so rotating a service means removing its
-    old key and adding a new one — not editing a value in place. The service's own
-    secret gets a copy under ``gateway_token``, which is the file its pod reads.
+    The gateway map is keyed BY TOKEN, so rotating means removing the old key and
+    adding a new one — not editing a value in place. The service's own secret gets
+    a copy under the field its pod reads.
+
+    Rotating a multi-grant service rotates ALL of its tokens. Rotating only one
+    would leave the service holding a mix of fresh and stale credentials, and the
+    stale one fails exactly where it is least expected: on the code path that
+    happens to use the other mode.
     """
     gateway = vault.read(GATEWAY_PATH)
     raw = gateway.get("gateway_tokens")
     doc = yaml.safe_load(raw) if raw else {}
     tokens: dict[str, dict[str, str]] = (doc or {}).get("tokens") or {}
 
-    # Prune first: a token whose service is no longer granted is revoked, not
-    # merely un-refreshed. GATEWAY_GRANTS is the source of truth for who may call
-    # the gateway, so removing a line from it must actually take the key away.
+    granted = {
+        (service, mode) for service, modes in GATEWAY_GRANTS.items() for mode in modes
+    }
+
+    # Prune first: a token whose PAIR is no longer granted is revoked, not merely
+    # un-refreshed. Pruning on service alone would miss the case this function now
+    # has to handle — a service keeping one grant while losing another — leaving
+    # the dropped mode's token live and spendable.
     for token, grant in list(tokens.items()):
-        if grant["service"] not in GATEWAY_GRANTS:
+        if (grant["service"], grant["allowed_mode"]) not in granted:
             tokens.pop(token)
             print(
-                f"  {grant['service']:<16} gateway_token PRUNED  {brief(token)} "
-                f"(no longer granted)"
+                f"  {grant['service']:<16} {gateway_field(grant['allowed_mode']):<22} "
+                f"PRUNED  {brief(token)} (no longer granted)"
             )
 
-    by_service = {grant["service"]: tok for tok, grant in tokens.items()}
+    by_pair = {
+        (grant["service"], grant["allowed_mode"]): tok for tok, grant in tokens.items()
+    }
 
-    for service, mode in GATEWAY_GRANTS.items():
-        existing = by_service.get(service)
-        if existing and service != rotate:
-            print(f"  {service:<16} gateway_token kept    {brief(existing)} ({mode})")
-            continue
-        if existing:  # rotating: drop the old key entirely
-            tokens.pop(existing, None)
-        token = new_token()
-        tokens[token] = {"service": service, "allowed_mode": mode}
-        verb = "ROTATED" if service == rotate else "minted "
-        print(f"  {service:<16} gateway_token {verb} {brief(token)} ({mode})")
-        # The pod reads its own token from its own secret; the gateway reads the
-        # map. Both must carry the same value, so they are written together.
-        if service in AGENT_SERVICES:
-            secret = vault.read(service_path(service))
-            secret["gateway_token"] = token
-            vault.write(service_path(service), secret)
+    for service, modes in GATEWAY_GRANTS.items():
+        for mode in modes:
+            field = gateway_field(mode)
+            existing = by_pair.get((service, mode))
+            if existing and service != rotate:
+                print(f"  {service:<16} {field:<22} kept    {brief(existing)}")
+                token = existing
+            else:
+                if existing:  # rotating: drop the old key entirely
+                    tokens.pop(existing, None)
+                token = new_token()
+                tokens[token] = {"service": service, "allowed_mode": mode}
+                verb = "ROTATED" if service == rotate else "minted "
+                print(f"  {service:<16} {field:<22} {verb} {brief(token)}")
+
+            # The pod reads its own token from its own secret; the gateway reads
+            # the map. Both must carry the same value, so they are written
+            # together.
+            if service in AGENT_SERVICES:
+                secret = vault.read(service_path(service))
+                secret[field] = token
+                if len(modes) == 1:
+                    # Single-grant services keep the bare name their pod reads.
+                    secret["gateway_token"] = token
+                elif secret.pop("gateway_token", None) is not None:
+                    # Multi-grant: the bare field is ambiguous, so it is removed
+                    # rather than left pointing at whichever mode was written
+                    # last. Leaving it would keep a credential alive under a name
+                    # nothing refreshes — live, stale, and silent.
+                    print(
+                        f"  {service:<16} {'gateway_token':<22} REMOVED "
+                        f"(ambiguous: {len(modes)} grants)"
+                    )
+                vault.write(service_path(service), secret)
 
     gateway["gateway_tokens"] = yaml.safe_dump({"tokens": tokens}, sort_keys=False)
     vault.write(GATEWAY_PATH, gateway)
@@ -285,6 +376,7 @@ def main() -> None:
                 print(f"ROTATING {args.rotate} — restart that pod and outbox-worker\n")
             agent_tokens = mint_agent_tokens(vault, rotate=args.rotate)
             rebuild_dispatch_map(vault, agent_tokens)
+            write_knowledge_grant(vault, agent_tokens)
             mint_gateway_tokens(vault, rotate=args.rotate)
             mint_webhook_tokens(vault)
     except httpx.ConnectError:

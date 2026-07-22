@@ -22,6 +22,13 @@ RADAR automates that first ten minutes. It doesn't replace the engineer's judgme
 gets them to an informed starting point faster, with a documented trail of what was
 correlated, what was retrieved, and what was recommended.
 
+**RCAs are grounded in your own runbooks — and say so when they aren't.** Retrieved
+excerpts are graded for whether they actually address the incident, not merely whether
+they look similar to it. When nothing in the corpus fits, the RCA reasons from the
+incident and the investigation plan and states that no runbook covers this, rather than
+citing the closest wrong one. An invented runbook reads exactly like a real one to an
+engineer following it at 3am.
+
 ---
 
 ## 🚫 What RADAR Is Not
@@ -30,7 +37,7 @@ correlated, what was retrieved, and what was recommended.
 |---|---|
 | **Not a detection system** | Prometheus alerting rules and Kibana Watcher decide when something is wrong. RADAR only acts on alerts they've already fired. |
 | **Not an autonomous remediator** | RADAR recommends. It never executes changes against production systems. |
-| **Not a general purpose agent framework** | The agent pipeline (Watcher, Planner, Reasoner) is a fixed three stage sequence built for incident triage, not a platform for arbitrary agent workflows. |
+| **Not a general purpose agent framework** | The agent pipeline (Watcher, Planner, Reasoner) is a fixed sequence built for incident triage — the Reasoner consults a knowledge service for runbook context, but no agent decides what to do next. It is not a platform for arbitrary agent workflows. |
 | **Not a ticketing system** | Incident state lives in Postgres. There's no Jira/ServiceNow integration. |
 
 ---
@@ -43,6 +50,8 @@ flowchart TD
     I -->|normalize, dedupe, outbox| W[watcher-agent]
     W -->|correlate alerts into an incident| PL[planner-agent]
     PL -->|build an investigation plan| R[reasoner-agent]
+    R -->|retrieve + grade runbook context| K[knowledge-service]
+    K -->|graded excerpts, or nothing relevant| R
     R -->|call LLM, produce RCA| F[feedback-service]
     F -->|deliver Slack card, run Slack bot| S[("Slack")]
 

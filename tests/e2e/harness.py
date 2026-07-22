@@ -65,6 +65,7 @@ from radar_common import REASONER_DISPATCH_TIMEOUT_SECONDS
 from radar_contracts import LLMMode, LLMResponse, Usage
 from radar_database import Database, claim_outbox_batch
 from radar_ingestion.main import create_app as create_ingestion_app
+from radar_knowledge_service.main import create_app as create_knowledge_app
 from radar_llm_gateway.main import create_app as create_gateway_app
 from radar_outbox_worker.dispatcher import (
     EventDispatcher,
@@ -451,13 +452,31 @@ GATEWAY_CONFIG_PATH = (
 """The repo's real mode-routing config — extended → OpenAI gpt-4o."""
 
 
+EMBED_TOKEN = "e" * 64
+"""The knowledge service's embed-mode gateway token (one token = one mode)."""
+
+REASON_TOKEN = "n" * 64
+"""The knowledge service's reason-mode gateway token (CRAG grading)."""
+
+
 def _gateway_tokens_yaml() -> str:
-    """The ``gateway_tokens`` secret: the reasoner's token, granted extended mode."""
+    """The ``gateway_tokens`` secret: every grant the pipeline's callers hold.
+
+    The knowledge entries are present even when the pipeline runs without a
+    knowledge service — unused grants are harmless, and one yaml means the two
+    live builders cannot drift.
+    """
     return (
         "tokens:\n"
         f"  {GATEWAY_TOKEN}:\n"
         "    service: reasoner-agent\n"
         "    allowed_mode: extended\n"
+        f"  {EMBED_TOKEN}:\n"
+        "    service: knowledge-service\n"
+        "    allowed_mode: embed\n"
+        f"  {REASON_TOKEN}:\n"
+        "    service: knowledge-service\n"
+        "    allowed_mode: reason\n"
     )
 
 
@@ -469,8 +488,13 @@ async def build_live_pipeline(
     monkeypatch: pytest.MonkeyPatch,
     *,
     openai_api_key: str,
+    with_knowledge: bool = False,
 ) -> AsyncIterator[Pipeline]:
     """The live pipeline: the REAL llm-gateway calling REAL OpenAI, real 60s budget.
+
+    ``with_knowledge`` additionally serves the real knowledge service against the
+    real Elasticsearch index, and points the reasoner at it — the full Phase 8
+    path: retrieval, RRF, CRAG, and a grounded (or honestly empty) bundle.
 
     No mock and no compressed budget — the whole point is to measure the real extended
     call against the real budget. The gateway runs on a real socket (like the mock), but
@@ -481,6 +505,13 @@ async def build_live_pipeline(
     # The gateway's own secrets, alongside the agents' in the shared dir.
     (secrets / "openai_api_key").write_text(openai_api_key)
     (secrets / "gateway_tokens").write_text(_gateway_tokens_yaml())
+    if with_knowledge:
+        # The knowledge service's two outbound gateway tokens, and the
+        # reasoner's copy of the knowledge service's inbound token — which, in
+        # this harness's one-shared-token simplification, is AGENT_TOKEN.
+        (secrets / "gateway_token_embed").write_text(EMBED_TOKEN)
+        (secrets / "gateway_token_reason").write_text(REASON_TOKEN)
+        (secrets / "knowledge_token").write_text(AGENT_TOKEN)
     monkeypatch.setenv("RADAR_SECRETS_DIR", str(secrets))
     monkeypatch.setenv("RADAR_GATEWAY_CONFIG_PATH", str(GATEWAY_CONFIG_PATH))
 
@@ -490,6 +521,18 @@ async def build_live_pipeline(
         )
         gateway_url = await stack.enter_async_context(_serve(gateway_app))
         monkeypatch.setenv("RADAR_GATEWAY_URL", gateway_url)
+
+        if with_knowledge:
+            # The knowledge service, on a real socket like the gateway and for
+            # the same reason: the reasoner builds its own httpx client from
+            # RADAR_KNOWLEDGE_URL and there is no injection point. Built after
+            # the gateway (its lifespan reads RADAR_GATEWAY_URL) and before the
+            # agents (the reasoner reads RADAR_KNOWLEDGE_URL at build time).
+            knowledge_app = create_knowledge_app(
+                metrics_registry=CollectorRegistry(), with_tracing=False
+            )
+            knowledge_url = await stack.enter_async_context(_serve(knowledge_app))
+            monkeypatch.setenv("RADAR_KNOWLEDGE_URL", knowledge_url)
 
         # No budget compression: the reasoner runs its real 60s budget.
         yield await _assemble_services(stack, db, database_url, None)

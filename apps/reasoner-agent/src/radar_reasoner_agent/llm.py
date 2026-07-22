@@ -57,7 +57,9 @@ COMPLETE_PATH = "/v1/complete"
 
 SYSTEM_PROMPT = """\
 You are an SRE incident analysis assistant.
-You will be given incident metadata and a structured investigation plan.
+You will be given incident metadata, a structured investigation plan, and
+retrieved_context: excerpts from this platform's own runbooks, each graded for
+how well it fits this incident (sufficient or partial).
 Respond ONLY with a valid JSON object. No text before or after it.
 
 Schema:
@@ -70,17 +72,42 @@ Schema:
   ]
 }
 
+Using retrieved_context:
+- When it is non-empty, ground your analysis in it: prefer its specific
+  thresholds, commands, and procedures over generic advice, and weight
+  excerpts graded sufficient over those graded partial.
+- When it is EMPTY, this platform's runbooks do not cover this incident. That
+  is a fact you were given, not a gap to fill: reason from the incident
+  metadata and the investigation plan alone, and say in root_cause that no
+  runbook covers this. NEVER invent, cite, or allude to a runbook, procedure,
+  or excerpt you were not given — an invented runbook reads exactly like a
+  real one to the engineer following it at 3am.
+
 Rules:
 - Do not hallucinate metrics, log lines, or deployment names you were not given.
 - If you cannot determine a root cause, set confidence=low and explain in root_cause.
 - Actions must be specific, not generic. Bad: "check logs". Good: "check order-service
   error logs in Kibana for the last 30 minutes filtered by status=500".
 """
-"""The v1 system prompt, verbatim from the implementation plan.
+"""The v2 system prompt: v1 plus the retrieved_context rules.
+
+The empty-context rule is the load-bearing addition, and it is what makes the
+knowledge pipeline's empty verdict MATTER. CRAG's entire justification is that
+it can return nothing when no runbook fits — but that verdict only produces an
+honestly-ungrounded RCA if the model treats an empty slot as a fact ("the
+runbooks do not cover this") rather than a gap to fill with a plausible
+invention. Phase 7's rule against hallucinating metrics and log lines extends
+to runbooks for the same reason: fabricated grounding reads exactly like real
+grounding to the person acting on it.
+
+The model cannot tell WHY the slot is empty — judged-empty and
+retrieval-unavailable look identical in the bundle, deliberately (the model
+should reason the same way in both). The stored wrapper's `retrieval` key is
+where the system keeps them apart.
 
 It asks for JSON and nothing else — but a model that returns prose anyway is not an
 error the reasoner can prevent, only one it can survive. That is the parser's problem
-(next commit) and the fallback's (the one after).
+and the fallback's.
 """
 
 

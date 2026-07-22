@@ -64,8 +64,10 @@ from radar_reasoner_agent.config import (
     SERVICE_NAME,
     ReasonerSettings,
     load_gateway_token,
+    load_knowledge_token,
     load_postgres_dsn,
 )
+from radar_reasoner_agent.knowledge import KnowledgeClient
 from radar_reasoner_agent.llm import GatewayClient
 from radar_reasoner_agent.routes import create_events_router
 
@@ -114,10 +116,13 @@ def create_app(
     gateway_token: SecretStr | None = None
     gateway_client: httpx.AsyncClient | None = None
     gateway: GatewayClient | None = None
+    knowledge_client: httpx.AsyncClient | None = None
+    knowledge: KnowledgeClient | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         nonlocal database, agent_auth, gateway_token, gateway_client, gateway
+        nonlocal knowledge_client, knowledge
         try:
             dsn = load_postgres_dsn()
             agent_token = read_secret(AGENT_TOKEN_SECRET)
@@ -141,9 +146,26 @@ def create_app(
                 base_url=settings.gateway_url, timeout=None
             )
             gateway = GatewayClient(gateway_client, gateway_token)
+            # OPTIONAL, unlike everything above: retrieval is an enhancement,
+            # and a deployment without a knowledge service runs the reasoner
+            # unchanged. NOT gated on readiness for the same reason the gateway
+            # is not pinged by /readyz — but the absence is logged at startup,
+            # once, loudly, because "retrieval never attempted" must be a
+            # visible deployment state rather than a quiet default.
+            knowledge_token = load_knowledge_token()
+            if knowledge_token is not None:
+                knowledge_client = httpx.AsyncClient(
+                    base_url=settings.knowledge_url, timeout=None
+                )
+                knowledge = KnowledgeClient(knowledge_client, knowledge_token)
             database = Database(dsn)
             readiness.mark_ready()
-            log.info("reasoner.ready", gateway_url=settings.gateway_url)
+            log.info(
+                "reasoner.ready",
+                gateway_url=settings.gateway_url,
+                knowledge_url=settings.knowledge_url if knowledge else None,
+                retrieval_enabled=knowledge is not None,
+            )
         except ConfigurationError as exc:
             # Config-layer messages are written to be secret-free.
             readiness.mark_not_ready(str(exc))
@@ -160,6 +182,8 @@ def create_app(
             readiness.mark_not_ready("shutting down")
             if gateway_client is not None:
                 await gateway_client.aclose()
+            if knowledge_client is not None:
+                await knowledge_client.aclose()
             if database is not None:
                 await database.dispose()
             log.info("reasoner.shutdown")
@@ -174,6 +198,12 @@ def create_app(
         # built; the handler answers 503 rather than reasoning without an LLM it
         # could not even attempt to reach.
         return gateway
+
+    def get_knowledge() -> KnowledgeClient | None:
+        # None both before startup AND when retrieval is not configured; the
+        # route treats those identically (no fetch, retrieval=None on the
+        # stored bundle), which is the pre-Phase-8 behaviour.
+        return knowledge
 
     def get_agent_auth() -> AgentTokenAuth | None:
         # Late-bound: None until the Vault secret loads, so the auth dependency
@@ -190,6 +220,7 @@ def create_app(
         create_events_router(
             get_database=get_database,
             get_gateway=get_gateway,
+            get_knowledge=get_knowledge,
             events_auth=events_auth,
             metrics=reasoner_metrics,
         )

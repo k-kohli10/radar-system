@@ -71,3 +71,16 @@ inherit these.
   output when there is nothing else to cite. Phase 8's retrieval should give the model
   real runbook content to ground actions in; revisit the prompt's worked example then so
   it teaches format without supplying content the model parrots.
+
+- **Query specificity for unknown alerts (pre-registered, from Phase 8).** No-coverage
+  detection is reliable for symptom-rich queries (CRAG gate e2e: 9/9 empty) but
+  boundary-unstable for the alert-shaped query an UNKNOWN alert produces (measured
+  2/5 empty): the `_default` plan steps dominate the query, and their generic language
+  ("review latency trends") genuinely grazes runbook content, so a `partial` grade is a
+  defensible reading rather than a grader bug. The fix is query quality, NOT grader
+  tuning — tightening CRAG's prompt until the boundary case passes would select a
+  config because it passes on the probe judging it. Declared hypothesis for when this
+  is taken up: weighting service/alert identity over generic plan-step language in
+  `build_query` (or raising `_default`'s specificity) moves alert-shaped no-coverage
+  queries off the boundary. Judge against the 17-probe set PLUS the alert-shaped case
+  recorded in `tests/retrieval/probes.yaml`, criterion fixed before the change.

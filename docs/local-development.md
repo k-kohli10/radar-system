@@ -122,7 +122,7 @@ Stack-wide:
 
 | Command | What it does |
 |---|---|
-| `make dev` | start the local stack (detached) |
+| `make dev` · `make dev-infra` | start the container stack (detached) |
 | `make stop` | stop the stack, **keep** data |
 | `make clean` | stop the stack and **delete all data volumes** |
 | `make ps` | status and health of all services |
@@ -171,6 +171,11 @@ mean and when you need them:
 | `make agent-secrets` | pull each agent's secrets into `~/.radar-dev/secrets/<service>/` |
 | `make gateway-secrets` | pull the gateway's API key and token map |
 | `make ingestion-secrets` | pull the per-source webhook tokens |
+| `make dev-apps` | start the seven app processes |
+| `make stop-apps` | stop them |
+| `make ps-apps` | readiness table |
+| `make logs-apps` | tail all seven logs |
+| `make index` | index `docs/runbooks/` into Elasticsearch (incremental) |
 
 ---
 
@@ -502,88 +507,118 @@ curl -s localhost:8081/v1/complete \
 
 ---
 
-## 🔥 Run the whole pipeline (Phase 7+)
+## 🔥 Run the whole pipeline
 
-From Phase 7 you can fire a real alert and watch it flow **alert → incident → plan →
-RCA** across six processes. The automated proof is `tests/e2e/` (headless, one process);
-this is the same pipeline as real servers, for seeing it by hand. The `-m live` e2e also
-runs it against real OpenAI (`pytest -m live -s tests/e2e/test_live_pipeline.py`).
+Seven processes: ingestion, the three agents, the outbox worker, the
+llm-gateway, and the knowledge service. `make dev-apps` starts them all,
+tracks PIDs in `.dev-run/`, and prints a readiness table.
 
-**Secrets — one directory per service.** Every service reads `RADAR_SECRETS_DIR` pointed
-at its OWN directory (per-pod Vault mount in production). Rebuild them all from an empty
-dev Vault:
+### From nothing to a working pipeline
 
 ```bash
-make seed && make tokens        # human-supplied values, then platform-minted tokens
-make agent-secrets              # ~/.radar-dev/secrets/<agent>/ for watcher, planner, reasoner, outbox-worker
-make ingestion-secrets          # ~/.radar-dev/secrets/ingestion/  (webhook tokens + DSN)
-make gateway-secrets            # openai_api_key + gateway_tokens
+scripts/bootstrap.sh                # tools, uv, .env, deps
+# edit .env: set OPENAI_API_KEY
+
+make dev-infra                      # 6 containers
+make ps                             # wait: all healthy
+make migrate                        # schema
+
+make seed && make tokens            # .env -> Vault, then mint tokens
+make agent-secrets
+make gateway-secrets
+make ingestion-secrets
+
+make dev-apps                       # 7 processes
+make index                          # build the runbook index
+make ps-apps                        # all 7 ready
 ```
 
-> ingestion holds no `agent_token` (it authenticates webhooks, not `/events`), so
-> `make agent-secrets` skips it — `make ingestion-secrets` is what assembles its whole
-> directory, DSN included.
+`knowledge-service` reports **not ready** until `make index` has run — its
+readiness check verifies the live index's vector dimension, and there is no
+index before the first pass. It flips to ready on the next `make ps-apps`.
 
-**Launch the six** (one terminal each; ports are a convention, any free ones work). The
-`--factory` apps build their FastAPI app per the same `create_app` production uses:
+> ⚠️ **Vault is dev-mode and in-memory.** `make stop-infra` wipes it. On every
+> restart re-run `make seed && make tokens` and the three `*-secrets` pulls.
+> Postgres and Elasticsearch use named volumes, so the index and past RCAs
+> survive.
+
+### Ports
+
+| service | port | | service | port |
+|---|---|---|---|---|
+| llm-gateway | 8081 | | reasoner-agent | 8093 |
+| ingestion | 8090 | | outbox-worker | 8094 |
+| watcher-agent | 8091 | | knowledge-service | 8095 |
+| planner-agent | 8092 | | | |
+
+### Fire an alert
 
 ```bash
-make gateway                                                                    # :8081
-
-RADAR_SECRETS_DIR=~/.radar-dev/secrets/ingestion \
-  uv run uvicorn --factory radar_ingestion.main:create_app --port 8090 --no-access-log
-
-RADAR_SECRETS_DIR=~/.radar-dev/secrets/watcher-agent \
-  uv run uvicorn --factory radar_watcher_agent.main:create_app --port 8091 --no-access-log
-
-RADAR_SECRETS_DIR=~/.radar-dev/secrets/planner-agent \
-  uv run uvicorn --factory radar_planner_agent.main:create_app --port 8092 --no-access-log
-
-RADAR_SECRETS_DIR=~/.radar-dev/secrets/reasoner-agent RADAR_GATEWAY_URL=http://127.0.0.1:8081 \
-  uv run uvicorn --factory radar_reasoner_agent.main:create_app --port 8093 --no-access-log
-
-# The worker's k8s URL template points at localhost via a per-target override map:
-RADAR_SECRETS_DIR=~/.radar-dev/secrets/outbox-worker \
-  RADAR_DISPATCH_URL_OVERRIDES='{"watcher-agent":"http://127.0.0.1:8091/events","planner-agent":"http://127.0.0.1:8092/events","reasoner-agent":"http://127.0.0.1:8093/events"}' \
-  uv run uvicorn --factory radar_outbox_worker.main:create_app --port 8094 --no-access-log
+TOK=$(cat ~/.radar-dev/secrets/ingestion/webhook_token_mock)
+fire() { curl -s -X POST http://127.0.0.1:8090/alerts/mock \
+  -H "X-Radar-Webhook-Token: $TOK" -H "Content-Type: application/json" -d "$1"; echo; }
 ```
 
-**Check readiness** — every 503 names the file or dependency it wants:
+Three scenarios, ~20-30s each (real LLM call):
 
 ```bash
-for p in 8081 8090 8091 8092 8093 8094; do echo -n ":$p  "; curl -s localhost:$p/readyz; echo; done
+# grounded — a runbook covers this
+fire '{"service_name":"order-service","alert_name":"OrderServiceHighMemory","severity":"medium"}'
+
+# honestly ungrounded — right service, no runbook covers this failure
+fire '{"service_name":"inventory-service","alert_name":"InventoryCustomerPiiExposedInLogs","severity":"high"}'
+
+# LLM fallback — kill the gateway first
+kill $(cat .dev-run/llm-gateway.pid)
+fire '{"service_name":"checkout-service","alert_name":"CheckoutTimeoutRate","severity":"high"}'
 ```
 
-**Fire an alert**, then watch the worker's terminal walk the hops (the reasoner hop takes
-a few seconds — the real LLM call):
+Use a different service per scenario: a repeat within 5 minutes deduplicates
+onto the open incident instead of creating a new one.
 
-```bash
-curl -s -X POST http://127.0.0.1:8090/alerts/mock \
-  -H "X-Radar-Webhook-Token: $(cat ~/.radar-dev/secrets/ingestion/webhook_token_mock)" \
-  -H "Content-Type: application/json" \
-  -d '{"service_name":"order-service","alert_name":"OrderProcessingFailureRate","severity":"critical"}'
-# → 202 {"incident_id": "…"}
-```
-
-**Read the RCA, and trace it by one UUID** (the whole point of the correlation id):
+### Read the results
 
 ```sql
-SELECT is_fallback, llm_provider, confidence, latency_ms, left(root_cause, 80)
-  FROM recommendations ORDER BY created_at DESC LIMIT 1;
+SELECT is_fallback, llm_provider, confidence,
+       context_bundle->'retrieval'->>'outcome' AS retrieval,
+       jsonb_array_length(context_bundle->'bundle'->'retrieved_context') AS chunks,
+       left(root_cause, 80)
+FROM recommendations ORDER BY created_at DESC LIMIT 3;
+```
 
+| scenario | retrieval | chunks | row |
+|---|---|---|---|
+| grounded | `grounded` | 5 | RCA cites the runbook's specifics |
+| no coverage | `empty` | 0 | RCA states no runbook covers it |
+| gateway down | `unavailable` | 0 | `is_fallback=t`, `llm_provider=none` |
+
+`empty` means the grader judged nothing relevant; `unavailable` means retrieval
+failed. Both leave the context empty — the distinction is recorded so an RCA's
+grounding is auditable.
+
+Trace one incident end to end:
+
+```sql
 SELECT event_type, actor, created_at FROM audit_log
   WHERE correlation_id = (SELECT correlation_id FROM incidents ORDER BY opened_at DESC LIMIT 1)
   ORDER BY created_at;
 ```
 
-You'll see `watcher.plan_requested → planner.plan_created → reasoner.recommendation_created
-→ outbox.dead_letter` — the last because `recommendation.created` has no consumer until
-Phase 9's feedback-service, so the worker dead-letters it (correct, and requeueable).
+`recommendation.created` dead-letters until Phase 9's feedback-service exists.
+That is correct, and requeueable.
 
-**Prove the invariant the reasoner exists for:** Ctrl-C the gateway, fire a *different*
-alert (a repeat within 5 minutes just deduplicates onto the open incident), and the new
-recommendation comes back `is_fallback=t, llm_provider=none, confidence=low` — the
-investigation plan's own steps delivered as the RCA, with the LLM down.
+### Everyday use
+
+```bash
+make ps-apps        # readiness table
+make logs-apps      # tail all seven
+make stop-apps      # stop the apps
+make stop-infra     # stop the containers
+```
+
+`make dev`/`make stop` remain aliases for `dev-infra`/`stop-infra`. The apps run
+natively rather than in containers because that is the code you edit; `make stop`
+does not touch them, which is what `make stop-apps` is for.
 
 ---
 

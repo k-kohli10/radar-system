@@ -60,6 +60,7 @@ from .timeouts import (
     REASONER_DISPATCH_TIMEOUT_SECONDS,
     REASONER_LLM_BUDGET_SECONDS,
 )
+from .tokens import CHARS_PER_TOKEN, estimate_tokens
 
 __version__ = "0.3.0"
 
@@ -106,4 +107,7 @@ __all__ = [
     # time
     "utcnow",
     "ensure_utc",
+    # tokens
+    "CHARS_PER_TOKEN",
+    "estimate_tokens",
 ]

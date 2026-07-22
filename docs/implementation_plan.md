@@ -2192,38 +2192,169 @@ these end to end with the chaos endpoints, not with hand-written incidents.
 
 Deliverables:
 ```
-docs/runbooks/order-service-high-failure-rate.md
-docs/runbooks/order-service-high-memory.md
-docs/runbooks/checkout-timeout-rate.md
-docs/runbooks/inventory-check-latency.md
-docs/runbooks/payment-gateway-errors.md
-docs/runbooks/payment-decline-rate.md
-apps/knowledge-service/
-plugins/traces/elastic/
+docs/runbooks/                      # 17 runbooks as built: the 6 Tier-1 below
+                                    # plus 11 depth runbooks (see its README)
+apps/knowledge-service/             # package: radar_knowledge_service
+plugins/knowledge/elastic/          # the dense-vector index + search primitives
+plugins/traces/elastic/             # DEFERRED to Phase 10 — see below
 ```
 
-Commits:
+`plugins/traces/elastic/` is **deferred to Phase 10**, for the same reason
+Prometheus/alertmanager wiring was: it is an OTel traces backend, and everything
+that would consume it — the collector, Fluent Bit, the tracing path, the
+dashboards — lands in Phase 10. Nothing in Phase 8 references it, and its
+done-condition does not depend on it. Building it here would have added a
+component with no consumers to tick a list item.
+
+Commits (planned, with as-built names where they differ):
 ```
 docs(runbooks): add order service high failure rate runbook
+    -> shipped as "add runbook frontmatter contract and order service
+       failure rate runbook" (the contract landed with the first runbook)
 docs(runbooks): add order service high memory runbook
 docs(runbooks): add checkout timeout rate runbook
 docs(runbooks): add inventory latency runbook
 docs(runbooks): add payment gateway errors runbook
 docs(runbooks): add payment decline rate runbook
+    + 4 unplanned: "add {order,checkout,inventory,payment} ... depth runbooks"
+      — the 11 depth runbooks, so retrieval must disambiguate WITHIN a service
 feat(knowledge): add runbook indexer with sha256 change detection
+    + "add runbook chunker with content-addressed chunk ids" and
+      "add incremental indexing reconciliation" — the pure cores the
+      indexer is a shell over
 feat(knowledge): add elasticsearch dense vector index setup
+    -> shipped under feat(plugin-knowledge-elastic): the mapping lives in
+       the plugin, not the service
 feat(knowledge): add embedding calls via llm-gateway embed mode
 feat(knowledge): add hybrid bm25 and knn retrieval with rrf
-feat(knowledge): add cross-encoder reranking
+    -> three commits on the pure-core/thin-shell seam: the fusion + query
+       core, feat(plugin-knowledge-elastic) search primitives, and the
+       composition
 feat(knowledge): add crag grading via llm-gateway reason mode
+    -> two commits: the pure core, then the gateway call + wiring
 feat(knowledge): add context api for reasoner
-feat(plugin-traces-elastic): add otel traces elasticsearch backend
+feat(plugin-traces-elastic): add otel traces elasticsearch backend   [-> Phase 10]
 feat(reasoner): upgrade to v2 context bundle with knowledge retrieval
 feat(reasoner): update system prompt to reference retrieved context
 test(knowledge): add retrieval tests against known runbook content
+    -> the pre-registered probe set and per-stage baselines under
+       tests/retrieval/, plus each module's own suite
 test(knowledge): add crag grading tests
+    -> apps/knowledge-service/tests/test_crag*.py, plus the empty-context
+       e2e that gated the stage
 test(e2e): add knowledge-assisted rca test
 ```
+
+### Added during implementation
+
+Commits this phase produced that the list above does not name. Recorded here
+because the plan is the source of truth, and a phase whose real history diverges
+from its stated deliverables should say so rather than let the gap accumulate
+silently.
+
+```
+test(knowledge): prove incremental pickup end to end on real infrastructure
+feat(knowledge): stamp indexed chunks with a per-run timestamp
+test(knowledge): pre-register retrieval probes and record the pre-rerank baseline
+docs(knowledge): pre-register the three-bucket attribution model for retrieval
+feat(knowledge): grant knowledge-service a second gateway token for reason mode
+test(knowledge): pre-register the rank metric and its stability floor
+```
+
+Why each was needed:
+
+- **The incremental-pickup e2e** proves the phase's central claim — adding a
+  runbook re-embeds only that runbook, and the new content is then retrievable —
+  on real Elasticsearch, gateway, OpenAI, and Postgres together. The planned
+  `test(e2e): add knowledge-assisted rca test` covers the reasoner using
+  retrieved content, which is a different claim.
+- **The per-run `indexed_at` stamp** makes "which chunks did run N write" a
+  single-term query. Per-runbook would only restate `runbook_documents.indexed_at`,
+  which Postgres already answers.
+- **The three pre-registration commits** (probes, attribution model, rank metric)
+  exist so `feat(knowledge): add cross-encoder reranking` can be judged rather
+  than assumed. Reranking is the phase's most expensive stage; without margins
+  and ranks recorded BEFORE it exists, "rerank improved retrieval" is a claim
+  with no baseline to test it against, and the stage cannot be told apart from
+  the pre-filter or from RRF. The planned
+  `test(knowledge): add retrieval tests against known runbook content` tests that
+  retrieval works; this measures what each stage contributes.
+- **The second gateway token** is a hard prerequisite: reranking calls the
+  gateway in `reason` mode, the service held only an `embed` grant, and "one
+  token = one mode" is a Locked Decision — so it needed a second token, not a
+  widened one.
+
+### `feat(knowledge): add cross-encoder reranking` — implemented, then REMOVED
+
+The deliverable was built in full (pure core, gateway client, wiring), measured
+against a criterion pre-registered before the stage existed, and then removed.
+The evidence is checked in: `tests/retrieval/probes.yaml` holds the criterion and
+the predictions, `tests/retrieval/baseline-reranked.json` holds the result with
+`criterion_met: false`.
+
+At 20 repeats per probe, reranking:
+
+1. **did not reliably fix either target** — the depth case reached rank 1 in 9
+   runs of 20, the repair case in 16 of 20;
+2. **was the pipeline's only source of run-to-run variance** — filter, kNN and
+   RRF return identical ranks on all 17 probes at n=20;
+3. **destabilised a probe** that had been rank 1 at every earlier stage;
+4. **cost a `reason`-mode LLM call on every incident.**
+
+It improved the average, which is not the same as improving the system. An
+on-call engineer sees one retrieval, not a distribution, so 16-in-20 means one
+incident in five grounds the RCA in the wrong runbook — and differently on
+different days for the same alert. Deterministic and slightly worse beats better
+on average but unpredictable, when each incident is a single draw and the result
+has to be debuggable afterwards.
+
+Retrieval is therefore **filter -> BM25 + kNN -> RRF -> CRAG**, with no rerank
+step, and the plan's retrieval strategy (step 6) does not describe what is built.
+`retrieval.py` carries the same summary where the stage used to be, so the
+absence reads as a finding rather than an oversight.
+
+An honest note on what this cost: the stage was built before it was measured,
+because the pre-registered criterion needed something to measure. That order was
+deliberate and the work was not wasted — the negative result is only credible
+because the implementation was a real one — but it does mean a full slice of
+code was written, proven, and deleted.
+
+`feat(knowledge): add hybrid bm25 and knn retrieval with rrf` was implemented as
+three commits rather than one, split on the pure-core/thin-shell seam this
+codebase uses elsewhere: the fusion and query-assembly core (pure, mutation
+tested), the Elasticsearch search primitives (I/O, tested against real ES), and
+the wiring that composes them.
+
+Additional deliverables, as built:
+```
+apps/knowledge-service/src/radar_knowledge_service/
+    chunking.py reconciliation.py indexer.py embeddings.py   # indexing
+    query.py fusion.py retrieval.py                          # retrieval core
+    crag.py crag_client.py                                   # grading
+    api.py main.py config.py                                 # the context API
+    index.py                                                 # `make index`
+apps/reasoner-agent/src/radar_reasoner_agent/knowledge.py    # the v2 client
+tests/retrieval/probes.yaml          # pre-registered queries + success criteria
+tests/retrieval/baseline*.json       # per-stage margins, ranks, stability floors
+scripts/measure-retrieval-baseline.py
+scripts/measure-retrieval-stages.py
+tests/e2e/test_incremental_indexing.py
+tests/e2e/test_crag_empty_context.py
+tests/e2e/test_knowledge_assisted_rca.py
+```
+
+Three items listed here as outstanding during the phase were closed before it
+ended: the indexer entrypoint (`make index`), `status: fixture` carried through
+to the context API, and the e2e gateway-port reconciliation — whose fix also
+made an explicitly-set-but-unreachable `RADAR_GATEWAY_URL` FAIL rather than skip,
+since a skip there reads as "opted out" when the truth is "misconfigured".
+
+One limitation is recorded rather than fixed, and pre-registered in
+`docs/roadmap.md`: no-coverage detection is reliable for symptom-rich queries but
+boundary-unstable for the alert-shaped query an UNKNOWN alert produces, because
+the planner's `_default` steps dominate that query and their generic language
+("review latency trends") grazes runbook content. Measured 2/5 empty. The fix is
+query quality, not grader tuning.
 
 Done when: RCA for an order-service alert references content from the order-service runbook.
 Verify by reading the recommendation row in Postgres manually.

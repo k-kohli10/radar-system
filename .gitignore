@@ -41,3 +41,6 @@ deploy/compose/.data/
 # Terraform-style local state (if introduced later)
 *.tfstate
 *.tfstate.*
+
+# Local dev process state (make dev-apps): PID files and app logs
+.dev-run/
