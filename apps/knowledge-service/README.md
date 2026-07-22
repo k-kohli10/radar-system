@@ -9,10 +9,11 @@ between runbook frontmatter and the Prometheus alert rules is enforced by
 
 ## Design constraints
 
-- **Never calls a model provider directly.** Embeddings (and later reranking and
-  CRAG grading) go through `llm-gateway`, which is the only service holding
-  provider API keys. This service authenticates with a per-mode gateway token
-  from Vault.
+- **Never calls a model provider directly.** Embeddings and CRAG grading go
+  through `llm-gateway`, which is the only service holding provider API keys.
+  This service holds TWO gateway tokens, one per mode — `gateway_token_embed`
+  and `gateway_token_reason` — because "one token = one mode" is a locked
+  decision, so a leaked embedding credential cannot be spent on reasoning.
 - **Retrieval is index-side.** BM25 and kNN both execute in Elasticsearch;
   only top-k crosses the wire. The corpus is never scored in Python.
 - **Indexing is incremental.** Chunk ids are content hashes, so a re-run
@@ -20,14 +21,77 @@ between runbook frontmatter and the Prometheus alert rules is enforced by
 - **Touches only `runbook_documents`** and the Elasticsearch index — never the
   pipeline tables.
 
+## The retrieval pipeline
+
+```
+services pre-filter -> BM25 (top 20)  ┐
+                                      ├─ RRF fuse (top 5) -> CRAG grade -> context
+                    -> kNN  (top 20)  ┘
+```
+
+There is **no cross-encoder rerank stage**. One was built, measured against a
+criterion pre-registered before it existed, and removed on the evidence — it did
+not reliably fix either probe it targeted, was the pipeline's only source of
+run-to-run variance, and cost a `reason`-mode call per incident. The probes and
+per-stage baselines are checked in under [`tests/retrieval/`](../../tests/retrieval/),
+and the account is in the Phase 8 divergence record in
+[`docs/implementation_plan.md`](../../docs/implementation_plan.md).
+
+**CRAG can return nothing, and that is the point.** When every retrieved chunk
+grades `insufficient`, the context is empty and the reasoner is told the corpus
+does not cover this incident — rather than being handed the least-bad wrong
+runbook. That path is gated by
+[`tests/e2e/test_crag_empty_context.py`](../../tests/e2e/test_crag_empty_context.py).
+
 ## Modules
 
 | module | role |
 |---|---|
-| `chunking` | Pure functions: runbook markdown → stable, content-addressed chunks. No I/O. |
-| `reconciliation` | Pure functions: what a run must embed, delete, and skip. No I/O. |
-| `embeddings` | Gateway client for `/v1/embed`. Never calls a provider directly. |
-| `indexer` | The I/O shell: reads the corpus, performs the reconciled work, records the manifest. |
+| `chunking` | Pure: runbook markdown → stable, content-addressed chunks. No I/O. |
+| `reconciliation` | Pure: what a run must embed, delete, and skip. No I/O. |
+| `query` | Pure: incident fields → the retrieval query string. |
+| `fusion` | Pure: reciprocal rank fusion over the two search legs. |
+| `crag` | Pure: the grading prompt, reply parsing, and applying grades. |
+| `embeddings` | Gateway client for `/v1/embed` (`embed` mode). |
+| `crag_client` | Gateway client for `/v1/complete` (`reason` mode). Degrades to ungraded rather than failing. |
+| `retrieval` | The I/O shell: embed → both searches → fuse → grade. Satisfies `KnowledgeStore.retrieve`. |
+| `indexer` | The I/O shell for indexing: reads the corpus, performs the reconciled work, records the manifest. |
+| `api` | `POST /v1/context` — the boundary the reasoner grounds RCAs across. |
+| `main` | Service assembly: lifespan, readiness, metrics. |
+| `config` | Settings and the two Vault-mounted gateway tokens. |
+| `index` | `make index` — one incremental indexing pass. |
+
+The Elasticsearch mapping and the two search primitives live in the
+[`plugins/knowledge/elastic/`](../../plugins/knowledge/elastic/) plugin, not
+here: no vendor SDK is imported outside `plugins/`.
+
+## The context API
+
+`POST /v1/context`, guarded by this service's agent token. Takes the incident
+shape (`service_name`, `alert_name`, `investigation_steps`) and returns graded
+chunks.
+
+**An empty result and a failure are different answers, and the status code keeps
+them apart.** `{"chunks": []}` with `200` is CRAG's judgment that nothing in the
+corpus is relevant. A `503` means retrieval could not run. Collapsing them would
+let the reasoner believe "no runbook covers this" when the truth is "retrieval
+was down" — so the reasoner records which happened on the stored context bundle.
+
+Each entry carries `grade` (`sufficient` or `partial`) and `status`, which is
+`fixture` for the whole corpus until a human review pass. There is deliberately
+**no `score`**: RRF fuses by rank and discards scores, and BM25 and cosine are
+not on a comparable scale, so any single number would be invented precision.
+
+## Running an indexing pass
+
+```bash
+make tokens && make agent-secrets   # mint + pull the two gateway tokens
+make gateway                        # the llm-gateway must be up to embed
+make index                          # one incremental pass over docs/runbooks/
+```
+
+Re-running on an unchanged corpus is a no-op — `embedded=0`, every runbook
+skipped — which is the incremental guarantee, visible from the command line.
 
 ## Indexed document shape
 
@@ -42,6 +106,7 @@ One Elasticsearch document per chunk, `_id` = `chunk_id`.
 | `embedding` | dense_vector | The kNN target. Dimension fixed at index creation. |
 | `services` | keyword | **Retrieval pre-filter key.** |
 | `severity`, `alert_name`, `ordinal` | keyword / integer | Metadata for the reasoner's context bundle. |
+| `status` | keyword | `fixture` until the corpus has a human review pass. Passed through to the reasoner. |
 | `indexed_at` | date | When this chunk was written. See below. |
 
 ### Why `indexed_at` exists — and what it is *not* for

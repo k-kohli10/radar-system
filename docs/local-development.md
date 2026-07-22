@@ -171,6 +171,7 @@ mean and when you need them:
 | `make agent-secrets` | pull each agent's secrets into `~/.radar-dev/secrets/<service>/` |
 | `make gateway-secrets` | pull the gateway's API key and token map |
 | `make ingestion-secrets` | pull the per-source webhook tokens |
+| `make index` | index `docs/runbooks/` into Elasticsearch (incremental; a re-run is a no-op) |
 
 ---
 
@@ -502,6 +503,51 @@ curl -s localhost:8081/v1/complete \
 
 ---
 
+## 📚 Index the runbooks and run the knowledge service (Phase 8+)
+
+The reasoner grounds its RCAs in runbook content retrieved from Elasticsearch.
+Nothing is indexed automatically — the index is built by an explicit pass.
+
+**One-time: the two gateway tokens.** knowledge-service holds TWO, because
+"one token = one mode" is a locked decision: `gateway_token_embed` for embedding
+and `gateway_token_reason` for CRAG grading. `make tokens` mints both; there is
+deliberately no bare `gateway_token` for this service, since with two grants the
+bare name has no defensible meaning.
+
+```bash
+make tokens && make agent-secrets   # mint + pull both tokens
+make gateway                        # embedding goes through the gateway
+make index                          # one incremental pass over docs/runbooks/
+```
+
+The first run embeds the whole corpus (136 chunks across 17 runbooks, a few
+seconds). **Every later run on an unchanged corpus is a no-op:**
+
+```
+indexed: embedded=0 indexed=0 deleted=0 processed=0 skipped=17 removed=0  (no-op: corpus unchanged)
+```
+
+`embedded=0` is the incremental guarantee — chunk ids are content hashes, so
+only changed sections are re-embedded. Edit one section of one runbook, re-run,
+and exactly one chunk is embedded.
+
+**Running the service** (the reasoner's `POST /v1/context` target):
+
+```bash
+RADAR_SECRETS_DIR=~/.radar-dev/secrets/knowledge-service \
+  uv run uvicorn radar_knowledge_service.main:app --port 8082
+```
+
+`/readyz` verifies more than reachability: it checks the live index's vector
+dimension against the configured one, so a model swap without a re-index takes
+the pod out of rotation instead of quietly returning nonsense for every query.
+
+> 🧪 **Rebuilding from scratch.** Adding a MAPPING field (not content) needs a
+> real rebuild, because unchanged chunk ids make a re-run a no-op: delete the
+> index, clear `runbook_documents`, then `make index`.
+
+---
+
 ## 🔥 Run the whole pipeline (Phase 7+)
 
 From Phase 7 you can fire a real alert and watch it flow **alert → incident → plan →
@@ -515,7 +561,7 @@ dev Vault:
 
 ```bash
 make seed && make tokens        # human-supplied values, then platform-minted tokens
-make agent-secrets              # ~/.radar-dev/secrets/<agent>/ for watcher, planner, reasoner, outbox-worker
+make agent-secrets              # ~/.radar-dev/secrets/<agent>/ for watcher, planner, reasoner, outbox-worker, knowledge-service
 make ingestion-secrets          # ~/.radar-dev/secrets/ingestion/  (webhook tokens + DSN)
 make gateway-secrets            # openai_api_key + gateway_tokens
 ```
