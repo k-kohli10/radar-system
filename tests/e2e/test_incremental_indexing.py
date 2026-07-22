@@ -50,7 +50,12 @@ pytestmark = [pytest.mark.live, pytest.mark.infra]
 
 CORPUS = Path(__file__).resolve().parents[2] / "docs" / "runbooks"
 ES_URL = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
-GATEWAY_URL = os.environ.get("RADAR_GATEWAY_URL", "http://127.0.0.1:8098")
+#: Defaults to the port `make gateway` serves, so the common local flow needs
+#: no override. An EXPLICIT RADAR_GATEWAY_URL that is unreachable FAILS rather
+#: than skips — a skip there would read as "opted out" when the truth is
+#: "misconfigured", the silent no-op this repo keeps designing against.
+GATEWAY_URL = os.environ.get("RADAR_GATEWAY_URL", "http://127.0.0.1:8081")
+GATEWAY_URL_EXPLICIT = "RADAR_GATEWAY_URL" in os.environ
 #: Per-mode, because knowledge-service holds two gateway tokens: one granting
 #: `embed` (this file) and one granting `reason`, which CRAG grading will use.
 #: Indexing needs only the first.
@@ -79,6 +84,11 @@ async def embedder() -> AsyncIterator[GatewayEmbeddingClient]:
         await http.get("/healthz")
     except httpx.HTTPError:
         await http.aclose()
+        if GATEWAY_URL_EXPLICIT:
+            pytest.fail(
+                f"RADAR_GATEWAY_URL was set explicitly but {GATEWAY_URL} does not "
+                f"answer — misconfiguration, not an opt-out"
+            )
         pytest.skip(f"no llm-gateway at {GATEWAY_URL} (start it with `make gateway`)")
 
     yield GatewayEmbeddingClient(

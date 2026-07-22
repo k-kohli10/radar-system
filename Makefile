@@ -3,7 +3,7 @@ COMPOSE := docker compose --env-file .env -f $(COMPOSE_FILE)
 SERVICES := postgres elasticsearch kibana prometheus grafana vault
 
 .PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps \
-	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets \
+	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets index \
 	seed tokens rotate agent-secrets
 
 setup:
@@ -114,6 +114,16 @@ rotate: env-check
 # is exactly what per-service tokens exist to prevent.
 agent-secrets: env-check
 	RADAR_SECRETS_DIR="$(AGENT_SECRETS_DIR)" uv run python scripts/dev-agent-secrets.py
+
+# --- Runbook indexing ---------------------------------------------------------
+# One incremental pass over docs/runbooks into Elasticsearch. Needs the
+# knowledge-service secrets (make tokens && make agent-secrets) and a running
+# gateway (make gateway). Re-running on an unchanged corpus is a no-op.
+KNOWLEDGE_SECRETS_DIR ?= $(HOME)/.radar-dev/secrets/knowledge-service
+
+index:
+	@test -f "$(KNOWLEDGE_SECRETS_DIR)/gateway_token_embed" || { echo "ERROR: $(KNOWLEDGE_SECRETS_DIR)/gateway_token_embed missing — run 'make tokens && make agent-secrets' first."; exit 1; }
+	RADAR_SECRETS_DIR="$(KNOWLEDGE_SECRETS_DIR)" uv run python -m radar_knowledge_service.index
 
 # --- Database migrations (Alembic) -------------------------------------------
 # alembic.ini lives in packages/database and env.py reads POSTGRES_DSN, which we
