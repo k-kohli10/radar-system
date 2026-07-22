@@ -86,6 +86,10 @@ class Chunk:
     ordinal: int
     services: tuple[str, ...]
     severity: str
+    #: `fixture` until the corpus has had a human review pass. Carried onto
+    #: every chunk so retrieval, and ultimately the reasoner, can say whether
+    #: an RCA is grounded in reviewed content.
+    status: str
     alert_name: str | None
 
 
@@ -245,6 +249,7 @@ def chunk_runbook(source: str) -> list[Chunk]:
                 ordinal=ordinal,
                 services=frontmatter.services,
                 severity=frontmatter.severity,
+                status=frontmatter.status,
                 alert_name=frontmatter.alert_name,
             )
         )

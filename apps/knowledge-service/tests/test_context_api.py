@@ -125,6 +125,7 @@ async def test_graded_chunks_come_back_in_the_v2_entry_shape() -> None:
                 "section": "Summary",
                 "content": "content for inventory-check-latency",
                 "grade": "sufficient",
+                "status": None,
             }
         ]
     }
@@ -143,6 +144,22 @@ async def test_internal_fields_do_not_leak_into_the_response() -> None:
 
     assert "chunk_id" not in entry
     assert "score" not in entry
+
+
+async def test_the_fixture_status_is_passed_through() -> None:
+    """The corpus is unreviewed fixture content, and the reasoner should know.
+
+    Grounding an RCA in a runbook nobody has reviewed is fine; presenting it as
+    though a reviewed runbook backed it is not.
+    """
+    retriever = FakeRetriever(chunks=[_chunk("rb", status="fixture")])
+
+    async with _client(_app(retriever)) as client:
+        (entry,) = (
+            await client.post("/v1/context", json=_request(), headers=AUTH)
+        ).json()["chunks"]
+
+    assert entry["status"] == "fixture"
 
 
 async def test_ungraded_chunks_carry_a_null_grade() -> None:

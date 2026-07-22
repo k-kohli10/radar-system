@@ -90,6 +90,9 @@ class ContextChunk(BaseModel):
     section: str
     content: str
     grade: str | None = None
+    #: `fixture` until the corpus has had a human review pass. Passed through
+    #: so the reasoner knows whether its grounding is reviewed content.
+    status: str | None = None
 
 
 class ContextResponse(BaseModel):
@@ -197,4 +200,5 @@ def _to_entry(chunk: dict[str, Any]) -> ContextChunk:
         section=chunk.get("section", ""),
         content=chunk.get("text", ""),
         grade=chunk.get("grade"),
+        status=chunk.get("status"),
     )

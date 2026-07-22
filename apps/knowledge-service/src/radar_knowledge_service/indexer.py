@@ -134,6 +134,10 @@ def chunk_to_document(
         "embedding": embedding,
         "services": list(chunk.services),
         "severity": chunk.severity,
+        # The corpus is `fixture` until a human review pass. Carried through to
+        # the reasoner so an RCA grounded in unreviewed content says so, rather
+        # than reading as though a reviewed runbook backed it.
+        "status": chunk.status,
         "alert_name": chunk.alert_name,
         "ordinal": chunk.ordinal,
         "indexed_at": indexed_at.isoformat(),
