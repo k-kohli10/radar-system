@@ -24,6 +24,7 @@ members = [
     "radar-plugin-llm-openai",
     "radar-plugin-logs-elastic",
     "radar-plugin-metrics-prometheus",
+    "radar-plugin-notifications-slack",
     "radar-plugin-sdk",
     "radar-reasoner-agent",
     "radar-system",
@@ -2616,6 +2617,37 @@ dev = [
 ]
 
 [[package]]
+name = "radar-plugin-notifications-slack"
+version = "0.1.0"
+source = { editable = "plugins/notifications/slack" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "radar-contracts" },
+    { name = "slack-sdk" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = "==3.14.1" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+    { name = "slack-sdk", specifier = "==3.33.1" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+]
+
+[[package]]
 name = "radar-plugin-sdk"
 version = "0.2.0"
 source = { editable = "packages/plugin-sdk" }
@@ -2877,6 +2909,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/10/9b/5f14927848d2fd4aa891fd88d883788c5a7baba561c7874732364045708c/ruff-0.15.20-py3-none-win32.whl", hash = "sha256:ed65ef510e43a137207e0f01cfcf998aeddb1aeeda5c9d35023e910284d7cf21", size = 10857322, upload-time = "2026-06-25T17:20:28.612Z" },
     { url = "https://files.pythonhosted.org/packages/fa/f0/fe47c501f9dea92a26d788ff98bb5d92ed4cb4c88792c5c88af6b697dc8e/ruff-0.15.20-py3-none-win_amd64.whl", hash = "sha256:a525c81c70fb0380344dd1d8745d8cc1c890b7fc94a58d5a07bd8eb9557b8415", size = 11993274, upload-time = "2026-06-25T17:20:31.871Z" },
     { url = "https://files.pythonhosted.org/packages/d7/2b/9555445e1201d92b3195f45cdb153a0b68f24e0a4273f6e3d5ab46e212bb/ruff-0.15.20-py3-none-win_arm64.whl", hash = "sha256:2f5b2a6d614e8700388806a14996c40fab2c47b819ef57d790a34878858ed9ca", size = 11343498, upload-time = "2026-06-25T17:20:35.03Z" },
+]
+
+[[package]]
+name = "slack-sdk"
+version = "3.33.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3b/42/344970abb81f9b6658431dadf44587fe1a58c7fd594dd7cdf8c9fe34044a/slack_sdk-3.33.1.tar.gz", hash = "sha256:e328bb661d95db5f66b993b1d64288ac7c72201a745b4c7cf8848dafb7b74e40", size = 232106, upload-time = "2024-09-19T09:07:20.544Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/fa/28a57858595d75321c5fe2b870793e75933149edd4667d94cfc54db7a383/slack_sdk-3.33.1-py2.py3-none-any.whl", hash = "sha256:ef93beec3ce9c8f64da02fd487598a05ec4bc9c92ceed58f122dbe632691cbe2", size = 291452, upload-time = "2024-09-19T09:07:14.766Z" },
 ]
 
 [[package]]
