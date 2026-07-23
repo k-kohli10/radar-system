@@ -184,17 +184,21 @@ async def test_dispatch_to_unmapped_target_fails_closed(
 ) -> None:
     """A target with no token is refused BEFORE any request is made.
 
-    This is the fate of an event bound for a service that does not exist yet
-    (Phase 9's feedback-service) or whose token was never minted. Dispatching it
-    anyway would earn a 401 that says less about the cause — and would put an
+    This is the fate of an event bound for a service whose token was never minted
+    — the state feedback-service was in before Phase 9 wired it into
+    ``DISPATCH_TARGETS`` (that wiring is guarded by ``tests/test_dispatch_wiring``).
+    The property under test is general: an UNMAPPED target fails closed, whichever
+    service it is. ``unmapped-service`` is used so the test cannot silently pass for
+    the wrong reason once every real target is mapped. Dispatching an unmapped
+    target anyway would earn a 401 that says less about the cause — and would put an
     unauthenticated request on the wire, which is the thing worth not doing.
     """
-    result = await dispatcher.dispatch(_row("feedback-service"))
+    result = await dispatcher.dispatch(_row("unmapped-service"))
 
     assert result.status is DispatchStatus.PERMANENT
     assert result.reason == "no_dispatch_token"
     assert result.status_code is None
-    assert "feedback-service" in result.detail
+    assert "unmapped-service" in result.detail
     # The point: no request was made at all.
     assert target.requests == []
 

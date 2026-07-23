@@ -141,7 +141,7 @@ SECRETS_ROOT ?= $(HOME)/.radar-dev/secrets
 RUN_DIR      := .dev-run
 GATEWAY_URL  := http://127.0.0.1:8081
 KNOWLEDGE_URL:= http://127.0.0.1:8095
-DISPATCH_OVERRIDES := {"watcher-agent":"http://127.0.0.1:8091/events","planner-agent":"http://127.0.0.1:8092/events","reasoner-agent":"http://127.0.0.1:8093/events"}
+DISPATCH_OVERRIDES := {"watcher-agent":"http://127.0.0.1:8091/events","planner-agent":"http://127.0.0.1:8092/events","reasoner-agent":"http://127.0.0.1:8093/events","feedback-service":"http://127.0.0.1:8096/events"}
 
 #: name:port:mode:module — NO SPACES inside an entry: make word-splits this
 #: list, so a `--factory ` would be read as two separate apps. `mode` is
@@ -153,7 +153,8 @@ APPS := \
 	watcher-agent:8091:factory:radar_watcher_agent.main:create_app \
 	planner-agent:8092:factory:radar_planner_agent.main:create_app \
 	reasoner-agent:8093:factory:radar_reasoner_agent.main:create_app \
-	outbox-worker:8094:factory:radar_outbox_worker.main:create_app
+	outbox-worker:8094:factory:radar_outbox_worker.main:create_app \
+	feedback-service:8096:factory:radar_feedback_service.main:create_app
 
 apps-check:
 	@test -d "$(SECRETS_ROOT)" || { echo "ERROR: $(SECRETS_ROOT) missing — run 'make seed && make tokens && make agent-secrets && make gateway-secrets && make ingestion-secrets' first."; exit 1; }
