@@ -8,15 +8,17 @@ surface: the endpoints carry no ``X-Radar-Agent-Token`` and there is no
 
 Each request carries exactly one alert (ADR 0011). The handler binds a
 correlation id, normalizes the vendor payload to a ``NormalizedAlert`` (a
-malformed or batched payload is rejected 422, never crashes), then persists it
-in one transaction: it either attaches to an open incident with the same
-fingerprint or opens a new incident, publishing an ``alert.normalized`` outbox
-event either way — all-or-nothing. The response is 202 with the ``incident_id``.
+malformed or batched payload is rejected 422, never crashes), then persists it in
+one transaction. Every response is 202; the body's ``status`` says what happened:
 
-A ``resolved`` alert that matches no open incident is the exception: it opens
-nothing, publishes nothing, and only records an ``audit_log`` receipt. The
-response is still 202, but ``status`` is ``ignored`` and there is no incident id
-— there is no incident.
+- ``accepted`` — a firing alert opened or attached to an incident (carries
+  ``incident_id`` and ``deduplicated``), publishing an ``alert.normalized`` event.
+- ``resolved`` — a resolve matched a live incident and flipped its firing alert
+  rows (carries ``incident_id`` and ``alerts_resolved``, the count flipped, 0 on a
+  duplicate delivery). The incident row itself is untouched here.
+- ``ignored`` — a resolve matched no live incident; it opens nothing, publishes
+  nothing, and only records an ``audit_log`` receipt. No incident id — there is
+  none.
 """
 
 from __future__ import annotations
@@ -56,7 +58,7 @@ def create_alerts_router(
 
     async def _ingest(
         source: AlertSource, payload: dict[str, Any]
-    ) -> dict[str, str | bool]:
+    ) -> dict[str, str | bool | int]:
         # One correlation id per inbound alert, bound so every downstream log
         # line, the incident, the alert, and the outbox event all share it.
         correlation_id = new_correlation_id()
@@ -84,7 +86,7 @@ def create_alerts_router(
             await session.commit()
 
         if result.ignored:
-            # A resolved alert that matched no open incident. The only trace is
+            # A resolved alert that matched no live incident. The only trace is
             # the audit_log row persist_alert wrote; there is no incident to
             # return, so the response says so rather than inventing an id.
             log.info(
@@ -100,16 +102,36 @@ def create_alerts_router(
                 "reason": "no_open_incident_for_resolved_alert",
             }
 
-        # A firing alert (or a resolve that matched an open incident) always
-        # lands on an incident, so incident_id is present here. A `raise`, not an
-        # `assert`: `assert` is stripped under `python -O`, which would let a None
-        # id flow into the response silently — the fail-loud rule applies in a
-        # request path.
+        # A firing alert or a matched resolve always lands on an incident, so
+        # incident_id is present here. A `raise`, not an `assert`: `assert` is
+        # stripped under `python -O`, which would let a None id flow into the
+        # response silently — the fail-loud rule applies in a request path.
         if result.incident_id is None:
             raise RuntimeError(
                 "persist_alert returned a non-ignored result with no incident_id; "
                 "a firing or matched alert must always land on an incident"
             )
+
+        if result.alerts_resolved is not None:
+            # A resolve that matched a live incident: it flipped that many firing
+            # alert rows (0 on a duplicate delivery). The incident itself is
+            # untouched here — its own transition is gated separately.
+            log.info(
+                "alert.resolved",
+                source=source.value,
+                service_name=alert.service_name,
+                alert_name=alert.alert_name,
+                fingerprint=alert.fingerprint,
+                incident_id=str(result.incident_id),
+                alerts_resolved=result.alerts_resolved,
+            )
+            return {
+                "status": "resolved",
+                "correlation_id": str(correlation_id),
+                "incident_id": str(result.incident_id),
+                "alerts_resolved": result.alerts_resolved,
+            }
+
         log.info(
             "alert.persisted",
             source=source.value,
@@ -132,7 +154,7 @@ def create_alerts_router(
         status_code=status.HTTP_202_ACCEPTED,
         dependencies=[Depends(webhook_auth.require(AlertSource.PROMETHEUS))],
     )
-    async def ingest_prometheus(payload: dict[str, Any]) -> dict[str, str | bool]:
+    async def ingest_prometheus(payload: dict[str, Any]) -> dict[str, str | bool | int]:
         return await _ingest(AlertSource.PROMETHEUS, payload)
 
     @router.post(
@@ -140,7 +162,7 @@ def create_alerts_router(
         status_code=status.HTTP_202_ACCEPTED,
         dependencies=[Depends(webhook_auth.require(AlertSource.KIBANA))],
     )
-    async def ingest_kibana(payload: dict[str, Any]) -> dict[str, str | bool]:
+    async def ingest_kibana(payload: dict[str, Any]) -> dict[str, str | bool | int]:
         return await _ingest(AlertSource.KIBANA, payload)
 
     @router.post(
@@ -148,7 +170,7 @@ def create_alerts_router(
         status_code=status.HTTP_202_ACCEPTED,
         dependencies=[Depends(webhook_auth.require(AlertSource.MOCK))],
     )
-    async def ingest_mock(payload: dict[str, Any]) -> dict[str, str | bool]:
+    async def ingest_mock(payload: dict[str, Any]) -> dict[str, str | bool | int]:
         return await _ingest(AlertSource.MOCK, payload)
 
     return router

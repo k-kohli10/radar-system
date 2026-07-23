@@ -1,47 +1,46 @@
-"""Transactional incident creation and outbox publish.
+"""Transactional incident creation, resolution, and outbox publish.
 
 The heart of ingestion's write path. Given a normalized alert, :func:`persist_alert`
-either attaches it to an already-open incident or opens a new one — and does so
-in a single transaction the caller commits, so the incident, the alert, and the
-outbox event are all-or-nothing.
+branches on FIRING vs RESOLVED first, then does its work in a single transaction the
+caller commits, so each unit is all-or-nothing.
 
-New incident (no open match within the dedup window):
+Firing — new incident (no open match within the dedup window):
 
 - INSERT incident, INSERT alert (linked to it), and — reusing the shared outbox
   writer — INSERT one ``alert.normalized`` outbox event targeting the watcher
   agent, all in one transaction.
 
-Duplicate (an open incident matched):
+Firing — duplicate (an open incident matched within the window):
 
 - INSERT the alert linked to that incident, bump its ``alert_count`` /
   ``updated_at``, and INSERT an ``alert.normalized`` outbox event **as well**.
 
-Resolved alert with no open incident to resolve:
+Resolved — matched a live incident (``{open, investigating}``, unwindowed):
+
+- UPDATE that incident's still-firing alert rows to ``resolved`` with the webhook
+  time, and NOTHING ELSE: no new alert row, no ``alert_count`` bump, no outbox
+  event, and the incident row untouched. A resolve is the firing alert(s)
+  transitioning in place, not a new firing — so the watcher (which escalates on
+  arrival rate) must not see it, and the counter that feeds escalation must not move.
+  Whether the INCIDENT then transitions to ``resolved`` is the next commit's gate.
+
+Resolved — matched no live incident:
 
 - INSERT one ``audit_log`` row and NOTHING ELSE. No incident, no alert, no event.
 
 That last branch exists because a ``resolved`` payload used to fall through to the
-create path: with no open incident inside the 5-minute dedup window, a resolve
-**opened a brand-new incident** in ``open`` and published ``alert.normalized``, so
-the watcher requested an investigation plan for an alert that was already over.
-This is the common case, not an edge one — an incident's alert resolves minutes or
-hours after it opened, which is well outside the dedup window, so almost every
-resolve took it.
+create path and **open a brand-new incident** in ``open`` for an alert already over,
+handing the watcher a plan request for it. The receipt is recorded in ``audit_log``
+rather than as an ``alerts`` row with a NULL ``incident_id``: "we received X and did
+Y" is what an audit log is for, and it keeps ``alerts`` meaning *alerts that belong
+to an incident* — an invariant every future join and bot query would otherwise have
+to remember the exceptions to. The audit row's ``entity_id`` is the normalized
+alert's id, which never became a row: a log referring to an event, not a foreign key,
+and ``audit_log`` has no FK to hold it to one.
 
-The receipt is recorded in ``audit_log`` rather than as an ``alerts`` row with a
-NULL ``incident_id``. "We received X and did Y" is what an audit log is for, and it
-keeps ``alerts`` meaning *alerts that belong to an incident* — an invariant every
-future join and bot query would otherwise have to remember the exceptions to. The
-audit row's ``entity_id`` is the normalized alert's id, which never became a row:
-that is a log referring to an event, not a foreign key, and ``audit_log`` has no FK
-to hold it to one.
-
-**Scope of this guard:** it covers only the resolve that matches NOTHING. A resolve
-that DOES match an open incident still takes the duplicate path above — attaching,
-bumping ``alert_count``, and publishing — which is also wrong (a resolve is not a
-new firing, and that counter feeds the watcher's escalation rule). Updating the
-alert's own status and resolving the incident are the next two commits; this one
-only stops the bad INSERT.
+Resolution matching is deliberately NOT dedup's windowed, open-only lookup — it is
+:func:`resolver.find_resolvable_incident`. See that module for why the two questions
+must not share a predicate.
 
 **Every alert produces an event, duplicates included.** Ingestion owns incident
 identity (it opens the incident and dedups on the fingerprint); the watcher owns
@@ -80,15 +79,17 @@ from radar_database import Alert, AuditLog, Incident, write_outbox_event
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from radar_ingestion.deduper import find_open_incident
+from radar_ingestion.resolver import (
+    ALERT_STATUS_RESOLVED,
+    find_resolvable_incident,
+    mark_incident_alerts_resolved,
+)
 
 ALERT_NORMALIZED_EVENT = "alert.normalized"
 """Outbox event type emitted when a new incident is opened."""
 
 WATCHER_TARGET = "watcher-agent"
 """Target service for the ``alert.normalized`` event."""
-
-ALERT_STATUS_RESOLVED = "resolved"
-"""Source-reported alert status meaning the condition is no longer firing."""
 
 RESOLVE_IGNORED_AUDIT_EVENT = "ingestion.resolve_ignored"
 """Audit event recorded when a resolved alert matches no open incident."""
@@ -101,13 +102,24 @@ INGESTION_ACTOR = "ingestion"
 class PublishResult:
     """Outcome of persisting one alert.
 
-    ``incident_id`` is ``None`` exactly when ``ignored`` is true — the resolved
-    alert matched no open incident, so there is no incident to point at.
+    Three shapes, disjoint:
+
+    - a firing alert that opened or attached to an incident — ``incident_id`` set,
+      ``alerts_resolved`` ``None``;
+    - a resolve that matched a live incident — ``incident_id`` set,
+      ``alerts_resolved`` the number of firing alert rows it flipped (0 on a
+      duplicate delivery);
+    - a resolve that matched nothing — ``ignored`` true, ``incident_id`` ``None``.
+
+    ``alerts_resolved is None`` distinguishes the firing path from the resolve
+    path; the caller reads it to answer "resolved N alerts" vs "accepted" without
+    re-inspecting the alert.
     """
 
     incident_id: UUID | None
     deduplicated: bool
     ignored: bool = False
+    alerts_resolved: int | None = None
 
 
 async def persist_alert(
@@ -116,28 +128,31 @@ async def persist_alert(
     *,
     as_of: datetime | None = None,
 ) -> PublishResult:
-    """Attach ``alert`` to an open incident or open a new one, transactionally.
+    """Attach a firing alert to an incident, open one, or resolve — transactionally.
 
-    ``as_of`` is the dedup reference time (defaults to the alert's
-    ``received_at``). A firing alert always publishes an ``alert.normalized``
-    event, so the watcher sees every one of them. Adds rows but does not commit —
-    the caller commits so the incident, alert, and outbox event are one atomic
-    unit. Insert order is irrelevant because the FKs are deferrable.
+    ``as_of`` is the dedup reference time (defaults to the alert's ``received_at``).
+    Adds rows but does not commit — the caller commits so each unit is atomic.
 
-    A ``resolved`` alert matching no open incident is recorded in ``audit_log``
-    and otherwise ignored: it opens nothing and wakes nobody.
+    A ``resolved`` alert takes the resolution path, NOT dedup: resolution matching
+    is unwindowed and spans ``{open, investigating}`` (see :mod:`resolver`), because
+    an alert usually clears long after — and while the incident is already
+    ``investigating`` — so a windowed, open-only lookup would miss almost every real
+    resolve. It flips the matched incident's firing alert rows to ``resolved`` and
+    otherwise leaves the incident untouched (whether the incident itself transitions
+    is the next commit's gate). A resolve matching no live incident is recorded in
+    ``audit_log`` and ignored: it opens nothing and wakes nobody.
+
+    A firing alert always publishes an ``alert.normalized`` event so the watcher
+    sees every one; the incident, alert, and event are one atomic unit and insert
+    order is irrelevant because the FKs are deferrable.
     """
+    if alert.status == ALERT_STATUS_RESOLVED:
+        return await _resolve(session, alert)
+
     reference = as_of if as_of is not None else alert.received_at
     existing = await find_open_incident(
         session, fingerprint=alert.fingerprint, as_of=reference
     )
-
-    if alert.status == ALERT_STATUS_RESOLVED and existing is None:
-        # Nothing to resolve. Falling through here is what used to open an
-        # incident — in `open`, for an alert already over — and hand the watcher
-        # a plan request for it.
-        session.add(_resolve_ignored_audit(alert))
-        return PublishResult(incident_id=None, deduplicated=False, ignored=True)
 
     if existing is not None:
         existing.alert_count += 1
@@ -151,6 +166,41 @@ async def persist_alert(
     session.add(_alert_row(alert, incident_id))
     await _publish(session, alert, incident_id, deduplicated=False)
     return PublishResult(incident_id=incident_id, deduplicated=False)
+
+
+async def _resolve(session: AsyncSession, alert: NormalizedAlert) -> PublishResult:
+    """Handle a ``resolved`` alert: flip its incident's firing alerts, or ignore.
+
+    Finds the live incident this ending signal pertains to (``{open,
+    investigating}``, unwindowed) and flips that incident's still-firing alert rows
+    to ``resolved`` stamped with the webhook time. The incident row is deliberately
+    NOT touched here — no status change, no ``alert_count`` bump — and no
+    ``alert.normalized`` event is published: a resolve is not a new firing and the
+    watcher must not escalate on it. No new alert row either; the existing firing
+    rows transition in place.
+
+    A resolve matching no live incident is recorded once in ``audit_log`` and
+    otherwise ignored — the same receipt-not-row treatment as before, now keyed on
+    the unwindowed lookup so a resolve for an incident that opened long ago (the
+    common case) resolves it rather than being mistaken for "no incident."
+    """
+    incident = await find_resolvable_incident(session, fingerprint=alert.fingerprint)
+    if incident is None:
+        session.add(_resolve_ignored_audit(alert))
+        return PublishResult(incident_id=None, deduplicated=False, ignored=True)
+
+    # Webhook time: when the source says the condition cleared (Prometheus endsAt);
+    # for sources that emit no clearing time, when we received the webhook. Never a
+    # fabricated timestamp.
+    resolved_at = (
+        alert.resolved_at if alert.resolved_at is not None else alert.received_at
+    )
+    count = await mark_incident_alerts_resolved(
+        session, incident_id=incident.id, resolved_at=resolved_at
+    )
+    return PublishResult(
+        incident_id=incident.id, deduplicated=False, alerts_resolved=count
+    )
 
 
 async def _publish(
