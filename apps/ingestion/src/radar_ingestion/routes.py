@@ -10,9 +10,13 @@ Each request carries exactly one alert (ADR 0011). The handler binds a
 correlation id, normalizes the vendor payload to a ``NormalizedAlert`` (a
 malformed or batched payload is rejected 422, never crashes), then persists it
 in one transaction: it either attaches to an open incident with the same
-fingerprint (no outbox event) or opens a new incident and publishes an
-``alert.normalized`` outbox event — all-or-nothing. The response is 202 with the
-``incident_id``.
+fingerprint or opens a new incident, publishing an ``alert.normalized`` outbox
+event either way — all-or-nothing. The response is 202 with the ``incident_id``.
+
+A ``resolved`` alert that matches no open incident is the exception: it opens
+nothing, publishes nothing, and only records an ``audit_log`` receipt. The
+response is still 202, but ``status`` is ``ignored`` and there is no incident id
+— there is no incident.
 """
 
 from __future__ import annotations
@@ -79,6 +83,33 @@ def create_alerts_router(
             result = await persist_alert(session, alert, as_of=alert.received_at)
             await session.commit()
 
+        if result.ignored:
+            # A resolved alert that matched no open incident. The only trace is
+            # the audit_log row persist_alert wrote; there is no incident to
+            # return, so the response says so rather than inventing an id.
+            log.info(
+                "alert.resolve_ignored",
+                source=source.value,
+                service_name=alert.service_name,
+                alert_name=alert.alert_name,
+                fingerprint=alert.fingerprint,
+            )
+            return {
+                "status": "ignored",
+                "correlation_id": str(correlation_id),
+                "reason": "no_open_incident_for_resolved_alert",
+            }
+
+        # A firing alert (or a resolve that matched an open incident) always
+        # lands on an incident, so incident_id is present here. A `raise`, not an
+        # `assert`: `assert` is stripped under `python -O`, which would let a None
+        # id flow into the response silently — the fail-loud rule applies in a
+        # request path.
+        if result.incident_id is None:
+            raise RuntimeError(
+                "persist_alert returned a non-ignored result with no incident_id; "
+                "a firing or matched alert must always land on an incident"
+            )
         log.info(
             "alert.persisted",
             source=source.value,
