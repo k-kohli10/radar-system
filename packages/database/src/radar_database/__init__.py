@@ -26,6 +26,18 @@ from .connection import (
     create_engine,
     create_session_factory,
 )
+from .lifecycle import (
+    INVALID_TRANSITION_AUDIT_EVENT,
+    STATES,
+    STATUS_CLOSED,
+    STATUS_INVESTIGATING,
+    STATUS_OPEN,
+    STATUS_RESOLVED,
+    VALID_TRANSITIONS,
+    InvalidStateTransitionError,
+    is_valid_transition,
+    transition_audit_event_type,
+)
 from .models import (
     Alert,
     AuditLog,
@@ -86,6 +98,17 @@ __all__ = [
     "ProcessedEvent",
     "Recommendation",
     "RunbookDocument",
+    # lifecycle
+    "STATES",
+    "STATUS_OPEN",
+    "STATUS_INVESTIGATING",
+    "STATUS_RESOLVED",
+    "STATUS_CLOSED",
+    "VALID_TRANSITIONS",
+    "INVALID_TRANSITION_AUDIT_EVENT",
+    "InvalidStateTransitionError",
+    "is_valid_transition",
+    "transition_audit_event_type",
     # outbox
     "write_outbox_event",
     "claim_outbox_batch",

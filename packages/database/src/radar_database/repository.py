@@ -16,11 +16,21 @@ idempotency pattern in the implementation plan.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
+from typing import Any
 from uuid import UUID
 
+from radar_common import NotFoundError, utcnow
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .lifecycle import (
+    STATUS_CLOSED,
+    STATUS_RESOLVED,
+    InvalidStateTransitionError,
+    is_valid_transition,
+    transition_audit_event_type,
+)
 from .models import (
     Alert,
     AuditLog,
@@ -67,6 +77,95 @@ class AlertRepository(Repository[Alert]):
 class IncidentRepository(Repository[Incident]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, Incident)
+
+    async def transition_status(
+        self,
+        incident_id: UUID,
+        new_status: str,
+        *,
+        actor: str,
+        correlation_id: UUID | None = None,
+        audit_payload: dict[str, Any] | None = None,
+        occurred_at: datetime | None = None,
+    ) -> Incident:
+        """Move an incident to ``new_status``, validated, with an audit row.
+
+        The single enforced entry point for incident status changes (ADR 0016). It:
+
+        1. loads the incident under ``SELECT ... FOR UPDATE`` — the row lock that
+           makes the read-modify-write safe against a concurrent transition;
+        2. rejects an illegal edge by raising :class:`InvalidStateTransitionError`,
+           having written NOTHING (see below);
+        3. on a legal edge, sets the status, stamps ``updated_at``, and stamps
+           ``resolved_at`` / ``closed_at`` when entering those states, then writes
+           one ``audit_log`` row — all on the caller's session.
+
+        **Atomicity is the contract.** The status change and its audit row are
+        added to the caller's transaction and this method does NOT commit: the
+        caller owns the boundary, exactly as ``persist_alert`` and
+        ``mark_processed`` do. So a valid transition and its audit row commit
+        together or roll back together — a rolled-back transition leaves neither a
+        status change nor an audit row, which is what makes the audit log
+        trustworthy: no row ever claims a transition that did not happen.
+
+        **The rejection path writes nothing.** An illegal transition raises and
+        adds no row. Recording the rejected ATTEMPT is forensic and belongs to the
+        caller, in its own transaction — adding an ``incident.invalid_transition``
+        row here and then raising would lose it to the caller's rollback. The
+        caller catches :class:`InvalidStateTransitionError` and logs the attempt with
+        ``INVALID_TRANSITION_AUDIT_EVENT``.
+
+        ``correlation_id`` defaults to the incident's own; ``occurred_at`` (the
+        moment the transition happened — e.g. an Alertmanager webhook's time)
+        defaults to now and stamps ``updated_at`` plus any lifecycle timestamp.
+
+        Raises :class:`~radar_common.NotFoundError` if the incident does not exist
+        — ingestion owns incident creation, so a transition targeting a missing
+        incident is a bug upstream, not a row to invent here.
+        """
+        # FOR UPDATE, not SKIP LOCKED: a concurrent transition on the same incident
+        # must BLOCK and then re-read the status the winner wrote, not skip the row.
+        incident = (
+            await self._session.execute(
+                select(Incident).where(Incident.id == incident_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if incident is None:
+            raise NotFoundError(f"incident {incident_id} does not exist")
+
+        current = incident.status
+        if not is_valid_transition(current, new_status):
+            raise InvalidStateTransitionError(
+                from_status=current,
+                attempted_status=new_status,
+                incident_id=incident_id,
+            )
+
+        when = occurred_at if occurred_at is not None else utcnow()
+        incident.status = new_status
+        incident.updated_at = when
+        if new_status == STATUS_RESOLVED:
+            incident.resolved_at = when
+        if new_status == STATUS_CLOSED:
+            # Reserved in Phase 9: no caller reaches `closed` yet (@radar close is
+            # deferred), so in practice closed_at stays NULL. The branch exists so
+            # the state machine is whole, not half-built, for when that caller lands.
+            incident.closed_at = when
+
+        self._session.add(
+            AuditLog(
+                event_type=transition_audit_event_type(new_status),
+                entity_type="incident",
+                entity_id=incident_id,
+                correlation_id=correlation_id
+                if correlation_id is not None
+                else incident.correlation_id,
+                actor=actor,
+                payload=audit_payload if audit_payload is not None else {},
+            )
+        )
+        await self._session.flush()
+        return incident
 
 
 class InvestigationPlanRepository(Repository[InvestigationPlan]):
