@@ -31,6 +31,7 @@ from radar_contracts import NormalizedAlert
 from radar_database import Alert, AuditLog, Database, Incident, OutboxEvent
 from radar_ingestion.normalizer import AlertSource, compute_fingerprint, normalize
 from radar_ingestion.publisher import persist_alert
+from radar_ingestion.resolver import mark_incident_alerts_resolved
 from sqlalchemy import func, select
 
 SERVICE = "order-service"
@@ -144,10 +145,11 @@ async def test_resolve_matches_investigating_incident_opened_outside_window(
 
     The incident is ``investigating`` (RCA card sent) and opened two hours ago —
     far outside the 5-minute dedup window. This is the common case, not an edge:
-    alerts clear long after they fire. The resolve must still find it and flip its
-    firing alert. If resolution used ``find_open_incident`` this alert would be
-    treated as "no incident" and never resolve — the whole reason resolver.py
-    exists.
+    alerts clear long after they fire. The resolve must find it, flip its firing
+    alert, and — its last firing alert now cleared — resolve the incident
+    (``investigating -> resolved``, ADR 0016 Amendment 2). If resolution used
+    ``find_open_incident`` this alert would be treated as "no incident" and never
+    resolve — the whole reason resolver.py exists.
     """
     opened = T0 - timedelta(hours=2)
     incident_id = await _seed_incident(db, status="investigating", opened_at=opened)
@@ -159,24 +161,28 @@ async def test_resolve_matches_investigating_incident_opened_outside_window(
     assert alerts[0].status == "resolved"
     assert alerts[0].resolved_at == ended
 
-    # Incident itself untouched: still investigating, no resolved_at, count unchanged.
+    # Its last firing alert cleared, so the incident resolves, stamped with the
+    # webhook time; alert_count is not bumped (a resolve is not a new firing).
     incident = await _incident(db, incident_id)
-    assert incident.status == "investigating"
-    assert incident.resolved_at is None
+    assert incident.status == "resolved"
+    assert incident.resolved_at == ended
     assert incident.alert_count == 1
 
 
 # --- the flip is bounded to the incident's firing alerts -------------------------
 
 
-async def test_matched_resolve_touches_only_alerts_no_incident_no_event(
+async def test_matched_resolve_adds_no_alert_row_and_no_outbox_event(
     db: Database,
 ) -> None:
-    """A matched resolve flips firing alert rows and does NOTHING else.
+    """A matched resolve flips existing rows and resolves the incident — and does
+    so without an INSERT or an outbox event.
 
     No new alert row (a resolve is a transition of existing rows, not a new alert),
-    no alert_count bump, no outbox event (the watcher must not escalate on a
-    resolve), and the incident row untouched.
+    no ``alert_count`` bump, and no ``alert.normalized`` outbox event (the watcher
+    escalates on arrival rate and must not see a resolve). The incident DOES resolve
+    — its one firing alert cleared — but that is a status UPDATE, not a new row or
+    an event.
     """
     incident_id = await _seed_incident(db, status="open", opened_at=T0)
     events_before = await _count(db, OutboxEvent)
@@ -192,9 +198,9 @@ async def test_matched_resolve_touches_only_alerts_no_incident_no_event(
     assert alerts[0].resolved_at == ended
     # No outbox event from the resolve.
     assert await _count(db, OutboxEvent) == events_before
-    # Incident untouched.
+    # Incident resolved (last firing alert cleared), count not bumped.
     incident = await _incident(db, incident_id)
-    assert incident.status == "open"
+    assert incident.status == "resolved"
     assert incident.alert_count == 1
 
 
@@ -217,36 +223,87 @@ async def test_multi_alert_incident_flips_all_firing_rows(db: Database) -> None:
     assert all(a.resolved_at == ended for a in alerts)
 
 
-# --- redelivery idempotency (the mutation target) --------------------------------
+# --- redelivery idempotency ------------------------------------------------------
 
 
-async def test_duplicate_resolve_does_not_move_resolved_at(db: Database) -> None:
-    """Redelivery is a no-op: the second resolve must not re-stamp resolved_at.
+async def test_mark_incident_alerts_resolved_is_idempotent(db: Database) -> None:
+    """The firing-predicate short-circuit, tested on the function directly.
 
-    Alertmanager retries. The ``status = 'firing'`` predicate in
-    ``mark_incident_alerts_resolved`` is the short-circuit: on the second delivery
-    every row is already ``resolved``, so the UPDATE matches nothing and
-    ``resolved_at`` keeps its first value.
+    ``mark_incident_alerts_resolved`` is called twice on the same incident with a
+    LATER webhook time the second time. The ``status = 'firing'`` predicate means
+    the second call matches nothing (the rows are already ``resolved``) and leaves
+    ``resolved_at`` at the first value.
 
-    MUTATION: drop that predicate. Then the duplicate re-updates the already-resolved
-    rows and moves ``resolved_at`` from the first webhook time to the second (later)
-    one — and this assertion goes red.
+    Driven directly, not through ``persist_alert``: once the incident transitions to
+    ``resolved`` (commit 4), a redelivered webhook is turned away at the incident
+    lookup and never reaches this function — so the end-to-end redelivery test below
+    no longer exercises this predicate. This one keeps it mutation-proven in
+    isolation. MUTATION: drop the ``status = 'firing'`` predicate → the second call
+    re-stamps ``resolved_at`` to the later time and the final assertion goes red.
+    """
+    incident_id = await _seed_incident(
+        db, status="investigating", opened_at=T0, alert_count=2
+    )
+    first = T0 + timedelta(minutes=5)
+    later = T0 + timedelta(minutes=45)
+
+    async with db.session() as session:
+        flipped = await mark_incident_alerts_resolved(
+            session, incident_id=incident_id, resolved_at=first
+        )
+        await session.commit()
+    assert flipped == 2
+
+    async with db.session() as session:
+        flipped_again = await mark_incident_alerts_resolved(
+            session, incident_id=incident_id, resolved_at=later
+        )
+        await session.commit()
+    assert flipped_again == 0  # nothing still firing to flip
+
+    alerts = await _alerts_for(db, incident_id)
+    assert all(a.status == "resolved" for a in alerts)
+    assert all(a.resolved_at == first for a in alerts)
+
+
+async def test_duplicate_resolve_webhook_leaves_incident_resolved_once(
+    db: Database,
+) -> None:
+    """End-to-end redelivery: a retried resolve does not move anything.
+
+    The first webhook flips the alerts and resolves the incident. The second is
+    turned away at the (locked, non-terminal-only) lookup — the incident is now
+    ``resolved`` — so it writes only an ignore audit, moves no ``resolved_at``, and
+    produces no second ``incident.resolved`` row. Idempotency at the incident level,
+    complementing the alert-level short-circuit above.
     """
     incident_id = await _seed_incident(
         db, status="investigating", opened_at=T0, alert_count=2
     )
     first_ended = T0 + timedelta(minutes=5)
-    second_ended = T0 + timedelta(minutes=45)  # a LATER clearing time
+    second_ended = T0 + timedelta(minutes=45)
 
     await _persist(db, _resolve(ended_at=first_ended))
-    # Redelivery of the same resolve, carrying a later endsAt.
     await _persist(db, _resolve(ended_at=second_ended))
 
     alerts = await _alerts_for(db, incident_id)
-    assert len(alerts) == 2
-    assert all(a.status == "resolved" for a in alerts)
-    # Still the FIRST time — the duplicate did not move it forward.
     assert all(a.resolved_at == first_ended for a in alerts)
+
+    incident = await _incident(db, incident_id)
+    assert incident.status == "resolved"
+    assert incident.resolved_at == first_ended
+
+    async with db.session() as session:
+        resolved_audits = (
+            (
+                await session.execute(
+                    select(AuditLog).where(AuditLog.event_type == "incident.resolved")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(resolved_audits) == 1  # exactly one transition, not two
 
 
 async def test_resolved_alert_no_live_incident_still_ignored(db: Database) -> None:

@@ -114,8 +114,8 @@ def create_alerts_router(
 
         if result.alerts_resolved is not None:
             # A resolve that matched a live incident: it flipped that many firing
-            # alert rows (0 on a duplicate delivery). The incident itself is
-            # untouched here — its own transition is gated separately.
+            # alert rows (0 on a duplicate delivery), and — if that cleared the last
+            # firing alert — transitioned the incident itself to resolved.
             log.info(
                 "alert.resolved",
                 source=source.value,
@@ -124,12 +124,14 @@ def create_alerts_router(
                 fingerprint=alert.fingerprint,
                 incident_id=str(result.incident_id),
                 alerts_resolved=result.alerts_resolved,
+                incident_resolved=result.incident_resolved,
             )
             return {
                 "status": "resolved",
                 "correlation_id": str(correlation_id),
                 "incident_id": str(result.incident_id),
                 "alerts_resolved": result.alerts_resolved,
+                "incident_resolved": result.incident_resolved,
             }
 
         log.info(

@@ -2399,6 +2399,40 @@ test(feedback): add bot query handler tests
 Done when: POST mock alert -> Slack RCA card appears -> thumbs up creates feedback row.
 @radar open returns list of open incidents in Slack.
 
+### Footprint divergence: stage 1 touches ingestion and packages/database
+
+Recorded because the plan is the source of truth, and a phase whose real history
+diverges from its stated footprint should say so rather than let the gap
+accumulate silently (same discipline as Phase 8's "Added during implementation").
+
+Both the "Git State Per Phase" line for Phase 9 (`+ apps/feedback-service
+plugins/notifications`) and the commit list above are wrong about this phase's
+footprint. They describe Phase 9 as feedback-service and the Slack plugin only.
+Stage 1 — the ingestion-side incident lifecycle — is entirely in `apps/ingestion`
+and `packages/database`, with no feedback-service and no Slack:
+
+```
+fix(ingestion): stop resolved alerts from opening incidents
+feat(database): add validated incident status transitions with audit log
+feat(ingestion): mark alerts resolved on alertmanager resolved webhook
+feat(ingestion): resolve incidents when their last firing alert resolves
+```
+
+Why it belongs here and not in an earlier phase: closure is a lifecycle
+guarantee, and the build order deliberately proves the lifecycle end to end —
+Alertmanager `resolved` webhook -> alerts flip -> incident resolves — BEFORE any
+Slack surface exists, so the closure path is provable without a bot. Pulling it
+into Phase 5 (ingestion) would have built incident *resolution* before incidents
+had a downstream that cares; deferring it into the Slack work would have tangled a
+database state machine with bot wiring. The state-machine helper lives in
+`packages/database` because feedback-service needs the identical transition logic
+in stages 3–4 (engineer Slack action, `@radar close`), and one enforced state
+machine must not become two.
+
+The ADR 0016 amendments this stage required (feedback-service owns
+`open -> investigating`; ingestion's authority widened to `{open, investigating}
+-> resolved`; `closed_at` reserved) are recorded inline in ADR 0016 above.
+
 ---
 
 ## Phase 10: Observability

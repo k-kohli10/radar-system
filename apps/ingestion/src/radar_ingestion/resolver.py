@@ -18,11 +18,22 @@ NON-TERMINAL state — ``open`` or ``investigating``, exactly ADR 0016 Amendment
 ``{open, investigating} -> resolved`` authority — with NO window. See D1 in the
 Phase 9 working notes.
 
-This module owns two operations and no policy about the incident itself: finding
-the incident a resolve pertains to, and flipping that incident's still-firing alert
-rows to ``resolved``. Whether (and when) the INCIDENT then transitions to
-``resolved`` is the next commit's gate — a resolved incident is a CONSEQUENCE of
-its alerts resolving, decided separately.
+This module owns three operations: finding the incident a resolve pertains to
+(under a row lock), flipping that incident's still-firing alert rows to
+``resolved``, and — gated on no firing alert remaining — transitioning the incident
+itself. That last step is the KEY point of ADR 0016's "Multiple Alerts on One
+Incident": a resolved incident is a CONSEQUENCE of its alerts clearing, so the
+incident moves only when the LAST firing alert on it resolves, never on the first.
+
+Today every alert on an incident shares one fingerprint (dedup attaches only
+same-fingerprint alerts and the incident's fingerprint is frozen at the first),
+so a single resolve clears them all and the gate always finds zero firing left —
+the incident resolves on that one resolve. The gate is therefore a FORWARD-GUARD:
+it earns its keep only in a future where an incident could hold alerts of several
+conditions, where a resolve for one must not resolve the incident while another
+still fires. Its "hold back while a firing alert remains" branch is unreachable by
+today's pipeline and is proven synthetically; its "resolve when none remain" branch
+is the live path.
 """
 
 from __future__ import annotations
@@ -30,8 +41,13 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from radar_database import Alert, Incident
-from sqlalchemy import select, update
+from radar_database import (
+    STATUS_RESOLVED,
+    Alert,
+    Incident,
+    IncidentRepository,
+)
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 ALERT_STATUS_FIRING = "firing"
@@ -39,6 +55,13 @@ ALERT_STATUS_FIRING = "firing"
 
 ALERT_STATUS_RESOLVED = "resolved"
 """Alert-row (and source-reported) status meaning the condition has cleared."""
+
+INGESTION_ACTOR = "ingestion"
+"""``audit_log.actor`` / transition actor for records this service writes."""
+
+RESOLVED_BY_ALERT = "alert_resolution"
+"""``resolved_by`` on an incident resolved because its alerts cleared (vs an
+engineer's Slack action). ADR 0016's audit payload for ingestion-driven resolves."""
 
 # The incident states a resolve may act on: non-terminal, per ADR 0016 Amendment 2.
 # `resolved` and `closed` are terminal — a resolve for one is a no-op-match (None).
@@ -65,6 +88,16 @@ async def find_resolvable_incident(
     visible, so a lingering open incident is the symptom rather than a mystery; over-
     resolving would both close an incident on evidence that isn't about it and erase
     that signal.
+
+    The incident is returned under a row lock (``FOR UPDATE``). Resolving is a
+    read-modify-write on the incident — read status, flip alerts, transition if
+    quiet — so the whole path holds the lock: two concurrent resolves for the same
+    incident serialise, and the loser re-evaluates the ``status IN {open,
+    investigating}`` predicate after the winner commits. Because the winner moved the
+    incident to ``resolved`` (terminal), the row no longer matches and the loser gets
+    ``None`` — recorded as an ignored duplicate rather than fighting to resolve an
+    incident that already is. (This closes concurrent DUPLICATE resolves; a firing
+    webhook racing a resolve is discussed in the commit's scope notes.)
     """
     stmt = (
         select(Incident)
@@ -74,6 +107,7 @@ async def find_resolvable_incident(
         )
         .order_by(Incident.opened_at.desc())
         .limit(1)
+        .with_for_update()
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
@@ -113,3 +147,50 @@ async def mark_incident_alerts_resolved(
     )
     flipped = (await session.execute(stmt)).scalars().all()
     return len(flipped)
+
+
+async def count_firing_alerts(session: AsyncSession, *, incident_id: UUID) -> int:
+    """How many alert rows on ``incident_id`` are still ``firing``."""
+    count = await session.scalar(
+        select(func.count())
+        .select_from(Alert)
+        .where(
+            Alert.incident_id == incident_id,
+            Alert.status == ALERT_STATUS_FIRING,
+        )
+    )
+    return int(count or 0)
+
+
+async def resolve_incident_if_quiet(
+    session: AsyncSession, *, incident_id: UUID, resolved_at: datetime
+) -> bool:
+    """Transition the incident to ``resolved`` iff no firing alert remains.
+
+    THE GATE. Counts the incident's still-firing alert rows; if any remain it does
+    NOTHING and returns ``False`` — the incident is not resolved until its LAST alert
+    clears (ADR 0016, "partial resolution does not change incident status"). If none
+    remain it drives ``IncidentRepository.transition_status`` to ``resolved``, actor
+    ``ingestion``, ``resolved_by: alert_resolution``, stamped with the webhook time,
+    and returns ``True``.
+
+    The transition reloads the incident under its own ``FOR UPDATE`` and validates
+    the edge, so it also serialises against a concurrent transition and rejects an
+    illegal one. This method does not commit — the caller owns the boundary, so the
+    alert flips and the incident transition commit as one unit.
+
+    Removing the firing-count guard (always transitioning) is the mutation the
+    synthetic gate test catches: with a firing alert still present it would resolve
+    the incident anyway, producing a resolved incident that still contains a firing
+    alert.
+    """
+    if await count_firing_alerts(session, incident_id=incident_id) > 0:
+        return False
+    await IncidentRepository(session).transition_status(
+        incident_id,
+        STATUS_RESOLVED,
+        actor=INGESTION_ACTOR,
+        audit_payload={"resolved_by": RESOLVED_BY_ALERT},
+        occurred_at=resolved_at,
+    )
+    return True

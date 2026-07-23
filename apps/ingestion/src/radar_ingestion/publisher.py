@@ -81,8 +81,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from radar_ingestion.deduper import find_open_incident
 from radar_ingestion.resolver import (
     ALERT_STATUS_RESOLVED,
+    INGESTION_ACTOR,
     find_resolvable_incident,
     mark_incident_alerts_resolved,
+    resolve_incident_if_quiet,
 )
 
 ALERT_NORMALIZED_EVENT = "alert.normalized"
@@ -93,9 +95,6 @@ WATCHER_TARGET = "watcher-agent"
 
 RESOLVE_IGNORED_AUDIT_EVENT = "ingestion.resolve_ignored"
 """Audit event recorded when a resolved alert matches no open incident."""
-
-INGESTION_ACTOR = "ingestion"
-"""``audit_log.actor`` for records this service writes."""
 
 
 @dataclass(frozen=True)
@@ -108,7 +107,8 @@ class PublishResult:
       ``alerts_resolved`` ``None``;
     - a resolve that matched a live incident — ``incident_id`` set,
       ``alerts_resolved`` the number of firing alert rows it flipped (0 on a
-      duplicate delivery);
+      duplicate delivery), and ``incident_resolved`` whether that cleared the last
+      firing alert and so transitioned the incident to ``resolved``;
     - a resolve that matched nothing — ``ignored`` true, ``incident_id`` ``None``.
 
     ``alerts_resolved is None`` distinguishes the firing path from the resolve
@@ -120,6 +120,7 @@ class PublishResult:
     deduplicated: bool
     ignored: bool = False
     alerts_resolved: int | None = None
+    incident_resolved: bool = False
 
 
 async def persist_alert(
@@ -169,20 +170,25 @@ async def persist_alert(
 
 
 async def _resolve(session: AsyncSession, alert: NormalizedAlert) -> PublishResult:
-    """Handle a ``resolved`` alert: flip its incident's firing alerts, or ignore.
+    """Handle a ``resolved`` alert: flip firing alerts, resolve the incident if quiet.
 
     Finds the live incident this ending signal pertains to (``{open,
-    investigating}``, unwindowed) and flips that incident's still-firing alert rows
-    to ``resolved`` stamped with the webhook time. The incident row is deliberately
-    NOT touched here — no status change, no ``alert_count`` bump — and no
-    ``alert.normalized`` event is published: a resolve is not a new firing and the
-    watcher must not escalate on it. No new alert row either; the existing firing
-    rows transition in place.
+    investigating}``, unwindowed, under a row lock), flips that incident's still-
+    firing alert rows to ``resolved`` at the webhook time, then transitions the
+    incident to ``resolved`` — but ONLY if no firing alert remains on it (the gate).
+    No ``alert_count`` bump, no ``alert.normalized`` event (a resolve is not a new
+    firing and the watcher must not escalate on it), no new alert row.
+
+    The alert flips and the incident transition are one transaction (the caller
+    commits), so an incident never ends up ``resolved`` while a firing alert of its
+    own is still on the table within the same unit of work.
 
     A resolve matching no live incident is recorded once in ``audit_log`` and
-    otherwise ignored — the same receipt-not-row treatment as before, now keyed on
-    the unwindowed lookup so a resolve for an incident that opened long ago (the
-    common case) resolves it rather than being mistaken for "no incident."
+    otherwise ignored — the receipt-not-row treatment from commit 1, keyed on the
+    unwindowed lookup so a resolve for an incident that opened long ago (the common
+    case) resolves it rather than being mistaken for "no incident." A concurrent
+    duplicate whose incident was resolved by the winner also lands here: the locked
+    lookup returns ``None`` once the winner commits.
     """
     incident = await find_resolvable_incident(session, fingerprint=alert.fingerprint)
     if incident is None:
@@ -198,8 +204,14 @@ async def _resolve(session: AsyncSession, alert: NormalizedAlert) -> PublishResu
     count = await mark_incident_alerts_resolved(
         session, incident_id=incident.id, resolved_at=resolved_at
     )
+    incident_resolved = await resolve_incident_if_quiet(
+        session, incident_id=incident.id, resolved_at=resolved_at
+    )
     return PublishResult(
-        incident_id=incident.id, deduplicated=False, alerts_resolved=count
+        incident_id=incident.id,
+        deduplicated=False,
+        alerts_resolved=count,
+        incident_resolved=incident_resolved,
     )
 
 
