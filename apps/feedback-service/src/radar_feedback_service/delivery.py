@@ -37,6 +37,14 @@ window the whole design closes.
 recommendations may claim the same Slack message. It is NOT what prevents a double
 post (two deliveries of one recommendation would post two DIFFERENT timestamps,
 which never collide). The lock is.
+
+**The incident becomes ``investigating`` here, and only here.** ADR 0016 Amendment
+1 makes ``investigating`` mean "a human has been told", which is true when the card
+is delivered — so the ``open -> investigating`` transition is done in this same
+transaction, AFTER the post. It cannot commit without the card, so the incident
+never sits in ``investigating`` while the RCA is still in the outbox or
+dead-lettered. If stage 1 resolved the incident before the card arrived, the
+transition is illegal and is caught and skipped — the card still delivers.
 """
 
 from __future__ import annotations
@@ -47,8 +55,11 @@ from uuid import UUID
 from radar_common import NotFoundError, RadarError, get_logger
 from radar_contracts import NotificationBackend, RecommendedAction
 from radar_database import (
+    STATUS_INVESTIGATING,
     AuditLog,
     Incident,
+    IncidentRepository,
+    InvalidStateTransitionError,
     Recommendation,
     mark_processed,
 )
@@ -145,6 +156,14 @@ async def deliver_rca(
     session.add(_delivery_audit(recommendation, incident, message_ts, channel))
     await mark_processed(session, event_id, service_name)
 
+    # NOW, and only now, the incident is `investigating`: a human has been told
+    # (ADR 0016 Amendment 1). This transition is in the SAME transaction as the
+    # delivery record and AFTER the post, so the incident cannot sit in
+    # `investigating` while the card is still in the outbox or dead-lettered — the
+    # exact lie the amendment exists to prevent. A failed post rolls this back with
+    # everything else.
+    await _mark_investigating(session, recommendation, incident)
+
     log.info(
         "rca.delivered",
         recommendation_id=str(recommendation_id),
@@ -154,6 +173,47 @@ async def deliver_rca(
         is_fallback=recommendation.is_fallback,
     )
     return DeliveryOutcome.DELIVERED
+
+
+async def _mark_investigating(
+    session: AsyncSession,
+    recommendation: Recommendation,
+    incident: Incident,
+) -> None:
+    """Move the incident ``open -> investigating``, tolerating that it moved on.
+
+    The incident was ``open`` when the reasoner wrote the recommendation, but stage
+    1 can resolve it between then and delivery — an Alertmanager ``resolved`` webhook
+    arriving while the RCA is still in the outbox. If so the incident is already
+    ``resolved`` (terminal-ish) and ``resolved -> investigating`` is illegal:
+    :meth:`transition_status` validates under the incident's own row lock and raises,
+    which we CATCH and swallow. The card is still delivered — the RCA is worth
+    reading even for an incident that just resolved — but we do not drag a resolved
+    incident back to ``investigating``. Catching the error is right rather than
+    checking status first: the check would be a TOCTOU race with a concurrent
+    resolve, while the transition's ``FOR UPDATE`` makes the decision atomic.
+    """
+    try:
+        await IncidentRepository(session).transition_status(
+            incident.id,
+            STATUS_INVESTIGATING,
+            actor="feedback-service",
+            correlation_id=recommendation.correlation_id,
+            audit_payload={
+                "recommendation_id": str(recommendation.id),
+                "is_fallback": recommendation.is_fallback,
+                "confidence": recommendation.confidence,
+            },
+        )
+    except InvalidStateTransitionError:
+        # The incident moved past `open` before the card was delivered (it
+        # resolved). Deliver the card; leave the incident where it is.
+        log.info(
+            "incident.investigating_skipped",
+            incident_id=str(incident.id),
+            recommendation_id=str(recommendation.id),
+            current_status=incident.status,
+        )
 
 
 async def _post(
