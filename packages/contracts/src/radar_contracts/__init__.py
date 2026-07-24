@@ -50,7 +50,7 @@ from .llm import (
 )
 from .logs import LogsBackend
 from .metrics import MetricsBackend
-from .notifications import NotificationBackend
+from .notifications import NotificationBackend, NotificationInteraction
 from .traces import Span, TracesBackend
 
 __version__ = "0.3.0"
@@ -91,6 +91,7 @@ __all__ = [
     "BotResponse",
     # notifications
     "NotificationBackend",
+    "NotificationInteraction",
     # logs
     "LogsBackend",
     # metrics

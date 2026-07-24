@@ -23,6 +23,7 @@ from radar_contracts import (
     LLMResponse,
     Message,
     NormalizedAlert,
+    NotificationInteraction,
     OutboxEvent,
     PlanStep,
     ProcessedEvent,
@@ -372,3 +373,42 @@ def test_recommendation_created_payload_carries_ids_and_nothing_else() -> None:
                     stale: "anything",
                 }
             )
+
+
+def test_notification_interaction_carries_opaque_strings() -> None:
+    interaction = NotificationInteraction(
+        action_id="feedback.up",
+        value="c1a2b3d4-0000-0000-0000-000000000000",
+        user_id="U123",
+        channel_id="C456",
+        message_ts="1720000000.0001",
+    )
+    assert interaction.action_id == "feedback.up"
+    assert interaction.value == "c1a2b3d4-0000-0000-0000-000000000000"
+    assert interaction.user_id == "U123"
+
+
+def test_notification_interaction_value_is_optional() -> None:
+    """A control may carry no value; RADAR's buttons set one, but the contract
+    does not require it."""
+    interaction = NotificationInteraction(
+        action_id="some.action", user_id="U1", channel_id="C1", message_ts="1.0"
+    )
+    assert interaction.value is None
+
+
+def test_notification_interaction_has_no_incident_field() -> None:
+    """The Q1 design, pinned: no incident id crosses this boundary, so a callback
+    cannot name a mismatched (recommendation, incident). extra=forbid makes an
+    attempt to smuggle one a loud rejection, not a silently ignored field."""
+    assert "incident_id" not in NotificationInteraction.model_fields
+    with pytest.raises(ValidationError):
+        NotificationInteraction.model_validate(
+            {
+                "action_id": "feedback.up",
+                "user_id": "U1",
+                "channel_id": "C1",
+                "message_ts": "1.0",
+                "incident_id": str(uuid4()),
+            }
+        )
