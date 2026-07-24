@@ -57,7 +57,9 @@ from radar_common import (
     read_secret,
 )
 from radar_common.bootstrap import AGENT_TOKEN_SECRET
+from radar_contracts import NotificationBackend
 from radar_database import Database
+from radar_plugin_notifications_slack import SlackNotificationBackend
 from radar_telemetry import (
     create_request_metrics,
     instrument_fastapi,
@@ -102,8 +104,15 @@ def create_app(
     *,
     metrics_registry: CollectorRegistry = REGISTRY,
     with_tracing: bool = True,
+    notifier_override: NotificationBackend | None = None,
 ) -> FastAPI:
-    """Build the feedback-service app. ``metrics_registry`` is injectable for tests."""
+    """Build the feedback-service app. ``metrics_registry`` is injectable for tests.
+
+    ``notifier_override`` lets a test inject a fake notification backend so the
+    delivery path is exercised without a real Slack workspace. When given, the
+    lifespan uses it instead of constructing the Slack backend from Vault (and so
+    does not require the bot-token file); production always leaves it ``None``.
+    """
     # with_agent_auth=False: bootstrap would read the token at app-build time and
     # raise on a missing secret, which is exactly the crash /readyz exists to turn
     # into a 503. The token is loaded in the lifespan and late-bound below.
@@ -115,19 +124,23 @@ def create_app(
     request_metrics = create_request_metrics(metrics_registry)
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
-    slack_bot_token: str | None = None
+    notifier: NotificationBackend | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal database, agent_auth, slack_bot_token
+        nonlocal database, agent_auth, notifier
         try:
             dsn = load_postgres_dsn()
             agent_token = read_secret(AGENT_TOKEN_SECRET)
             assert agent_token is not None  # required=True: raised if absent
             agent_auth = AgentTokenAuth([agent_token])
-            # Required to go ready — see the module docstring. Held for the
-            # delivery commit; nothing posts to Slack yet.
-            slack_bot_token = load_slack_bot_token()
+            # The Slack backend is constructed here from the Vault-mounted bot
+            # token — required to go ready (see the module docstring). The handler
+            # depends only on the NotificationBackend Protocol; this is the one
+            # place the concrete plugin is named. A test may inject a fake instead.
+            notifier = notifier_override or SlackNotificationBackend(
+                token=load_slack_bot_token()
+            )
             database = Database(dsn)
             readiness.mark_ready()
             log.info(
@@ -162,6 +175,11 @@ def create_app(
         # the handler answers 503 rather than touching a missing database.
         return database
 
+    def get_notifier() -> NotificationBackend | None:
+        # Late-bound like the rest: None until the Slack token loads, so the
+        # handler answers 503 rather than posting through a backend that is not there.
+        return notifier
+
     def get_agent_auth() -> AgentTokenAuth | None:
         # Late-bound: None until the Vault secret loads, so the auth dependency
         # answers 503 while not ready and 401 once it is.
@@ -174,7 +192,12 @@ def create_app(
     # and an unauthenticated caller must not learn the shape of the contract.
     install_guarded_events_handler(app, events_auth)
     app.include_router(
-        create_events_router(get_database=get_database, events_auth=events_auth)
+        create_events_router(
+            get_database=get_database,
+            get_notifier=get_notifier,
+            channel=settings.slack_channel,
+            events_auth=events_auth,
+        )
     )
 
     @app.get("/healthz")
