@@ -10,12 +10,22 @@ its own plugin registry and constructs it via the plugin-sdk loader.
 from __future__ import annotations
 
 from .backend import BACKEND, DEFAULT_TIMEOUT_SECONDS, SlackNotificationBackend
+from .interactions import (
+    InteractionHandler,
+    SlackInteractionSource,
+    ack_and_dispatch,
+    to_interaction,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
     "BACKEND",
     "DEFAULT_TIMEOUT_SECONDS",
+    "InteractionHandler",
+    "SlackInteractionSource",
     "SlackNotificationBackend",
+    "ack_and_dispatch",
+    "to_interaction",
     "__version__",
 ]

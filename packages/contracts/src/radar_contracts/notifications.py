@@ -47,6 +47,24 @@ class NotificationBackend(Protocol):
         """
         ...
 
+    async def update(
+        self,
+        channel: str,
+        message_ref: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Replace an already-delivered message identified by ``message_ref``.
+
+        ``message_ref`` is the reference :meth:`send` returned (for RADAR, the Slack
+        message timestamp). RADAR uses this to reflect an interaction back onto the
+        RCA card in place — recording a 👍/👎 in the footer, or flipping the card to
+        its resolved state — rather than posting a reply, so the card an engineer
+        scrolls back to always shows the current state.
+        """
+        ...
+
 
 class NotificationInteraction(BaseModel):
     """A user action on a delivered notification — a button click on the RCA card.

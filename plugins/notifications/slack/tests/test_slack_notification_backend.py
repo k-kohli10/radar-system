@@ -45,6 +45,39 @@ def test_satisfies_the_notification_backend_protocol() -> None:
     assert isinstance(backend, NotificationBackend)
 
 
+async def test_update_calls_chat_update_with_ts_and_blocks() -> None:
+    """update() maps onto chat.update: same channel, the ts to replace, new blocks,
+    and the fallback text alongside — the mechanism behind reflecting a 👍/👎 or a
+    resolution back onto the card in place."""
+    with patch(CLIENT_PATH) as client_cls:
+        client_cls.return_value.chat_update = AsyncMock(return_value={"ok": True})
+        backend = SlackNotificationBackend(token="xoxb-test")
+        await backend.update(
+            "#incidents", "1720519200.001", "RCA resolved", blocks=CARD_BLOCKS
+        )
+
+    upd = client_cls.return_value.chat_update
+    upd.assert_awaited_once()
+    kwargs = upd.call_args.kwargs
+    assert kwargs["channel"] == "#incidents"
+    assert kwargs["ts"] == "1720519200.001"
+    assert kwargs["text"] == "RCA resolved"
+    assert kwargs["blocks"] == CARD_BLOCKS
+
+
+async def test_update_propagates_slack_error() -> None:
+    """A failed update must reach the caller, not be swallowed."""
+    with patch(CLIENT_PATH) as client_cls:
+        client_cls.return_value.chat_update = AsyncMock(
+            side_effect=SlackApiError(  # type: ignore[no-untyped-call]
+                "message_not_found", response={"ok": False}
+            )
+        )
+        backend = SlackNotificationBackend(token="xoxb-test")
+        with pytest.raises(SlackApiError):
+            await backend.update("#incidents", "1.0", "x", blocks=CARD_BLOCKS)
+
+
 async def test_send_posts_message_and_returns_timestamp() -> None:
     with patch(CLIENT_PATH) as client_cls:
         backend = _backend(client_cls, response={"ok": True, "ts": "1720519200.001"})

@@ -29,6 +29,7 @@ class FakeNotifier:
         self, *, ts_values: list[str] | None = None, fail: bool = False
     ) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.updates: list[dict[str, Any]] = []
         self._ts_values = list(ts_values or [])
         self._counter = 0
         self._fail = fail
@@ -55,3 +56,22 @@ class FakeNotifier:
         if self._ts_values:
             return self._ts_values[(self._counter - 1) % len(self._ts_values)]
         return f"1720000000.{self._counter:04d}"
+
+    async def update(
+        self,
+        channel: str,
+        message_ref: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.updates.append(
+            {
+                "channel": channel,
+                "message_ref": message_ref,
+                "text": text,
+                "blocks": blocks,
+            }
+        )
+        if self._fail:
+            raise RuntimeError("slack unavailable (fake)")

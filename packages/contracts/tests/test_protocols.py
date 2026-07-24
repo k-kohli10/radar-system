@@ -108,6 +108,15 @@ class FakeNotificationBackend:
     ) -> str:
         return "ts.1"
 
+    async def update(
+        self,
+        channel: str,
+        message_ref: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> None: ...
+
 
 class NotAnything:
     def unrelated(self) -> None: ...

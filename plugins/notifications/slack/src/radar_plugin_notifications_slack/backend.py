@@ -94,3 +94,25 @@ class SlackNotificationBackend:
                 "cannot record delivery without a message reference"
             )
         return message_ts
+
+    async def update(
+        self,
+        channel: str,
+        message_ref: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Replace the message at ``message_ref`` (its Slack ``ts``) in ``channel``.
+
+        Maps onto ``chat.update``. RADAR calls this to reflect an interaction back
+        onto the RCA card in place. As with :meth:`send`, ``text`` is always sent
+        as the fallback/notification string, and ``SlackApiError`` propagates —
+        a failed update must reach the caller, not be swallowed.
+        """
+        await self._client.chat_update(
+            channel=channel,
+            ts=message_ref,
+            text=text,
+            blocks=blocks,
+        )
