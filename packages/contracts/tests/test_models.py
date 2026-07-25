@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from radar_contracts import (
     BotCommand,
     BotCommandType,
+    BotMention,
     BotResponse,
     Confidence,
     EventEnvelope,
@@ -268,6 +269,40 @@ def test_gateway_stream_event_defaults() -> None:
 
 
 # --- bot / feedback ---------------------------------------------------------
+
+
+def test_bot_mention_carries_opaque_strings() -> None:
+    mention = BotMention(
+        text="<@U0BOT> last 5 for order-service",
+        user_id="U123",
+        channel_id="C456",
+        message_ts="1720000000.0001",
+    )
+    assert mention.user_id == "U123"
+    assert mention.channel_id == "C456"
+    assert mention.message_ts == "1720000000.0001"
+
+
+def test_bot_mention_keeps_the_raw_bot_handle() -> None:
+    """The mention text arrives WITH the bot handle; stripping it is the parser's job,
+    not the transport's, so the contract must not have pre-normalised it."""
+    mention = BotMention(
+        text="<@U0BOT> status", user_id="U1", channel_id="C1", message_ts="1.0"
+    )
+    assert mention.text == "<@U0BOT> status"
+
+
+def test_bot_mention_forbids_extra_fields() -> None:
+    with pytest.raises(ValidationError):
+        BotMention.model_validate(
+            {
+                "text": "<@U0BOT> status",
+                "user_id": "U1",
+                "channel_id": "C1",
+                "message_ts": "1.0",
+                "command": "status",  # parsing is the consumer's job, not smuggled here
+            }
+        )
 
 
 def test_bot_command_type_enum() -> None:

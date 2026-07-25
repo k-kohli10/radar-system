@@ -19,7 +19,7 @@ level::
 from __future__ import annotations
 
 from .alerts import FINGERPRINT_FIELDS, NormalizedAlert, Severity
-from .bot import BotCommand, BotCommandType, BotResponse
+from .bot import BotCommand, BotCommandType, BotMention, BotResponse
 from .events import (
     AlertNormalizedPayload,
     EventEnvelope,
@@ -88,6 +88,7 @@ __all__ = [
     # bot
     "BotCommand",
     "BotCommandType",
+    "BotMention",
     "BotResponse",
     # notifications
     "NotificationBackend",

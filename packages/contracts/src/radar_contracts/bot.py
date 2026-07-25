@@ -1,9 +1,9 @@
 """Slack bot contracts.
 
-``BotCommand`` is a parsed ``@radar`` chat command; ``BotResponse`` is the
-formatted reply the bot posts back in-thread. These are plain Pydantic models
-with no vendor types: Slack identifiers are carried as opaque strings, and the
-Slack SDK lives only in the feedback-service, never here.
+``BotMention`` is a raw ``@radar`` mention as received; ``BotCommand`` is the parsed
+chat command; ``BotResponse`` is the formatted reply the bot posts back in-thread.
+These are plain Pydantic models with no vendor types: Slack identifiers are carried as
+opaque strings, and the Slack SDK lives only in the feedback-service, never here.
 
 Supported v1 commands::
 
@@ -20,6 +20,40 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class BotMention(BaseModel):
+    """A raw ``@radar`` mention received over Socket Mode, before parsing.
+
+    The receive-side parallel to :class:`~radar_contracts.NotificationInteraction`: the
+    Slack plugin builds this from an ``app_mention`` event and hands it to
+    feedback-service, which parses it into a :class:`BotCommand`. Every field is an
+    opaque string; no Slack SDK type reaches the app.
+
+    ``text`` is the mention text AS SLACK SENT IT — it still carries the leading bot
+    handle (``<@U123> status``), because normalising that away is a parse concern the
+    consumer owns, not the transport's. Keeping the raw form here means the parser sees
+    exactly what the user typed and the drift lives in one place. ``channel_id`` and
+    ``message_ts`` locate the mention so the reply can be threaded under it;
+    ``user_id`` is who asked.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(
+        max_length=4000,
+        description="Raw mention text as received, including the bot handle.",
+    )
+    user_id: str = Field(
+        max_length=64, description="Id of the user who mentioned the bot."
+    )
+    channel_id: str = Field(
+        max_length=64, description="Channel the mention arrived on."
+    )
+    message_ts: str = Field(
+        max_length=64,
+        description="Timestamp of the mention message, to thread the reply under.",
+    )
 
 
 class BotCommandType(StrEnum):
