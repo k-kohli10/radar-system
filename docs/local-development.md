@@ -171,10 +171,10 @@ mean and when you need them:
 | `make agent-secrets` | pull each agent's secrets into `~/.radar-dev/secrets/<service>/` |
 | `make gateway-secrets` | pull the gateway's API key and token map |
 | `make ingestion-secrets` | pull the per-source webhook tokens |
-| `make dev-apps` | start the seven app processes |
+| `make dev-apps` | start the eight app processes |
 | `make stop-apps` | stop them |
 | `make ps-apps` | readiness table |
-| `make logs-apps` | tail all seven logs |
+| `make logs-apps` | tail all eight logs |
 | `make index` | index `docs/runbooks/` into Elasticsearch (incremental) |
 
 ---
@@ -318,6 +318,7 @@ One directory per service, mirroring its per-pod Vault mount in production:
 ├── planner-agent/    agent_token, postgres_dsn
 ├── reasoner-agent/   agent_token, gateway_token, postgres_dsn
 ├── outbox-worker/    agent_token, dispatch_tokens, postgres_dsn
+├── feedback-service/ agent_token, postgres_dsn, slack_bot_token, slack_app_token
 ├── openai_api_key         ┐
 ├── gateway_tokens         ├─ flat: the gateway and ingestion still read these
 └── webhook_token_*        ┘
@@ -509,15 +510,16 @@ curl -s localhost:8081/v1/complete \
 
 ## 🔥 Run the whole pipeline
 
-Seven processes: ingestion, the three agents, the outbox worker, the
-llm-gateway, and the knowledge service. `make dev-apps` starts them all,
-tracks PIDs in `.dev-run/`, and prints a readiness table.
+Eight processes: ingestion, the three agents, the outbox worker, the
+llm-gateway, the knowledge service, and the feedback-service. `make dev-apps`
+starts them all, tracks PIDs in `.dev-run/`, and prints a readiness table.
 
 ### From nothing to a working pipeline
 
 ```bash
 scripts/bootstrap.sh                # tools, uv, .env, deps
 # edit .env: set OPENAI_API_KEY
+#            (+ SLACK_BOT_TOKEN and SLACK_APP_TOKEN for feedback-service — Phase 9)
 
 make dev-infra                      # 6 containers
 make ps                             # wait: all healthy
@@ -528,14 +530,20 @@ make agent-secrets
 make gateway-secrets
 make ingestion-secrets
 
-make dev-apps                       # 7 processes
+make dev-apps                       # 8 processes
 make index                          # build the runbook index
-make ps-apps                        # all 7 ready
+make ps-apps                        # all 8 ready
 ```
 
 `knowledge-service` reports **not ready** until `make index` has run — its
 readiness check verifies the live index's vector dimension, and there is no
 index before the first pass. It flips to ready on the next `make ps-apps`.
+
+`feedback-service` (Phase 9) needs **real** Slack tokens to go ready: it opens a
+Socket Mode connection at startup (before it reports ready), so a placeholder
+`SLACK_APP_TOKEN` passes secret-load but fails the connect and holds `/readyz` at
+503. Without a real Slack app it stays not-ready and `recommendation.created`
+retries — the rest of the pipeline (ingestion → agents → reasoner) is unaffected.
 
 > ⚠️ **Vault is dev-mode and in-memory.** `make stop-infra` wipes it. On every
 > restart re-run `make seed && make tokens` and the three `*-secrets` pulls.
@@ -549,7 +557,7 @@ index before the first pass. It flips to ready on the next `make ps-apps`.
 | llm-gateway | 8081 | | reasoner-agent | 8093 |
 | ingestion | 8090 | | outbox-worker | 8094 |
 | watcher-agent | 8091 | | knowledge-service | 8095 |
-| planner-agent | 8092 | | | |
+| planner-agent | 8092 | | feedback-service | 8096 |
 
 ### Fire an alert
 
@@ -604,14 +612,17 @@ SELECT event_type, actor, created_at FROM audit_log
   ORDER BY created_at;
 ```
 
-`recommendation.created` dead-letters until Phase 9's feedback-service exists.
-That is correct, and requeueable.
+`recommendation.created` is delivered by feedback-service (Phase 9): it posts the
+RCA card to Slack and moves the incident to `investigating`, adding
+`notification.delivered` and `incident.investigating` to the trail above. (It only
+delivers when feedback-service is ready — i.e. real Slack tokens are set; otherwise
+the event retries and dead-letters, correct then and still requeueable.)
 
 ### Everyday use
 
 ```bash
 make ps-apps        # readiness table
-make logs-apps      # tail all seven
+make logs-apps      # tail all eight
 make stop-apps      # stop the apps
 make stop-infra     # stop the containers
 ```
