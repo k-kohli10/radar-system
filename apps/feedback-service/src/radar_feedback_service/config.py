@@ -64,6 +64,13 @@ class FeedbackSettings(RadarSettings):
     #: commit; declared here so both deployment-specific strings live together.
     slack_bot_name: str = "radar"
 
+    #: The most rows a bot query (``open`` / ``last <n>``) will return to Slack.
+    #: Config, not a constant (override with ``RADAR_BOT_MAX_ROWS``): the cap is a
+    #: policy the deployment owns, and it is what stops ``@radar last 1000`` from
+    #: dumping the incident table into a channel. The parser accepts any n≥1; the
+    #: handler clamps to this before it reaches the query's LIMIT.
+    bot_max_rows: int = 20
+
 
 def load_postgres_dsn(*, directory: Path | None = None) -> str:
     """Read the Postgres DSN from the ``postgres_dsn`` Vault secret.

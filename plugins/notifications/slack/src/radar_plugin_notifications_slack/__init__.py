@@ -13,7 +13,7 @@ from .backend import BACKEND, DEFAULT_TIMEOUT_SECONDS, SlackNotificationBackend
 from .interactions import (
     InteractionHandler,
     MentionHandler,
-    SlackInteractionSource,
+    SlackSocketSource,
     ack_and_dispatch,
     to_interaction,
     to_mention,
@@ -26,8 +26,8 @@ __all__ = [
     "DEFAULT_TIMEOUT_SECONDS",
     "InteractionHandler",
     "MentionHandler",
-    "SlackInteractionSource",
     "SlackNotificationBackend",
+    "SlackSocketSource",
     "ack_and_dispatch",
     "to_interaction",
     "to_mention",

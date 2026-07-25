@@ -70,6 +70,11 @@ def notifier() -> FakeNotifier:
     return FakeNotifier()
 
 
+def _fake_source(handler: Any, mention_handler: Any) -> FakeInteractionSource:
+    """A socketless source factory: ignores both handlers, opens no WebSocket."""
+    return FakeInteractionSource()
+
+
 @pytest.fixture
 def app_factory(
     monkeypatch: pytest.MonkeyPatch, notifier: FakeNotifier
@@ -88,7 +93,7 @@ def app_factory(
             with_tracing=False,
             notifier_override=notifier if inject_notifier else None,
             # Socketless receive side: no WebSocket to Slack in a test.
-            interaction_source_factory=lambda handler: FakeInteractionSource(),
+            interaction_source_factory=_fake_source,
         )
 
     yield build
@@ -248,7 +253,7 @@ async def test_lifespan_starts_and_closes_the_interaction_source(
     the socket stops before the database pool is disposed)."""
     sources: list[FakeInteractionSource] = []
 
-    def factory(handler: Any) -> FakeInteractionSource:
+    def factory(handler: Any, mention_handler: Any) -> FakeInteractionSource:
         source = FakeInteractionSource()
         sources.append(source)
         return source
@@ -290,7 +295,7 @@ async def test_readyz_503_when_interaction_source_fails_to_start(
         metrics_registry=CollectorRegistry(),
         with_tracing=False,
         notifier_override=FakeNotifier(),
-        interaction_source_factory=lambda handler: _BoomSource(),
+        interaction_source_factory=lambda handler, mention_handler: _BoomSource(),
     )
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
@@ -422,7 +427,7 @@ async def test_post_failure_is_503_and_unmarked(
         metrics_registry=CollectorRegistry(),
         with_tracing=False,
         notifier_override=FakeNotifier(fail=True),
-        interaction_source_factory=lambda handler: FakeInteractionSource(),
+        interaction_source_factory=_fake_source,
     )
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)

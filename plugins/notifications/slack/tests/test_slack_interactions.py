@@ -112,7 +112,7 @@ def test_drops_anything_not_a_complete_button_click(
 # --- ack_and_dispatch: ack first, then dispatch ----------------------------------
 #
 # Driven directly with a fake client, so no SocketModeClient is constructed (which
-# would leave an unclosed aiohttp session). SlackInteractionSource is the thin
+# would leave an unclosed aiohttp session). SlackSocketSource is the thin
 # wiring that registers this on a real socket; the logic under test is here.
 
 

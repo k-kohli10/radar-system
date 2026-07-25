@@ -45,7 +45,7 @@ from typing import Protocol
 from uuid import UUID
 
 from radar_common import NotFoundError, get_logger
-from radar_contracts import NotificationBackend, NotificationInteraction
+from radar_contracts import BotMention, NotificationBackend, NotificationInteraction
 from radar_database import (
     INVALID_TRANSITION_AUDIT_EVENT,
     STATUS_RESOLVED,
@@ -73,13 +73,17 @@ InteractionHandler = Callable[[NotificationInteraction], Awaitable[None]]
 """What the Socket Mode source dispatches to: one translated interaction in, no result
 — the outcome is recorded in the database and reflected on the card, not returned."""
 
+MentionHandler = Callable[[BotMention], Awaitable[None]]
+"""What the source dispatches an ``@radar`` mention to: parse, query, and reply
+in-thread. Like the interaction handler, it returns nothing — the reply is posted."""
+
 
 class InteractionSource(Protocol):
     """The receive-side connection the app owns in its lifespan: start, then close.
 
-    Structural, so the concrete ``SlackInteractionSource`` satisfies it without an
-    import here — and a test can inject a fake that opens no socket. Constructing a
-    source binds the handler; :meth:`start` connects and :meth:`close` disconnects.
+    Structural, so the concrete ``SlackSocketSource`` satisfies it without an import
+    here — and a test can inject a fake that opens no socket. Constructing a source
+    binds the handlers; :meth:`start` connects and :meth:`close` disconnects.
     """
 
     async def start(self) -> None: ...
@@ -87,9 +91,12 @@ class InteractionSource(Protocol):
     async def close(self) -> None: ...
 
 
-InteractionSourceFactory = Callable[[InteractionHandler], InteractionSource]
-"""Builds the source from the handler. Injected so tests supply a socketless fake; the
-default (production) factory builds the Slack Socket Mode source from Vault tokens."""
+InteractionSourceFactory = Callable[
+    [InteractionHandler, MentionHandler], InteractionSource
+]
+"""Builds the source from the interaction and mention handlers. Injected so tests
+supply a socketless fake; the default (production) factory builds the Slack Socket Mode
+source from Vault tokens."""
 
 log = get_logger("feedback.interactions")
 

@@ -23,8 +23,7 @@ public HTTP endpoint would lose. When Phase 12 moves to Events API + ingress, si
 becomes mandatory; until then it does not apply.
 
 The translations (:func:`to_interaction`, :func:`to_mention`) are pure; the socket
-wiring around them is the thin shell. The class name predates mentions and is kept to
-avoid churning the app's import in this slice; a rename can ride the wire-up commit.
+wiring around them is the thin shell (:class:`SlackSocketSource`).
 """
 
 from __future__ import annotations
@@ -160,7 +159,7 @@ async def ack_and_dispatch(
             await mention_handler(mention)
 
 
-class SlackInteractionSource:
+class SlackSocketSource:
     """A Socket Mode connection delivering button clicks and ``@radar`` mentions.
 
     Constructing this opens NO network connection; :meth:`start` connects and

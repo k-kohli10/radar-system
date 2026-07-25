@@ -60,8 +60,8 @@ from radar_common.bootstrap import AGENT_TOKEN_SECRET
 from radar_contracts import NotificationBackend
 from radar_database import Database
 from radar_plugin_notifications_slack import (
-    SlackInteractionSource,
     SlackNotificationBackend,
+    SlackSocketSource,
 )
 from radar_telemetry import (
     create_incident_metrics,
@@ -71,6 +71,7 @@ from radar_telemetry import (
     setup_tracing,
 )
 
+from radar_feedback_service.bot import build_mention_handler
 from radar_feedback_service.config import (
     SERVICE_NAME,
     FeedbackSettings,
@@ -82,6 +83,7 @@ from radar_feedback_service.interactions import (
     InteractionHandler,
     InteractionSource,
     InteractionSourceFactory,
+    MentionHandler,
     build_interaction_handler,
 )
 from radar_feedback_service.routes import create_events_router
@@ -149,16 +151,19 @@ def create_app(
     notifier: NotificationBackend | None = None
     interaction_source: InteractionSource | None = None
 
-    def _default_interaction_source(handler: InteractionHandler) -> InteractionSource:
+    def _default_interaction_source(
+        handler: InteractionHandler, mention_handler: MentionHandler
+    ) -> InteractionSource:
         # Production factory: the one place the concrete Socket Mode source is named.
         # Tokens are read here — at lifespan time, in the factory — not at import, so a
         # missing secret degrades to /readyz 503 (the lifespan catches it), never an
         # import crash. app_token authenticates the socket; bot_token backs the web
-        # client the SDK uses to ack.
-        return SlackInteractionSource(
+        # client the SDK uses to ack. One socket carries both clicks and mentions.
+        return SlackSocketSource(
             app_token=load_slack_app_token(),
             bot_token=load_slack_bot_token(),
             handler=handler,
+            mention_handler=mention_handler,
         )
 
     build_source = interaction_source_factory or _default_interaction_source
@@ -180,12 +185,15 @@ def create_app(
             )
             database = Database(dsn)
             # The receive side: open the Socket Mode connection that delivers button
-            # clicks, wired to the parse -> handle path over this database and notifier.
-            # Started BEFORE mark_ready and inside the try, so a socket that will not
-            # open keeps the pod out of rotation (readiness stays false) rather than
-            # advertising a card whose buttons reach nothing.
+            # clicks AND @radar mentions, each wired to its handler over this database
+            # and notifier. Started BEFORE mark_ready and inside the try, so a socket
+            # that will not open keeps the pod out of rotation (readiness stays false)
+            # rather than advertising a bot whose buttons and mentions reach nothing.
             interaction_source = build_source(
-                build_interaction_handler(database, notifier, incident_metrics)
+                build_interaction_handler(database, notifier, incident_metrics),
+                build_mention_handler(
+                    database, notifier, max_rows=settings.bot_max_rows
+                ),
             )
             await interaction_source.start()
             readiness.mark_ready()
