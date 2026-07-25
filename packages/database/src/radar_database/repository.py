@@ -21,11 +21,13 @@ from typing import Any
 from uuid import UUID
 
 from radar_common import NotFoundError, utcnow
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .lifecycle import (
     STATUS_CLOSED,
+    STATUS_INVESTIGATING,
+    STATUS_OPEN,
     STATUS_RESOLVED,
     InvalidStateTransitionError,
     is_valid_transition,
@@ -43,6 +45,17 @@ from .models import (
     Recommendation,
     RunbookDocument,
 )
+from .outbox import STATUS_PENDING
+
+#: The incidents an on-call engineer means by "open": still live, not yet resolved.
+#: ``investigating`` (a human has been told, ADR 0016 Amendment 1) is unresolved work,
+#: so the bot's ``open``/``status`` count it alongside ``open`` — the actionable set,
+#: not the literal ``status = 'open'`` row state. Resolved and closed are excluded.
+#: This is the SAME non-terminal set as ingestion's ``find_resolvable_incident``
+#: (``_RESOLVABLE_INCIDENT_STATES``, ADR 0016 Amendment 2); "live" has one meaning
+#: across the codebase. The two can't share a constant across the package boundary, so
+#: keep them in step by hand if the lifecycle ever grows a state.
+_ACTIVE_STATUSES = (STATUS_OPEN, STATUS_INVESTIGATING)
 
 
 class Repository[ModelT: Base]:
@@ -167,6 +180,63 @@ class IncidentRepository(Repository[Incident]):
         await self._session.flush()
         return incident
 
+    # --- bot read queries (SELECT only; no method here mutates state) -------------
+
+    async def count_active(self) -> int:
+        """How many incidents are live (open or investigating) — the status count."""
+        count = await self._session.scalar(
+            select(func.count())
+            .select_from(Incident)
+            .where(Incident.status.in_(_ACTIVE_STATUSES))
+        )
+        return int(count or 0)
+
+    async def list_active(self, *, limit: int) -> Sequence[Incident]:
+        """The live incidents, newest first, capped at ``limit`` — the ``open`` list.
+
+        ``limit`` is the caller's cap (the bot's ``bot_max_rows``); the ``LIMIT`` keeps
+        a busy incident feed from dumping every open row into Slack.
+        """
+        result = await self._session.execute(
+            select(Incident)
+            .where(Incident.status.in_(_ACTIVE_STATUSES))
+            .order_by(Incident.opened_at.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def recent(
+        self, *, limit: int, service: str | None = None
+    ) -> Sequence[Incident]:
+        """The most recent incidents, newest first, capped — the ``last <n>`` list.
+
+        Optionally filtered to one ``service``. ``limit`` bounds the result the same way
+        :meth:`list_active` does: the caller passes the clamped ``last <n>``.
+        """
+        stmt = select(Incident)
+        if service is not None:
+            stmt = stmt.where(Incident.service_name == service)
+        stmt = stmt.order_by(Incident.opened_at.desc()).limit(limit)
+        return (await self._session.execute(stmt)).scalars().all()
+
+    async def count_opened_between(self, start: datetime, end: datetime) -> int:
+        """Incidents opened in the half-open window ``[start, end)`` (``summary``)."""
+        count = await self._session.scalar(
+            select(func.count())
+            .select_from(Incident)
+            .where(Incident.opened_at >= start, Incident.opened_at < end)
+        )
+        return int(count or 0)
+
+    async def count_resolved_between(self, start: datetime, end: datetime) -> int:
+        """Incidents resolved in ``[start, end)`` — the other half of ``summary``."""
+        count = await self._session.scalar(
+            select(func.count())
+            .select_from(Incident)
+            .where(Incident.resolved_at >= start, Incident.resolved_at < end)
+        )
+        return int(count or 0)
+
 
 class InvestigationPlanRepository(Repository[InvestigationPlan]):
     def __init__(self, session: AsyncSession) -> None:
@@ -177,15 +247,60 @@ class RecommendationRepository(Repository[Recommendation]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, Recommendation)
 
+    async def latest_for_incident(self, incident_id: UUID) -> Recommendation | None:
+        """The RCA for an incident — for the ``incident <id>`` detail view.
+
+        At most one exists (``idx_rec_one_per_incident``); ``ORDER BY ... LIMIT 1`` is
+        belt-and-braces so this never depends on that invariant to return a single row.
+        """
+        return (
+            await self._session.execute(
+                select(Recommendation)
+                .where(Recommendation.incident_id == incident_id)
+                .order_by(Recommendation.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    async def latest_created_at(self) -> datetime | None:
+        """When the most recent RCA was produced — the "last RCA" line of ``status``.
+        ``None`` when no recommendation exists yet."""
+        return await self._session.scalar(select(func.max(Recommendation.created_at)))
+
 
 class FeedbackRepository(Repository[Feedback]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, Feedback)
 
+    async def count_by_sentiment_between(
+        self, start: datetime, end: datetime
+    ) -> dict[str, int]:
+        """Feedback rows in ``[start, end)`` grouped by sentiment — for ``summary``.
+
+        A sentiment with no rows is simply absent from the mapping; the caller reads a
+        missing key as zero.
+        """
+        result = await self._session.execute(
+            select(Feedback.sentiment, func.count())
+            .where(Feedback.created_at >= start, Feedback.created_at < end)
+            .group_by(Feedback.sentiment)
+        )
+        return {sentiment: int(count) for sentiment, count in result.all()}
+
 
 class OutboxEventRepository(Repository[OutboxEvent]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, OutboxEvent)
+
+    async def count_pending(self) -> int:
+        """Undispatched outbox events — the "outbox depth" line of ``status``.
+        A growing depth means dispatch is falling behind."""
+        count = await self._session.scalar(
+            select(func.count())
+            .select_from(OutboxEvent)
+            .where(OutboxEvent.status == STATUS_PENDING)
+        )
+        return int(count or 0)
 
 
 class RunbookDocumentRepository(Repository[RunbookDocument]):
