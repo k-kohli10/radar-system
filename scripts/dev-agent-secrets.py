@@ -47,16 +47,19 @@ POSTGRES_PATH = "secret/data/radar/postgres"
 #: Fields copied verbatim from a service's Vault secret into a file of the same
 #: name. A service that lacks one simply does not get that file.
 #:
-#: ``slack_bot_token`` joined in Phase 9: feedback-service reads it from a file to
-#: post RCA cards. (``slack_app_token`` is seeded to Vault but NOT pulled here yet
-#: — the Socket Mode bot that reads it lands in a later commit; adding it now would
-#: write a secret file nothing reads.)
+#: ``slack_bot_token`` and ``slack_app_token`` joined in Phase 9 for feedback-service:
+#: the bot token (``xoxb-``) posts RCA cards, the app-level token (``xapp-``)
+#: authenticates the Socket Mode connection that receives button clicks and ``@radar``
+#: mentions. Both are now required for the service to go ready (``load_slack_app_token``
+#: runs in the lifespan), so both are pulled here — without the app token a clean
+#: secrets dir leaves feedback-service stuck at ``/readyz`` 503.
 SERVICE_FIELDS = (
     "agent_token",
     "gateway_token",
     "dispatch_tokens",
     "knowledge_token",
     "slack_bot_token",
+    "slack_app_token",
 )
 
 #: Gateway-token fields are also matched by PREFIX, because a service granted more
