@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import pytest
 import structlog
 from fakes import FakeNotifier
+from prometheus_client import CollectorRegistry
 from radar_common import NotFoundError
 from radar_database import (
     AuditLog,
@@ -40,12 +41,21 @@ from radar_feedback_service.interactions import (
     handle_callback,
 )
 from radar_plugin_notifications_slack import ack_and_dispatch
+from radar_telemetry import IncidentMetrics, create_incident_metrics
 from slack_sdk.socket_mode.request import SocketModeRequest
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 CHANNEL_ID = "C0FEEDBACK"
 USER_ID = "U0ENGINEER"
 MESSAGE_TS = "1720000000.0001"
+
+
+def _metrics() -> IncidentMetrics:
+    """A throwaway incident-metrics family on its own registry — for the tests that
+    exercise handling but do not assert on the counter. The two metric tests build their
+    own so they can read radar_feedback_total back off the registry."""
+    return create_incident_metrics(CollectorRegistry())
 
 
 async def _seed(
@@ -154,7 +164,10 @@ async def test_thumbs_up_records_helpful_feedback(db: Database) -> None:
     notifier = FakeNotifier()
 
     outcome = await handle_callback(
-        db, notifier, _callback(InteractionAction.FEEDBACK_UP, rec_id)
+        db,
+        notifier,
+        _callback(InteractionAction.FEEDBACK_UP, rec_id),
+        metrics=_metrics(),
     )
 
     assert outcome is CallbackOutcome.FEEDBACK_RECORDED
@@ -175,7 +188,10 @@ async def test_thumbs_down_records_not_helpful_feedback(db: Database) -> None:
     _, rec_id, _ = await _seed(db)
 
     outcome = await handle_callback(
-        db, FakeNotifier(), _callback(InteractionAction.FEEDBACK_DOWN, rec_id)
+        db,
+        FakeNotifier(),
+        _callback(InteractionAction.FEEDBACK_DOWN, rec_id),
+        metrics=_metrics(),
     )
 
     assert outcome is CallbackOutcome.FEEDBACK_RECORDED
@@ -191,7 +207,7 @@ async def test_feedback_reflects_on_the_card(db: Database) -> None:
     notifier = FakeNotifier()
 
     cb = _callback(InteractionAction.FEEDBACK_UP, rec_id)
-    await handle_callback(db, notifier, cb)
+    await handle_callback(db, notifier, cb, metrics=_metrics())
 
     assert len(notifier.updates) == 1
     update = notifier.updates[0]
@@ -207,7 +223,7 @@ async def test_resolve_transitions_incident_and_audits(db: Database) -> None:
     notifier = FakeNotifier()
 
     outcome = await handle_callback(
-        db, notifier, _callback(InteractionAction.RESOLVE, rec_id)
+        db, notifier, _callback(InteractionAction.RESOLVE, rec_id), metrics=_metrics()
     )
 
     assert outcome is CallbackOutcome.RESOLVED
@@ -227,7 +243,10 @@ async def test_resolve_of_already_resolved_incident_is_benign_and_audited(
     incident_id, rec_id, _ = await _seed(db, incident_status="resolved")
 
     outcome = await handle_callback(
-        db, FakeNotifier(), _callback(InteractionAction.RESOLVE, rec_id)
+        db,
+        FakeNotifier(),
+        _callback(InteractionAction.RESOLVE, rec_id),
+        metrics=_metrics(),
     )
 
     assert outcome is CallbackOutcome.ALREADY_RESOLVED
@@ -263,8 +282,8 @@ async def test_concurrent_resolves_one_wins_one_loses(db: Database) -> None:
 
     cb = _callback(InteractionAction.RESOLVE, rec_id)
     outcomes = await asyncio.gather(
-        handle_callback(db, FakeNotifier(), cb),
-        handle_callback(db, FakeNotifier(), cb),
+        handle_callback(db, FakeNotifier(), cb, metrics=_metrics()),
+        handle_callback(db, FakeNotifier(), cb, metrics=_metrics()),
     )
 
     assert set(outcomes) == {
@@ -286,7 +305,10 @@ async def test_card_update_failure_does_not_undo_feedback(db: Database) -> None:
     _, rec_id, _ = await _seed(db)
 
     outcome = await handle_callback(
-        db, FakeNotifier(fail=True), _callback(InteractionAction.FEEDBACK_UP, rec_id)
+        db,
+        FakeNotifier(fail=True),
+        _callback(InteractionAction.FEEDBACK_UP, rec_id),
+        metrics=_metrics(),
     )
 
     assert outcome is CallbackOutcome.FEEDBACK_RECORDED
@@ -298,8 +320,95 @@ async def test_missing_recommendation_is_rejected(db: Database) -> None:
     was delivered), not a race — rejected loudly, never acted on blindly."""
     with pytest.raises(NotFoundError):
         await handle_callback(
-            db, FakeNotifier(), _callback(InteractionAction.FEEDBACK_UP, uuid4())
+            db,
+            FakeNotifier(),
+            _callback(InteractionAction.FEEDBACK_UP, uuid4()),
+            metrics=_metrics(),
         )
+
+
+# --- radar_feedback_total: counts RECORDED feedback, after the commit -----------------
+
+
+def _feedback_count(registry: CollectorRegistry, sentiment: str) -> float | None:
+    """radar_feedback_total for one sentiment, read off the registry — None if the
+    counter never ticked for that label (a never-incremented counter has no sample)."""
+    return registry.get_sample_value("radar_feedback_total", {"sentiment": sentiment})
+
+
+async def test_feedback_increments_counter_by_sentiment(db: Database) -> None:
+    """A recorded 👍 ticks radar_feedback_total{sentiment=helpful} exactly once, and 👎
+    the not_helpful series — the label a dashboard splits votes on."""
+    _, up_rec, _ = await _seed(db)
+    _, down_rec, _ = await _seed(db)
+    registry = CollectorRegistry()
+    metrics = create_incident_metrics(registry)
+
+    await handle_callback(
+        db,
+        FakeNotifier(),
+        _callback(InteractionAction.FEEDBACK_UP, up_rec),
+        metrics=metrics,
+    )
+    await handle_callback(
+        db,
+        FakeNotifier(),
+        _callback(InteractionAction.FEEDBACK_DOWN, down_rec),
+        metrics=metrics,
+    )
+
+    assert _feedback_count(registry, "helpful") == 1.0
+    assert _feedback_count(registry, "not_helpful") == 1.0
+
+
+async def test_resolve_does_not_touch_feedback_counter(db: Database) -> None:
+    """Resolve is not a sentiment-bearing feedback submission, so it ticks no series of
+    radar_feedback_total. (Resolve is observable via the incident.resolved audit.)"""
+    _, rec_id, _ = await _seed(db, incident_status="open")
+    registry = CollectorRegistry()
+    metrics = create_incident_metrics(registry)
+
+    await handle_callback(
+        db,
+        FakeNotifier(),
+        _callback(InteractionAction.RESOLVE, rec_id),
+        metrics=metrics,
+    )
+
+    assert _feedback_count(registry, "helpful") is None
+    assert _feedback_count(registry, "not_helpful") is None
+
+
+async def test_counter_not_incremented_when_the_write_rolls_back(db: Database) -> None:
+    """The load-bearing half: a 👍 whose DB commit FAILS must NOT tick the counter.
+
+    radar_feedback_total counts feedback that was RECORDED; a dashboard reads it as
+    'feedback received'. So a rolled-back write that left no row must leave no count —
+    otherwise the metric claims feedback the database never kept.
+
+    The commit is forced to raise; the increment sits AFTER it, so it never runs and the
+    counter stays empty (and no row lands). MUTATION guard: move the .inc() ahead of the
+    commit and this turns red — the counter would read 1.0 for a write that rolled back.
+    This is the assertion that actually pins the after-commit ordering; the success test
+    passes whether the increment is before or after.
+    """
+    _, rec_id, _ = await _seed(db)
+    registry = CollectorRegistry()
+    metrics = create_incident_metrics(registry)
+
+    with patch.object(
+        AsyncSession, "commit", AsyncMock(side_effect=RuntimeError("db write failed"))
+    ):
+        with pytest.raises(RuntimeError):
+            await handle_callback(
+                db,
+                FakeNotifier(),
+                _callback(InteractionAction.FEEDBACK_UP, rec_id),
+                metrics=metrics,
+            )
+
+    assert _feedback_count(registry, "helpful") is None
+    assert await _feedback_rows(db, rec_id) == []
 
 
 # --- driven through the WIRED listener (ack_and_dispatch + the real adapter) ---------
@@ -328,7 +437,7 @@ def _block_actions(
 
 async def _drive(db: Database, notifier: FakeNotifier, payload: dict[str, Any]) -> None:
     """Push ``payload`` through the real listener shell into the wired adapter."""
-    handler = build_interaction_handler(db, notifier)
+    handler = build_interaction_handler(db, notifier, _metrics())
     request = SocketModeRequest(
         type="interactive", envelope_id="env-1", payload=payload
     )

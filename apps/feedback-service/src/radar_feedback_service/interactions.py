@@ -57,6 +57,7 @@ from radar_database import (
     InvalidStateTransitionError,
     Recommendation,
 )
+from radar_telemetry import IncidentMetrics
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from radar_feedback_service.callbacks import (
@@ -118,7 +119,7 @@ _FEEDBACK_ACK: dict[InteractionAction, str] = {
 
 
 def build_interaction_handler(
-    database: Database, notifier: NotificationBackend
+    database: Database, notifier: NotificationBackend, metrics: IncidentMetrics
 ) -> InteractionHandler:
     """The adapter the wired Socket Mode listener dispatches each button click to.
 
@@ -152,7 +153,7 @@ def build_interaction_handler(
             )
             return
         try:
-            outcome = await handle_callback(database, notifier, parsed)
+            outcome = await handle_callback(database, notifier, parsed, metrics=metrics)
         except NotFoundError as exc:
             log.error(
                 "interaction.recommendation_missing",
@@ -176,6 +177,8 @@ async def handle_callback(
     database: Database,
     notifier: NotificationBackend,
     parsed: ParsedCallback,
+    *,
+    metrics: IncidentMetrics,
 ) -> CallbackOutcome:
     """Apply ``parsed`` — record feedback or resolve the incident — and reflect it.
 
@@ -183,16 +186,21 @@ async def handle_callback(
     best-effort. Raises :class:`~radar_common.NotFoundError` if the recommendation the
     callback names — or its incident — is missing: the card was delivered, so a missing
     row is corruption, not a race, and is rejected loudly rather than acted on blindly.
+
+    ``metrics`` carries ``feedback_total``; only the vote path ticks it, and only after
+    the row commits (see :func:`_record_feedback`). Resolve does not — the counter is
+    scoped by sentiment, and a resolve has none.
     """
     if parsed.action is InteractionAction.RESOLVE:
         return await _resolve(database, notifier, parsed)
-    return await _record_feedback(database, notifier, parsed)
+    return await _record_feedback(database, notifier, parsed, metrics)
 
 
 async def _record_feedback(
     database: Database,
     notifier: NotificationBackend,
     parsed: ParsedCallback,
+    metrics: IncidentMetrics,
 ) -> CallbackOutcome:
     """Write one ``feedback`` row for the rating, then acknowledge it on the card."""
     sentiment = _SENTIMENT[parsed.action]
@@ -214,6 +222,12 @@ async def _record_feedback(
             )
         )
         await session.commit()
+        # AFTER the commit, never before: the counter must count RECORDED feedback, not
+        # attempted. A commit that raised never reaches this line, so a rolled-back
+        # write leaves the counter untouched — a dashboard reading radar_feedback_total
+        # sees only feedback that actually landed. Same after-the-guarantee ordering as
+        # delivery's ts-after-post and the transition-in-the-commit.
+        metrics.feedback_total.labels(sentiment).inc()
         log.info(
             "feedback.recorded",
             recommendation_id=str(recommendation.id),

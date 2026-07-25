@@ -64,6 +64,7 @@ from radar_plugin_notifications_slack import (
     SlackNotificationBackend,
 )
 from radar_telemetry import (
+    create_incident_metrics,
     create_request_metrics,
     instrument_fastapi,
     render_latest,
@@ -138,6 +139,11 @@ def create_app(
 
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
+    # feedback-service produces radar_feedback_total; it registers the incident family
+    # that carries it. (The sibling incidents_total / duration counters on that family
+    # are ingestion's and stay at zero here — the family bundling is a known smell, not
+    # this service's to fix.)
+    incident_metrics = create_incident_metrics(metrics_registry)
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
     notifier: NotificationBackend | None = None
@@ -179,7 +185,7 @@ def create_app(
             # open keeps the pod out of rotation (readiness stays false) rather than
             # advertising a card whose buttons reach nothing.
             interaction_source = build_source(
-                build_interaction_handler(database, notifier)
+                build_interaction_handler(database, notifier, incident_metrics)
             )
             await interaction_source.start()
             readiness.mark_ready()
