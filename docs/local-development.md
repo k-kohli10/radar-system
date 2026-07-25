@@ -199,6 +199,8 @@ flowchart LR
     PA["planner-agent"]:::agent
     RA["reasoner-agent"]:::agent
     GW["llm-gateway"]:::gw
+    FS["feedback-service"]:::svc
+    SLACK["Slack<br/><i>outside the trust boundary</i>"]:::ext
     PG[("Postgres<br/>outbox_events")]:::db
 
     SRC -->|"<b>X-Radar-Webhook-Token</b><br/>one per source"| ING
@@ -208,8 +210,12 @@ flowchart LR
     OW -->|"<b>X-Radar-Agent-Token</b><br/>= <i>watcher's</i> token"| WA
     OW -->|"= <i>planner's</i> token"| PA
     OW -->|"= <i>reasoner's</i> token"| RA
+    OW -->|"= <i>feedback-service's</i> token"| FS
 
     RA -->|"<b>X-Radar-Agent-Token</b><br/>= its <i>gateway_token</i><br/>grant: mode=extended"| GW
+
+    FS -->|"<b>bot token</b> (xoxb-)<br/>posts RCA cards + replies"| SLACK
+    FS -->|"<b>app token</b> (xapp-)<br/>Socket Mode: clicks + @radar arrive back"| SLACK
 
     WA -.->|"writes event"| PG
     PA -.->|"writes event"| PG
@@ -222,16 +228,24 @@ flowchart LR
     classDef db fill:#eceff1,stroke:#5b6b73,color:#000
 ```
 
-Two things this picture is making precise:
+Three things this picture is making precise:
 
 - **The worker sends the *target's* token, not its own.** It is the only caller of
-  any `/events` endpoint, so it holds all three. That is not a hole in the
-  per-service model — it is forced by it, and the worker can already forge any event
-  it likes. What per-service tokens buy is still real: a token leaked from the
-  watcher opens the watcher, and nothing else.
+  any `/events` endpoint, so it holds all four (watcher, planner, reasoner,
+  feedback-service). That is not a hole in the per-service model — it is forced by
+  it, and the worker can already forge any event it likes. What per-service tokens
+  buy is still real: a token leaked from the watcher opens the watcher, and nothing
+  else.
 - **Solid arrows are authenticated HTTP; dashed arrows are the outbox.** Agents never
   call each other. A handoff is a row in Postgres, written in the same transaction as
   the state change that caused it (ADR 0003).
+- **feedback-service is the pipeline's outward edge.** It consumes
+  `recommendation.created` from the worker like any agent, then crosses one more
+  boundary — to Slack — with its **own two tokens**: a bot token (`xoxb-`) to post
+  RCA cards and threaded replies, and an app-level token (`xapp-`) to open the Socket
+  Mode connection that carries button clicks and `@radar` mentions back. Two tokens
+  because they authorize different things (posting vs. the socket) — the same
+  per-credential discipline as agent vs. gateway.
 
 ### The two token systems
 
