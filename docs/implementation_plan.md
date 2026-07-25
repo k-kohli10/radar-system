@@ -2433,6 +2433,61 @@ The ADR 0016 amendments this stage required (feedback-service owns
 `open -> investigating`; ingestion's authority widened to `{open, investigating}
 -> resolved`; `closed_at` reserved) are recorded inline in ADR 0016 above.
 
+### What shipped
+
+Phase 9 was built in five stages plus a feedback-metrics close-out. Both
+done-conditions hold:
+
+1. **mock alert -> RCA card -> 👍 creates a feedback row** — stages 2–3.
+2. **`@radar open` returns open incidents in Slack** — stage 4, proven end to end
+   through the wired Socket Mode listener, not just the parser unit.
+
+- **Stage 1 — incident lifecycle** (ingestion + `packages/database`): the validated
+  `transition_status` state machine with its audit log, and the Alertmanager
+  `resolved` path that flips alerts and resolves an incident when its last firing
+  alert clears. Built before any Slack surface so closure is provable without a bot
+  (see the footprint note above).
+- **Stage 2 — RCA delivery**: the Slack notification backend, the RCA card
+  formatter, at-least-once delivery on `recommendation.created` (post then record,
+  one card under a row lock held across the post), and the `open -> investigating`
+  transition gated on delivery (ADR 0016 Amendment 1).
+- **Stage 3 — interactive callbacks**: the neutral `NotificationInteraction`
+  contract, the Socket Mode source + `chat.update`, the strict callback parser
+  (deep-treatment — it writes against the wrong recommendation or resolves the wrong
+  incident if it mis-parses), and the handler that writes 👍/👎 rows or resolves the
+  incident, the concurrent-resolve loser recording the forensic
+  `incident.invalid_transition` audit and returning benignly.
+- **feedback-metrics**: `radar_feedback_total{sentiment}`, incremented after the row
+  commits so the counter counts recorded feedback, never attempted.
+- **Stage 4 — the `@radar` bot**: the neutral `BotMention` contract, `app_mention`
+  received over the same socket, the command parser (the one parse surface — bot
+  handle stripped first, closed verb set, `<id>` validated at parse), the read
+  queries as repository methods in `packages/database`, and the atomic wire-up that
+  turns the bot on: parse -> query -> in-thread reply, with the `bot_max_rows` cap
+  enforced at the handler.
+
+### Deferred, with reasons
+
+- **The correction modal** (a 📝 on the RCA card capturing a human's fix) — the
+  consumer that re-reasons over a correction does not exist yet, so a captured
+  correction would land in a `feedback` row nobody reads. Deferred until something
+  acts on it; `correction_text` stays reserved on the schema and the contract.
+- **`@radar close`** (`resolved -> closed`) — the state machine has the edge and
+  `transition_status` stamps `closed_at`, but no caller reaches `closed` (ADR 0016
+  Amendment 3). The bot is read-only in v1; a state-changing command is a different
+  rigor tier and lands when close is actually wanted.
+- **True ephemeral bot replies** — `BotResponse.ephemeral` exists on the contract,
+  but the notification backend has no `chat.postEphemeral` (which needs a user id
+  and is not threadable). v1 posts a threaded in-thread reply instead; real
+  ephemeral lands if and when the backend grows the call.
+
+### Limitation
+
+The bot is **read-only and best-effort**. A mention is acked before it is handled
+(Slack's ~3s Socket Mode window), so a lost reply is a re-ask, not a retry — the
+deliberate trade for an interactive surface, the same one the interaction callbacks
+make. No `@radar` command mutates state.
+
 ---
 
 ## Phase 10: Observability
