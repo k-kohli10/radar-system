@@ -19,9 +19,14 @@ Two variants, keyed on ``is_fallback``:
   so plainly: an engineer must not read a template checklist as a model's
   diagnosis. The row carries the distinction; the card surfaces it.
 
-The interactive controls (👍 / 👎 / Resolve) are deliberately NOT here yet. A
-button Slack renders but nothing handles fails when clicked, so the actions block
-lands with its callback handler, not before.
+The interactive controls (👍 / 👎 / Resolve) live in the actions block. Each button
+carries a RADAR ``action_id`` from the closed :class:`InteractionAction` set — the SAME
+enum the callback parser reads — and the recommendation id as its ``value``. So the
+formatter that WRITES a button and the parser that READS the click back share one
+definition and cannot drift; this is the send half of that contract. The buttons landed
+with their handler (not before): a button Slack renders but nothing handles would fail
+on click, so the click path — parser, handler, and the wired Socket Mode listener —
+exists before these are shown.
 """
 
 from __future__ import annotations
@@ -31,6 +36,8 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from radar_contracts import RecommendedAction
+
+from radar_feedback_service.callbacks import InteractionAction
 
 #: Slack hard-limits a section's text at 3000 chars and rejects the whole message
 #: if any block exceeds it. A long root cause is a delivery failure, not a
@@ -51,6 +58,7 @@ class RcaCardData:
     """
 
     incident_id: UUID
+    recommendation_id: UUID
     service_name: str
     title: str
     severity: str
@@ -61,12 +69,21 @@ class RcaCardData:
     is_fallback: bool
 
 
-def format_rca_card(data: RcaCardData) -> tuple[str, list[dict[str, object]]]:
+def format_rca_card(
+    data: RcaCardData, *, ack: str | None = None
+) -> tuple[str, list[dict[str, object]]]:
     """Render ``data`` to ``(fallback_text, blocks)`` for a Slack notification.
 
     ``fallback_text`` is the notification/preview string Slack shows where blocks
     do not render (push notifications, the sidebar) — always meaningful, never
     empty. ``blocks`` is the card layout.
+
+    ``ack`` appends one context line acknowledging an interaction (a 👍/👎 recorded,
+    or the incident resolved) when the callback handler re-renders the card in place.
+    It is the ONLY addition the reflection makes: the rest of the card is rebuilt
+    from the current rows, so a resolved incident already shows ``Status: resolved``
+    without the footer having to say it twice. ``None`` (the delivery path) renders
+    the plain card with no acknowledgement line.
     """
     header = _header_text(data)
     fallback_text = f"{header}: {data.title}"
@@ -85,6 +102,7 @@ def format_rca_card(data: RcaCardData) -> tuple[str, list[dict[str, object]]]:
         {"type": "divider"},
         _section(f"*Root cause*\n{data.root_cause}"),
         _section(f"*Recommended actions*\n{_format_actions(data.recommended_actions)}"),
+        _actions_block(data.recommendation_id),
     ]
 
     if data.is_fallback:
@@ -99,6 +117,8 @@ def format_rca_card(data: RcaCardData) -> tuple[str, list[dict[str, object]]]:
         )
 
     blocks.append(_context(f"Incident `{data.incident_id}`"))
+    if ack is not None:
+        blocks.append(_context(ack))
     return fallback_text, blocks
 
 
@@ -120,6 +140,40 @@ def _format_actions(actions: Sequence[RecommendedAction]) -> str:
     ordered = sorted(actions, key=lambda a: a.order)
     lines = [f"{i}. {action.action}" for i, action in enumerate(ordered, start=1)]
     return _truncate("\n".join(lines))
+
+
+def _actions_block(recommendation_id: UUID) -> dict[str, object]:
+    """The 👍 / 👎 / Resolve buttons, each tagged for the callback parser.
+
+    ``action_id`` is the button's meaning (from :class:`InteractionAction`, so it cannot
+    disagree with the parser); ``value`` is the recommendation id the click acts on —
+    the only identity the callback carries, from which the handler derives the incident.
+    Resolve is styled ``danger`` because it is the one state-changing, less-reversible
+    action of the three.
+    """
+    rec = str(recommendation_id)
+    return {
+        "type": "actions",
+        "elements": [
+            _button("👍 Helpful", InteractionAction.FEEDBACK_UP, rec),
+            _button("👎 Not helpful", InteractionAction.FEEDBACK_DOWN, rec),
+            _button("✅ Resolve", InteractionAction.RESOLVE, rec, style="danger"),
+        ],
+    }
+
+
+def _button(
+    label: str, action: InteractionAction, value: str, *, style: str | None = None
+) -> dict[str, object]:
+    button: dict[str, object] = {
+        "type": "button",
+        "text": {"type": "plain_text", "text": label},
+        "action_id": action.value,
+        "value": value,
+    }
+    if style is not None:
+        button["style"] = style
+    return button
 
 
 def _section(text: str) -> dict[str, object]:

@@ -75,3 +75,23 @@ class FakeNotifier:
         )
         if self._fail:
             raise RuntimeError("slack unavailable (fake)")
+
+
+class FakeInteractionSource:
+    """A socketless stand-in for ``InteractionSource`` (structural conformance).
+
+    The real Socket Mode source opens a WebSocket to Slack on ``start`` — impossible and
+    unwanted in a test. This records that the app started and closed it, so the lifespan
+    wiring is exercised without a network connection. Injected via the app's
+    ``interaction_source_factory`` seam, the mirror of ``notifier_override``.
+    """
+
+    def __init__(self) -> None:
+        self.started = False
+        self.closed = False
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def close(self) -> None:
+        self.closed = True

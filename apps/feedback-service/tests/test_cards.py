@@ -8,16 +8,18 @@ No database, no Slack — the formatter takes plain values and returns blocks.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
-from radar_contracts import RecommendedAction
+from radar_contracts import NotificationInteraction, RecommendedAction
+from radar_feedback_service.callbacks import parse_callback
 from radar_feedback_service.cards import RcaCardData, format_rca_card
 
 
 def _data(**over: Any) -> RcaCardData:
     fields: dict[str, Any] = {
         "incident_id": uuid4(),
+        "recommendation_id": uuid4(),
         "service_name": "order-service",
         "title": "order-service OrderProcessingFailureRate",
         "severity": "high",
@@ -85,6 +87,33 @@ def test_incident_id_in_context() -> None:
     data = _data()
     _, blocks = format_rca_card(data)
     assert str(data.incident_id) in _texts(blocks)
+
+
+def test_action_buttons_carry_the_parser_contract() -> None:
+    """The three buttons the click path reads back: each action_id is a value from the
+    closed InteractionAction set, and each value is the recommendation id. This is the
+    send half of the send/read contract — if it drifts, every click mis-parses."""
+    data = _data()
+    _, blocks = format_rca_card(data)
+    actions = next(b for b in blocks if b["type"] == "actions")
+    elements = cast("list[dict[str, Any]]", actions["elements"])
+    by_action = {e["action_id"]: e for e in elements}
+    assert set(by_action) == {"feedback.up", "feedback.down", "incident.resolve"}
+    assert all(e["value"] == str(data.recommendation_id) for e in elements)
+    # Round-trips through the actual parser: a click on each button parses back to the
+    # same recommendation id and the matching action — the two halves cannot disagree.
+    for action_id, element in by_action.items():
+        parsed = parse_callback(
+            NotificationInteraction(
+                action_id=action_id,
+                value=element["value"],
+                user_id="U1",
+                channel_id="C1",
+                message_ts="1720000000.0001",
+            )
+        )
+        assert parsed.action.value == action_id
+        assert parsed.recommendation_id == data.recommendation_id
 
 
 def test_fallback_variant_marks_ai_unavailable() -> None:

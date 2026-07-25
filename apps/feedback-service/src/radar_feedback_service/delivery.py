@@ -143,7 +143,7 @@ async def deliver_rca(
 
     # Built from the ROWS, read now — current severity, status, root cause — never
     # from the event payload, which froze at emit time.
-    text, blocks = format_rca_card(_card_data(recommendation, incident))
+    text, blocks = format_rca_card(card_data_from_rows(recommendation, incident))
 
     # POST, lock held. Any failure here is a delivery failure: the transaction
     # rolls back (nothing recorded, ts stays NULL) and the worker redelivers.
@@ -240,9 +240,19 @@ async def _post(
         ) from exc
 
 
-def _card_data(recommendation: Recommendation, incident: Incident) -> RcaCardData:
+def card_data_from_rows(
+    recommendation: Recommendation, incident: Incident
+) -> RcaCardData:
+    """Adapt the two rows into the pure formatter's ``RcaCardData`` input.
+
+    The one place ``(recommendation, incident) -> RcaCardData`` lives, shared by RCA
+    delivery and the interaction handler's card reflection so both render a card from
+    the same current-row fields. Kept out of ``cards.py`` on purpose: that module is
+    deliberately ORM-free, so the SQLAlchemy dependency stops here.
+    """
     return RcaCardData(
         incident_id=incident.id,
+        recommendation_id=recommendation.id,
         service_name=incident.service_name,
         title=incident.title,
         severity=incident.severity,

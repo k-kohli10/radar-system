@@ -59,7 +59,10 @@ from radar_common import (
 from radar_common.bootstrap import AGENT_TOKEN_SECRET
 from radar_contracts import NotificationBackend
 from radar_database import Database
-from radar_plugin_notifications_slack import SlackNotificationBackend
+from radar_plugin_notifications_slack import (
+    SlackInteractionSource,
+    SlackNotificationBackend,
+)
 from radar_telemetry import (
     create_request_metrics,
     instrument_fastapi,
@@ -71,7 +74,14 @@ from radar_feedback_service.config import (
     SERVICE_NAME,
     FeedbackSettings,
     load_postgres_dsn,
+    load_slack_app_token,
     load_slack_bot_token,
+)
+from radar_feedback_service.interactions import (
+    InteractionHandler,
+    InteractionSource,
+    InteractionSourceFactory,
+    build_interaction_handler,
 )
 from radar_feedback_service.routes import create_events_router
 
@@ -105,6 +115,7 @@ def create_app(
     metrics_registry: CollectorRegistry = REGISTRY,
     with_tracing: bool = True,
     notifier_override: NotificationBackend | None = None,
+    interaction_source_factory: InteractionSourceFactory | None = None,
 ) -> FastAPI:
     """Build the feedback-service app. ``metrics_registry`` is injectable for tests.
 
@@ -112,6 +123,11 @@ def create_app(
     delivery path is exercised without a real Slack workspace. When given, the
     lifespan uses it instead of constructing the Slack backend from Vault (and so
     does not require the bot-token file); production always leaves it ``None``.
+
+    ``interaction_source_factory`` is the same seam for the receive side: given the
+    interaction handler, it returns the source the lifespan starts. A test injects a
+    socketless fake so no WebSocket opens; production leaves it ``None`` and the default
+    factory constructs the Slack Socket Mode source from the Vault app/bot tokens.
     """
     # with_agent_auth=False: bootstrap would read the token at app-build time and
     # raise on a missing secret, which is exactly the crash /readyz exists to turn
@@ -125,10 +141,25 @@ def create_app(
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
     notifier: NotificationBackend | None = None
+    interaction_source: InteractionSource | None = None
+
+    def _default_interaction_source(handler: InteractionHandler) -> InteractionSource:
+        # Production factory: the one place the concrete Socket Mode source is named.
+        # Tokens are read here — at lifespan time, in the factory — not at import, so a
+        # missing secret degrades to /readyz 503 (the lifespan catches it), never an
+        # import crash. app_token authenticates the socket; bot_token backs the web
+        # client the SDK uses to ack.
+        return SlackInteractionSource(
+            app_token=load_slack_app_token(),
+            bot_token=load_slack_bot_token(),
+            handler=handler,
+        )
+
+    build_source = interaction_source_factory or _default_interaction_source
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal database, agent_auth, notifier
+        nonlocal database, agent_auth, notifier, interaction_source
         try:
             dsn = load_postgres_dsn()
             agent_token = read_secret(AGENT_TOKEN_SECRET)
@@ -142,6 +173,15 @@ def create_app(
                 token=load_slack_bot_token()
             )
             database = Database(dsn)
+            # The receive side: open the Socket Mode connection that delivers button
+            # clicks, wired to the parse -> handle path over this database and notifier.
+            # Started BEFORE mark_ready and inside the try, so a socket that will not
+            # open keeps the pod out of rotation (readiness stays false) rather than
+            # advertising a card whose buttons reach nothing.
+            interaction_source = build_source(
+                build_interaction_handler(database, notifier)
+            )
+            await interaction_source.start()
             readiness.mark_ready()
             log.info(
                 "feedback.ready",
@@ -166,6 +206,10 @@ def create_app(
             # FIRST on shutdown, before draining: a probe mid-shutdown must see
             # 503, not 200, or traffic keeps arriving at a dying pod.
             readiness.mark_not_ready("shutting down")
+            # Stop receiving clicks BEFORE the database goes: a click dispatched into a
+            # disposed pool would fail mid-handle. Close the socket first, then dispose.
+            if interaction_source is not None:
+                await interaction_source.close()
             if database is not None:
                 await database.dispose()
             log.info("feedback.shutdown")

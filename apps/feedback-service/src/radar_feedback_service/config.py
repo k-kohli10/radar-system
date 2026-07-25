@@ -35,6 +35,17 @@ POSTGRES_DSN_SECRET = "postgres_dsn"
 SLACK_BOT_TOKEN_SECRET = "slack_bot_token"
 """Vault secret filename holding the Slack bot user OAuth token (``xoxb-``)."""
 
+SLACK_APP_TOKEN_SECRET = "slack_app_token"
+"""Vault secret filename holding the Slack app-level token (``xapp-``).
+
+Distinct from the bot token: the app-level token authenticates the Socket Mode
+WebSocket over which Slack delivers this app's button clicks, while the bot token
+(``xoxb-``) backs the Web API calls that post and update cards. Both are required to
+go ready — a feedback-service that can post a card but cannot receive the click on it
+is half-deaf, which is discovered at the worst possible time. See the interaction
+source in the Slack plugin.
+"""
+
 SERVICE_NAME = "feedback-service"
 """This service's identity: outbox target, processed_events actor, Vault path."""
 
@@ -76,5 +87,18 @@ def load_slack_bot_token(*, directory: Path | None = None) -> str:
     Same reasoning as the planner refusing to start without its templates.
     """
     secret = read_secret(SLACK_BOT_TOKEN_SECRET, directory=directory)
+    assert secret is not None  # required=True: read_secret raised if absent
+    return secret.get_secret_value()
+
+
+def load_slack_app_token(*, directory: Path | None = None) -> str:
+    """Read the Slack app-level token from the ``slack_app_token`` Vault secret.
+
+    Required at startup: it authenticates the Socket Mode connection that carries
+    button clicks back. Without it the RCA cards deliver but every 👍/👎/Resolve click
+    goes nowhere — a feedback loop that cannot hear feedback. Failing ready loudly is
+    better than a card whose buttons silently do nothing.
+    """
+    secret = read_secret(SLACK_APP_TOKEN_SECRET, directory=directory)
     assert secret is not None  # required=True: read_secret raised if absent
     return secret.get_secret_value()

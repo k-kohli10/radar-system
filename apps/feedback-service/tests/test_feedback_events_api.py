@@ -26,7 +26,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import pytest_asyncio
-from fakes import FakeNotifier
+from fakes import FakeInteractionSource, FakeNotifier
 from prometheus_client import CollectorRegistry
 from radar_common import AGENT_TOKEN_HEADER
 from radar_database import (
@@ -59,6 +59,9 @@ def _secrets(
         (tmp_path / "agent_token").write_text(token)
     if slack_token is not None:
         (tmp_path / "slack_bot_token").write_text(slack_token)
+        # The Socket Mode source is injected as a fake in these tests, so the app-level
+        # token is never read; written alongside the bot token only for realism.
+        (tmp_path / "slack_app_token").write_text("xapp-test")
     return tmp_path
 
 
@@ -84,6 +87,8 @@ def app_factory(
             metrics_registry=CollectorRegistry(),
             with_tracing=False,
             notifier_override=notifier if inject_notifier else None,
+            # Socketless receive side: no WebSocket to Slack in a test.
+            interaction_source_factory=lambda handler: FakeInteractionSource(),
         )
 
     yield build
@@ -229,6 +234,74 @@ async def test_readyz_503_when_database_unreachable(
     assert response.json()["reason"] == "database unreachable"
 
 
+# --- interaction source wiring ---------------------------------------------------
+
+
+async def test_lifespan_starts_and_closes_the_interaction_source(
+    db: Database,
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The receive side is wired into the lifespan: the source is started on the way in
+    (so clicks are being received once the pod is ready) and closed on the way out (so
+    the socket stops before the database pool is disposed)."""
+    sources: list[FakeInteractionSource] = []
+
+    def factory(handler: Any) -> FakeInteractionSource:
+        source = FakeInteractionSource()
+        sources.append(source)
+        return source
+
+    monkeypatch.setenv("RADAR_SECRETS_DIR", str(_secrets(tmp_path, dsn=database_url)))
+    app = create_app(
+        metrics_registry=CollectorRegistry(),
+        with_tracing=False,
+        notifier_override=FakeNotifier(),
+        interaction_source_factory=factory,
+    )
+    async with app.router.lifespan_context(app):
+        assert len(sources) == 1
+        assert sources[0].started is True
+        assert sources[0].closed is False
+    assert sources[0].closed is True
+
+
+async def test_readyz_503_when_interaction_source_fails_to_start(
+    db: Database,
+    database_url: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A socket that will not open holds readiness at 503, not a card whose buttons
+    reach nothing. The source is started inside the try and BEFORE mark_ready, so a
+    failing start leaves the pod out of rotation rather than advertising a half-deaf
+    service — the teeth of that placement."""
+
+    class _BoomSource:
+        async def start(self) -> None:
+            raise RuntimeError("socket refused")
+
+        async def close(self) -> None:
+            pass
+
+    monkeypatch.setenv("RADAR_SECRETS_DIR", str(_secrets(tmp_path, dsn=database_url)))
+    app = create_app(
+        metrics_registry=CollectorRegistry(),
+        with_tracing=False,
+        notifier_override=FakeNotifier(),
+        interaction_source_factory=lambda handler: _BoomSource(),
+    )
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://feedback"
+        ) as http:
+            response = await http.get("/readyz")
+    assert response.status_code == 503
+    assert response.json()["status"] == "not_ready"
+
+
 # --- auth ------------------------------------------------------------------------
 
 
@@ -349,6 +422,7 @@ async def test_post_failure_is_503_and_unmarked(
         metrics_registry=CollectorRegistry(),
         with_tracing=False,
         notifier_override=FakeNotifier(fail=True),
+        interaction_source_factory=lambda handler: FakeInteractionSource(),
     )
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
