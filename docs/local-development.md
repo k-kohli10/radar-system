@@ -602,7 +602,9 @@ fire '{"service_name":"checkout-service","alert_name":"CheckoutTimeoutRate","sev
 Each alert takes ~20–30s for the LLM to process. Use a different service per scenario: a repeat
 within 5 minutes deduplicates onto the open incident instead of creating a new one.
 
-**Verify the results** after ~60 seconds (all three scenarios complete):
+### Verify the results
+
+After ~60 seconds (all three scenarios complete):
 
 ```sql
 SELECT is_fallback, llm_provider, confidence,
@@ -612,33 +614,15 @@ SELECT is_fallback, llm_provider, confidence,
 FROM recommendations ORDER BY created_at DESC LIMIT 3;
 ```
 
-Expected:
-
-| is_fallback | llm_provider | confidence | retrieval | chunks | root_cause |
-|---|---|---|---|---|---|
-| `f` | `openai` | `medium` | `unavailable` | 0 | AI analysis unavailable … (fallback, gateway down) |
-| `f` | `openai` | `medium` | `empty` | 0 | No runbook covers … (ungrounded) |
-| `f` | `openai` | `high` | `grounded` | 5 | The high memory usage … (grounded, retrieval worked) |
-
-### Read the results
-
-```sql
-SELECT is_fallback, llm_provider, confidence,
-       context_bundle->'retrieval'->>'outcome' AS retrieval,
-       jsonb_array_length(context_bundle->'bundle'->'retrieved_context') AS chunks,
-       left(root_cause, 80)
-FROM recommendations ORDER BY created_at DESC LIMIT 3;
-```
-
-| scenario | retrieval | chunks | row |
-|---|---|---|---|
-| grounded | `grounded` | 5 | RCA cites the runbook's specifics |
-| no coverage | `empty` | 0 | RCA states no runbook covers it |
-| gateway down | `unavailable` | 0 | `is_fallback=t`, `llm_provider=none` |
+| scenario | is_fallback | retrieval | chunks | root_cause |
+|---|---|---|---|---|
+| grounded | `f` | `grounded` | 5 | cites the runbook's specifics |
+| ungrounded | `f` | `empty` | 0 | states no runbook covers it |
+| gateway down | `t` | `unavailable` | 0 | `llm_provider=none`, fallback text |
 
 `empty` means the grader judged nothing relevant; `unavailable` means retrieval
-failed. Both leave the context empty — the distinction is recorded so an RCA's
-grounding is auditable.
+failed outright (the gateway was down). Both leave the context empty — the
+distinction is recorded so an RCA's grounding stays auditable.
 
 Trace one incident end to end:
 
