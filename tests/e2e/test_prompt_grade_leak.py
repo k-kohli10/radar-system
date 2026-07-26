@@ -4,16 +4,19 @@ THE REGRESSION
 --------------
 The reasoner used to dump the whole context bundle into the user message, leaking each
 chunk's ``grade`` and ``status``, and the v2 system prompt told the model to "weight
-excerpts graded sufficient over those graded partial". Section-level chunking makes
-``sufficient`` unreachable in this corpus — every kept chunk grades ``partial`` — so
-that instruction told the model, on every incident, that all of its context was the
-weaker kind. It sometimes answered by taking the EMPTY-context path ("the root cause
-of the incident is not covered by any specific runbook") with five sections of the
-right runbook in the bundle.
+excerpts graded sufficient over those graded partial". That is harmless while a
+bundle carries at least one ``sufficient`` chunk, and most do — the grader is not
+degenerate (27 ``partial`` to 12 ``sufficient`` across every chunk RADAR has stored).
+The failure is the ALL-``partial`` bundle, about one in eight: the clause has nothing
+to prefer, resolves to *all of your context is the weaker kind*, and the model
+sometimes answers by taking the EMPTY-context path ("the root cause of the incident
+is not covered by any specific runbook") with five sections of the right runbook in
+the bundle.
 
 This test replays the exact incident that did it: the metadata, plan steps, and five
-graded chunks are the ones recovered from the stored ``context_bundle`` of the
-recommendation that exhibited the symptom.
+all-``partial`` chunks are recovered from the stored ``context_bundle`` of the one
+recommendation that exhibited the symptom — which is also the only one of the 8 with
+non-empty context that had no ``sufficient`` chunk. 8 of 8.
 
 WHAT A GREEN RUN HERE DOES AND DOES NOT PROVE
 ----------------------------------------------

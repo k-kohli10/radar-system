@@ -39,15 +39,29 @@ service's own bookkeeping — ``grade`` (CRAG's per-chunk verdict) and ``status`
 (``fixture`` until the corpus has a human review pass) — and neither is
 information the model can use well.
 
-Grades in particular were actively harmful. Section-level chunking makes
-``sufficient`` structurally unreachable in this corpus: a single section of a
-runbook is never a complete answer to an incident, so every kept chunk grades
-``partial``. A prompt that told the model to "weight excerpts graded sufficient
-over those graded partial" therefore told it, on every single incident, that all
-of its context was the weaker kind — and it responded by falling back to the
-EMPTY-context language ("no runbook covers this") while looking at a bundle full
-of the right runbook. The grades were a real signal in the pipeline and noise in
-the prompt.
+Grades in particular were actively harmful — though not for the reason first
+supposed, and the difference decides what to do with them next. The grader is
+NOT degenerate: across every chunk RADAR has stored, 27 graded ``partial`` and
+12 ``sufficient``, and one bundle routinely carries both (3 and 2, in one case).
+``sufficient`` is reachable and the grading call earns its keep.
+
+The failure is what happens when a bundle contains no ``sufficient`` chunk at
+all. Then "weight excerpts graded sufficient over those graded partial" has
+nothing to prefer, and the instruction resolves to *all of your context is the
+weaker kind* — so the model answers with the EMPTY-context language ("no runbook
+covers this") while looking at a bundle full of the right runbook. Roughly one
+bundle in eight is all-``partial``, and in RADAR's stored history that one is
+exactly the one that failed: 8 recommendations carried non-empty context, the
+single all-``partial`` one produced the empty-context RCA, the other seven did
+not. Measured on that bundle against the real gateway: the empty-context
+language appeared in 1 of 20 draws pre-fix and 0 of 40 post-fix.
+
+So the grades are a real signal in the pipeline and a hazard in the prompt. What
+they are worth to the model is a per-chunk ORDERING; what the prompt turned them
+into was a verdict on the context as a whole. Passing them as text is what made
+that conversion possible — an ordering can be expressed by the order the chunks
+appear in, which is the obvious next move and is deliberately NOT taken here (it
+needs its own measurement, and this change is a bug fix).
 
 So the projection is a WHITELIST (:data:`PROMPTED_CHUNK_FIELDS`), not a list of
 fields to strip. A blocklist would admit every future chunk field by default, and
@@ -130,11 +144,12 @@ retrieval-unavailable look identical in the bundle, deliberately (the model
 should reason the same way in both). The stored wrapper's `retrieval` key is
 where the system keeps them apart.
 
-It says nothing about GRADES, and must not: the rule it used to carry made every
-incident's context read as low-quality and drove the model onto the empty-context
-path with the right runbook in front of it. See "WHAT THE MODEL IS SHOWN" in the
-module docstring — the prompt and :func:`render_user_message` have to agree, and
-neither may mention a grade on its own.
+It says nothing about GRADES, and must not: the rule it used to carry made an
+all-``partial`` bundle read as uniformly low-quality context and drove the model
+onto the empty-context path with the right runbook in front of it. See "WHAT THE
+MODEL IS SHOWN" in the module docstring — the prompt and
+:func:`render_user_message` have to agree, and neither may mention a grade on its
+own.
 
 It asks for JSON and nothing else — but a model that returns prose anyway is not an
 error the reasoner can prevent, only one it can survive. That is the parser's problem

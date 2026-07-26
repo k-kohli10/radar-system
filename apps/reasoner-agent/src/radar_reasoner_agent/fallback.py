@@ -216,23 +216,32 @@ class StoredContextBundle(BaseModel):
     """What lands in ``recommendations.context_bundle``.
 
     A wrapper that COMPOSES rather than extends: the prompt-facing
-    :class:`~radar_reasoner_agent.context.ContextBundle` is nested **verbatim**, byte
-    for byte what the model was shown, with our own metadata in a sibling key.
+    :class:`~radar_reasoner_agent.context.ContextBundle` is nested **verbatim**, with
+    our own metadata in a sibling key.
 
-    Flattening the two into one object would be prettier and would quietly destroy the
-    only thing this column is for. The bundle exists so a human can reconstruct what
-    the model saw when it said what it said; merged with fields the model never saw,
-    "what was sent" and "what we added afterwards" become indistinguishable, and the
-    audit record is no longer an audit record.
+    It is the bundle verbatim, not the prompt verbatim, and the two stopped being the
+    same thing when the grade leak was fixed. ``retrieved_context`` chunks are stored
+    with their ``grade`` and ``status``; the model is shown a projection that drops
+    both (``radar_reasoner_agent.llm.PROMPTED_CHUNK_FIELDS``). So this column is a
+    SUPERSET of what was prompted — deliberately, since a grade the model never saw is
+    exactly the kind of thing an auditor needs and the model does not. Reconstructing
+    the literal prompt from a stored row means replaying that projection.
+
+    Flattening the wrapper into one object would be prettier and would quietly destroy
+    the only thing this column is for. The bundle exists so a human can reconstruct
+    what the model was working from; merged with fields that are pure bookkeeping,
+    "what was retrieved" and "what we concluded about the retrieval" become
+    indistinguishable, and the audit record is no longer an audit record.
 
     It is also why ``fallback_reason`` is not simply a field on ``ContextBundle``:
-    that object is serialized *straight into the prompt*, and a fallback field on it
+    that object is the *input to the prompt renderer*, and a fallback field on it
     would be a field the model reads.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    #: Exactly what the model was shown — or would have been, if the call never landed.
+    #: What the model was working from — or would have been, if the call never landed.
+    #: A superset of the prompt: see the class docstring on the chunk projection.
     bundle: ContextBundle
     #: ``None`` on a real analysis. Present on every fallback.
     fallback: FallbackMetadata | None = None

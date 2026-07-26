@@ -8,22 +8,29 @@ retrieved chunk reached the model carrying the knowledge pipeline's own bookkeep
 has not had a human review pass). The v2 system prompt then told the model to "weight
 excerpts graded sufficient over those graded partial".
 
-Section-level chunking makes ``sufficient`` structurally unreachable: one section of
-a runbook is never a complete answer to an incident, so every kept chunk in this
-corpus grades ``partial``. The instruction therefore fired on every incident and
-said, in effect, *all of your context is the weaker kind* — and the model sometimes
-answered by taking the EMPTY-context path ("the root cause of the incident is not
-covered by any specific runbook") with five sections of the right runbook in front of
-it. Retrieval worked, grading worked, storage worked; the prompt threw the result
-away.
+That instruction is harmless while a bundle contains at least one ``sufficient``
+chunk. The grader is not degenerate — 27 ``partial`` to 12 ``sufficient`` across
+every chunk RADAR has stored, both grades often in the same bundle — so most
+bundles are fine. The failure is the ALL-``partial`` bundle, about one in eight:
+there the instruction has nothing to prefer and resolves to *all of your context is
+the weaker kind*, and the model sometimes answers by taking the EMPTY-context path
+("the root cause of the incident is not covered by any specific runbook") with five
+sections of the right runbook in front of it. Retrieval worked, grading worked,
+storage worked; the prompt threw the result away.
+
+THE FIXTURE IS THE FAILING CASE, ON PURPOSE
+--------------------------------------------
+The bundle reconstructed below is the all-``partial`` one — of the 8 recommendations
+that ever carried non-empty context, it is the only one with no ``sufficient`` chunk
+and the only one that produced the empty-context RCA. 8 of 8, no exceptions. A
+fixture built from a mixed-grade bundle would exercise the projection just as well
+and would not be the payload that broke.
 
 WHY THE DETERMINISTIC HALF IS THE GUARD — MEASURED, NOT ASSUMED
 ---------------------------------------------------------------
-The symptom is a STOCHASTIC BIAS, not a branch. On the exact bundle that produced it
-(reconstructed below), driving the real gateway with the pre-fix prompt reproduced the
-empty-context language in **1 of 20 draws**; the fixed prompt produced it in **0 of
-40**. RADAR's own stored history agrees on the order of magnitude — 1 of the 8
-recommendations that ever carried non-empty context exhibited it.
+The symptom is a STOCHASTIC BIAS, not a branch. On that bundle, driving the real
+gateway with the pre-fix prompt reproduced the empty-context language in **1 of 20
+draws**; the fixed prompt produced it in **0 of 40**.
 
 A behavioural test therefore cannot be the guard: at a ~5% base rate no affordable
 number of draws reliably catches a reintroduction. THESE tests are the guard, because
@@ -72,8 +79,9 @@ RETRIEVED_SECTIONS = (
     "Summary",
 )
 
-#: The grade EVERY chunk in this corpus carries, and the reason the pre-fix prompt
-#: misfired on every incident: section chunks never grade sufficient.
+#: The grade every chunk in THIS bundle carries — not every chunk in the corpus,
+#: where `sufficient` is common. An all-`partial` bundle is what left the pre-fix
+#: prompt's grade-weighting clause with nothing to prefer.
 CHUNK_GRADE = "partial"
 #: ``fixture`` until the corpus gets a human review pass. Leaked alongside the grade.
 CHUNK_STATUS = "fixture"
