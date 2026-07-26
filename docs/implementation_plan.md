@@ -4097,19 +4097,14 @@ Prometheus alert:
 This fires if more than 5 events dead-letter in a 10-minute window. A single
 dead-letter event does not fire the alert. A sustained rate does.
 
-The Slack bot shows dead letter count in the status command:
-
-```
-@radar status
--> 2 open incidents. Outbox depth: 0. Dead letter queue: 3 events.
-   Run @radar dead-letters to investigate.
-
-@radar dead-letters
--> 3 dead-letter events:
-   1. alert.normalized -> watcher-agent | last error: connection refused | 5 attempts | 14:32 UTC
-   2. incident.plan_requested -> planner-agent | last error: 503 | 5 attempts | 14:35 UTC
-   3. incident.reasoning_requested -> reasoner-agent | last error: 422 | 5 attempts | 14:41 UTC
-```
+> **Corrected (Phase 9):** the paragraph originally here described `@radar status`
+> reporting a dead-letter count and an `@radar dead-letters` command listing them.
+> Neither shipped. `@radar status` reports open incidents, last RCA, and outbox
+> depth only (`bot.py`'s `_run_status`) — no dead-letter count. There is no
+> `@radar dead-letters` verb in `BotCommandType`. The real v1 way to inspect and
+> replay dead letters is the admin HTTP endpoints (`curl`) under
+> [Replay Mechanism](#replay-mechanism) below. A Slack-native dead-letter view is
+> unbuilt, same status as `@radar replay` further down that section.
 
 ---
 
