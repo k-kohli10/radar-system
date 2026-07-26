@@ -2691,7 +2691,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp", specifier = "==3.14.1" },
     { name = "radar-contracts", editable = "packages/contracts" },
-    { name = "slack-sdk", specifier = "==3.33.1" },
+    { name = "slack-sdk", specifier = "==3.34.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2967,11 +2967,11 @@ wheels = [
 
 [[package]]
 name = "slack-sdk"
-version = "3.33.1"
+version = "3.34.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3b/42/344970abb81f9b6658431dadf44587fe1a58c7fd594dd7cdf8c9fe34044a/slack_sdk-3.33.1.tar.gz", hash = "sha256:e328bb661d95db5f66b993b1d64288ac7c72201a745b4c7cf8848dafb7b74e40", size = 232106, upload-time = "2024-09-19T09:07:20.544Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/ff/6eb67fd5bd179fa804dbd859d88d872d3ae343955e63a319a73a132d406f/slack_sdk-3.34.0.tar.gz", hash = "sha256:ff61db7012160eed742285ea91f11c72b7a38a6500a7f6c5335662b4bc6b853d", size = 233629, upload-time = "2024-12-17T22:20:30.612Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/47/fa/28a57858595d75321c5fe2b870793e75933149edd4667d94cfc54db7a383/slack_sdk-3.33.1-py2.py3-none-any.whl", hash = "sha256:ef93beec3ce9c8f64da02fd487598a05ec4bc9c92ceed58f122dbe632691cbe2", size = 291452, upload-time = "2024-09-19T09:07:14.766Z" },
+    { url = "https://files.pythonhosted.org/packages/25/2d/8724ef191cb64907de1e4e4436462955501e00f859a53d0aa794d0d060ff/slack_sdk-3.34.0-py2.py3-none-any.whl", hash = "sha256:c61f57f310d85be83466db5a98ab6ae3bb2e5587437b54fa0daa8fae6a0feffa", size = 292480, upload-time = "2024-12-17T22:20:28.949Z" },
 ]
 
 [[package]]

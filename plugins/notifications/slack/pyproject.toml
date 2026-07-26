@@ -5,7 +5,7 @@ description = "RADAR notification backend plugin for Slack: implements the radar
 requires-python = ">=3.12"
 dependencies = [
     "radar-contracts",
-    "slack-sdk==3.33.1",
+    "slack-sdk==3.34.0",
     # slack_sdk's AsyncWebClient imports aiohttp at module load, but slack-sdk
     # does NOT declare it (there is no async extra). Declared here explicitly, or
     # importing this plugin raises ModuleNotFoundError at runtime.
