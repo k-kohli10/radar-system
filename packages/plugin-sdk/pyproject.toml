@@ -31,8 +31,3 @@ python_version = "3.14"
 # See root pyproject: passing a @runtime_checkable Protocol as a `type[T]`
 # registry key is intentional; suppress the type-abstract false positive.
 disable_error_code = ["type-abstract"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests"]
