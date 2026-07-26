@@ -389,10 +389,12 @@ def test_the_prompt_pins_the_empty_context_rule() -> None:
     assert "never invent" in prompt
 
 
-def test_the_prompt_tells_the_model_to_weight_grades() -> None:
-    """The grades exist for the model, not just the audit trail: sufficient
-    outranks partial, and the prompt is the only place that rule can live."""
-    from radar_reasoner_agent.llm import SYSTEM_PROMPT
-
-    assert "sufficient" in SYSTEM_PROMPT
-    assert "partial" in SYSTEM_PROMPT
+# ``test_the_prompt_tells_the_model_to_weight_grades`` used to sit here, pinning the
+# clause "weight excerpts graded sufficient over those graded partial". It was
+# removed with the clause: section-level chunking makes `sufficient` structurally
+# unreachable, so that instruction fired on every incident and told the model all of
+# its context was the weaker kind — and the model answered with the EMPTY-context
+# response while holding the right runbook. The grades never belonged in front of the
+# model; they belong in the gate and the audit trail, which is where they still are.
+# The inverse property is now pinned in ``test_prompt_context_rendering.py``, in
+# ``test_the_system_prompt_says_nothing_about_grades``.
