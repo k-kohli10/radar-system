@@ -573,30 +573,52 @@ retries — the rest of the pipeline (ingestion → agents → reasoner) is unaf
 | watcher-agent | 8091 | | knowledge-service | 8095 |
 | planner-agent | 8092 | | feedback-service | 8096 |
 
-### Fire an alert
+### Complete e2e test
+
+Test the full pipeline by firing alerts that exercise three scenarios: retrieval-grounded RCAs,
+ungrounded RCAs (no runbook match), and LLM fallback (gateway down). The complete test takes
+~60 seconds:
 
 ```bash
 TOK=$(cat ~/.radar-dev/secrets/ingestion/webhook_token_mock)
 fire() { curl -s -X POST http://127.0.0.1:8090/alerts/mock \
   -H "X-Radar-Webhook-Token: $TOK" -H "Content-Type: application/json" -d "$1"; echo; }
-```
 
-Three scenarios, ~20-30s each (real LLM call):
-
-```bash
-# grounded — a runbook covers this
+# Test 1: grounded — runbook found, 5 chunks retrieved
+echo "=== Test 1: Grounded RCA (with runbook) ==="
 fire '{"service_name":"order-service","alert_name":"OrderServiceHighMemory","severity":"medium"}'
 
-# honestly ungrounded — right service, no runbook covers this failure
+# Test 2: ungrounded — right service, no runbook covers this
+echo "=== Test 2: Ungrounded RCA (no runbook) ==="
 fire '{"service_name":"inventory-service","alert_name":"InventoryCustomerPiiExposedInLogs","severity":"high"}'
 
-# LLM fallback — kill the gateway first
+# Test 3: fallback — LLM gateway is down, use synthesis fallback
+echo "=== Test 3: Fallback RCA (LLM unavailable) ==="
 kill $(cat .dev-run/llm-gateway.pid)
+sleep 1
 fire '{"service_name":"checkout-service","alert_name":"CheckoutTimeoutRate","severity":"high"}'
 ```
 
-Use a different service per scenario: a repeat within 5 minutes deduplicates
-onto the open incident instead of creating a new one.
+Each alert takes ~20–30s for the LLM to process. Use a different service per scenario: a repeat
+within 5 minutes deduplicates onto the open incident instead of creating a new one.
+
+**Verify the results** after ~60 seconds (all three scenarios complete):
+
+```sql
+SELECT is_fallback, llm_provider, confidence,
+       context_bundle->'retrieval'->>'outcome' AS retrieval,
+       jsonb_array_length(context_bundle->'bundle'->'retrieved_context') AS chunks,
+       left(root_cause, 80)
+FROM recommendations ORDER BY created_at DESC LIMIT 3;
+```
+
+Expected:
+
+| is_fallback | llm_provider | confidence | retrieval | chunks | root_cause |
+|---|---|---|---|---|---|
+| `f` | `openai` | `medium` | `unavailable` | 0 | AI analysis unavailable … (fallback, gateway down) |
+| `f` | `openai` | `medium` | `empty` | 0 | No runbook covers … (ungrounded) |
+| `f` | `openai` | `high` | `grounded` | 5 | The high memory usage … (grounded, retrieval worked) |
 
 ### Read the results
 
@@ -713,6 +735,42 @@ of already-open shells. Open a new terminal, or:
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
+</details>
+
+<details>
+<summary><strong><code>feedback-service</code> stays DOWN or not-ready after <code>make dev-apps</code></strong></summary>
+
+The feedback-service opens a real Socket Mode connection to Slack at startup and
+does not report ready until it succeeds. This is deliberate: a bot that cannot
+hear button clicks and mentions is broken from the start, and discovering that
+when an incident card is already in the channel is worse than refusing to go
+ready.
+
+**Check your Slack tokens are valid:**
+
+1. Verify `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in `.env` are real (not
+   placeholders like `__SET_ME__`). They must be from an actual Slack workspace
+   where the RADAR bot is installed.
+2. Confirm the bot has permissions: **Socket Mode** enabled at the app level, and
+   the bot user scope includes `app_mentions:read` and `reactions:write`.
+3. Check the logs: `tail .dev-run/feedback-service.log` for the actual error —
+   common issues are revoked tokens, missing app-level Socket Mode permissions,
+   or network timeouts.
+
+**If tokens are valid but the connection hangs**, it may be a network issue or
+the Slack SDK waiting on a timeout. Kill it and try again:
+
+```bash
+pkill -f "feedback-service"
+make dev-apps  # restarts it
+```
+
+**If you have no real Slack workspace**, the rest of the pipeline works fine
+without it: ingestion → watcher → planner → reasoner all run and produce
+recommendations. Only the delivery step (posting RCA cards) is blocked. The
+`recommendation.created` event retries in the outbox while feedback-service is
+not ready, and succeeds once you plug in real credentials or until it
+dead-letters (see "Recovering a dead-lettered event" above).
 </details>
 
 ---
