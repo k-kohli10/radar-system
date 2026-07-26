@@ -47,6 +47,33 @@ _SECTION_TEXT_LIMIT = 2900
 
 _TRUNCATION_MARKER = "… (truncated)"
 
+#: Mirrors ``radar_database.lifecycle.STATUS_RESOLVED``. Not imported directly — this
+#: module is deliberately database-free (see the module docstring) — but the two must
+#: agree, since this is what decides whether the Resolve button still renders.
+_STATUS_RESOLVED = "resolved"
+
+#: Severity is ingestion's vocabulary (``radar_ingestion.normalizer``), not this
+#: module's — a value outside this set is a contract slip upstream, so it falls back
+#: to a neutral dot rather than raising: the card must still deliver (same "visible,
+#: not silent" rule as ``_format_actions``'s empty-list placeholder).
+_SEVERITY_ICON = {
+    "critical": "🔴",
+    "high": "🟠",
+    "medium": "🟡",
+    "low": "🟢",
+}
+
+#: Confidence is the reasoner's self-rating of its own RCA — inverted from severity
+#: (low confidence is the warning sign here), so it gets its own map rather than
+#: reusing ``_SEVERITY_ICON`` by accident.
+_CONFIDENCE_ICON = {
+    "high": "🟢",
+    "medium": "🟡",
+    "low": "🔴",
+}
+
+_UNKNOWN_ICON = "⚪"
+
 
 @dataclass(frozen=True)
 class RcaCardData:
@@ -94,16 +121,24 @@ def format_rca_card(
             "type": "section",
             "fields": [
                 _field("Service", data.service_name),
-                _field("Severity", data.severity.upper()),
-                _field("Status", data.status),
-                _field("Confidence", data.confidence.capitalize()),
+                _field("Severity", _iconize(data.severity, _SEVERITY_ICON)),
+                _field("Status", data.status.capitalize()),
+                _field("Confidence", _iconize(data.confidence, _CONFIDENCE_ICON)),
             ],
         },
         {"type": "divider"},
         _section(f"*Root cause*\n{data.root_cause}"),
         _section(f"*Recommended actions*\n{_format_actions(data.recommended_actions)}"),
-        _actions_block(data.recommendation_id),
+        _actions_block(
+            data.recommendation_id, resolved=data.status == _STATUS_RESOLVED
+        ),
     ]
+
+    if data.status == _STATUS_RESOLVED:
+        # Block Kit buttons have no disabled state — a "greyed out" Resolve button is
+        # not something Slack offers. The honest equivalent: the button is gone (there
+        # is nothing left to resolve), and this static line says so where it was.
+        blocks.append(_context("✅ *Resolved* — no further action needed"))
 
     if data.is_fallback:
         # The engineer is reading the planner's investigation steps, not a model's
@@ -142,24 +177,39 @@ def _format_actions(actions: Sequence[RecommendedAction]) -> str:
     return _truncate("\n".join(lines))
 
 
-def _actions_block(recommendation_id: UUID) -> dict[str, object]:
+def _actions_block(recommendation_id: UUID, *, resolved: bool) -> dict[str, object]:
     """The 👍 / 👎 / Resolve buttons, each tagged for the callback parser.
 
     ``action_id`` is the button's meaning (from :class:`InteractionAction`, so it cannot
     disagree with the parser); ``value`` is the recommendation id the click acts on —
     the only identity the callback carries, from which the handler derives the incident.
-    Resolve is styled ``danger`` because it is the one state-changing, less-reversible
-    action of the three.
+    Resolve is styled ``primary`` (Slack's green) as the affirmative, forward-moving
+    action — ``danger`` is reserved for destructive actions, which resolving is not.
+
+    ``resolved`` drops the Resolve button once the incident already is: Slack Block Kit
+    buttons cannot be disabled or greyed out, so a resolved incident showing an active
+    Resolve button would look clickable while doing nothing new (the second click is
+    already handled as a benign no-op — see ``_resolve``'s loser path — but hiding the
+    button is the honest UI for it). 👍/👎 stay: rating an RCA's usefulness remains
+    meaningful after the incident is closed.
     """
     rec = str(recommendation_id)
-    return {
-        "type": "actions",
-        "elements": [
-            _button("👍 Helpful", InteractionAction.FEEDBACK_UP, rec),
-            _button("👎 Not helpful", InteractionAction.FEEDBACK_DOWN, rec),
-            _button("✅ Resolve", InteractionAction.RESOLVE, rec, style="danger"),
-        ],
-    }
+    elements = [
+        _button("👍 Helpful", InteractionAction.FEEDBACK_UP, rec),
+        _button("👎 Not helpful", InteractionAction.FEEDBACK_DOWN, rec),
+    ]
+    if not resolved:
+        elements.append(
+            _button("✅ Resolve", InteractionAction.RESOLVE, rec, style="primary")
+        )
+    return {"type": "actions", "elements": elements}
+
+
+def _iconize(value: str, icons: dict[str, str]) -> str:
+    """``high`` -> ``🟠 High`` — a color cue an on-call engineer reads faster than
+    the word alone, especially scanning a channel with several cards in it."""
+    icon = icons.get(value, _UNKNOWN_ICON)
+    return f"{icon} {value.capitalize()}"
 
 
 def _button(
