@@ -40,14 +40,28 @@ applied at the app boundary). Instant mock responses finish in milliseconds and 
 unaffected; only the deliberately-slow responder outruns it. The real 60s/90s ordering
 stays asserted where it belongs, at import in ``radar_common``.
 
-``feedback-service`` does not exist until Phase 9, so ``recommendation.created`` has no
-route: the worker's dispatch to it fails and the event dead-letters. That is correct;
-the pipeline's PROOF is the recommendation ROW, read straight from Postgres.
+``feedback-service`` IS wired, so ``recommendation.created`` is delivered rather than
+dead-lettered and the outbox drains to empty. Slack is the one thing it cannot have for
+real, and both directions are substituted at seams the service already exposes for
+exactly this:
+
+- **outbound** — ``notifier_override`` takes a :class:`RecordingNotifier`, a structural
+  ``NotificationBackend`` that keeps the card instead of posting it. So a test can read
+  the card the engineer would have seen.
+- **inbound** — ``interaction_source_factory`` takes a socketless source that captures
+  the REAL interaction handler the service built. :meth:`Pipeline.click` then drives a
+  button press straight into it. No WebSocket, no workspace, and the code under test is
+  the production handler, not a re-implementation.
+
+The vendor-neutral ``NotificationInteraction`` contract is what makes this honest: it is
+exactly what the Slack plugin hands the service, so nothing Slack-shaped is faked beyond
+the transport.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
@@ -62,8 +76,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from prometheus_client import CollectorRegistry
 from radar_common import REASONER_DISPATCH_TIMEOUT_SECONDS
-from radar_contracts import LLMMode, LLMResponse, Usage
+from radar_contracts import LLMMode, LLMResponse, NotificationInteraction, Usage
 from radar_database import Database, claim_outbox_batch
+from radar_feedback_service.interactions import InteractionHandler, MentionHandler
+from radar_feedback_service.main import create_app as create_feedback_app
 from radar_ingestion.main import create_app as create_ingestion_app
 from radar_knowledge_service.main import create_app as create_knowledge_app
 from radar_llm_gateway.main import create_app as create_gateway_app
@@ -91,6 +107,13 @@ WEBHOOK_HEADER = "X-Radar-Webhook-Token"
 
 #: The agents the worker dispatches to, and the host each is reachable at in-process.
 AGENT_SERVICES = ("watcher-agent", "planner-agent", "reasoner-agent")
+
+FEEDBACK_SERVICE = "feedback-service"
+
+#: EVERY dispatch target, agents plus the terminal consumer. The worker needs a route
+#: and a token for each; keeping this separate from ``AGENT_SERVICES`` preserves that
+#: tuple's meaning ("the pipeline's agents") now that a non-agent is also a target.
+DISPATCH_SERVICES = (*AGENT_SERVICES, FEEDBACK_SERVICE)
 
 MOCK_ALERT = {
     "service_name": "order-service",
@@ -223,16 +246,131 @@ async def _serve(app: FastAPI) -> AsyncIterator[str]:
         await task
 
 
+# --- the fake Slack side of feedback-service -----------------------------------
+
+
+class RecordingNotifier:
+    """A structural ``NotificationBackend`` that keeps the card instead of posting it.
+
+    Conformance is structural (the contract is a ``runtime_checkable`` Protocol), so no
+    Slack SDK is imported and nothing here can drift from the real backend's signature
+    without mypy saying so at the injection site.
+
+    ``send`` returns a distinct message ref per call, as Slack's ``ts`` is: the ref is
+    what a click echoes back, so reusing one would let a test pass while pointing every
+    interaction at the same card.
+    """
+
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
+        self.updates: list[dict[str, Any]] = []
+
+    async def send(
+        self,
+        channel: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+        thread_ref: str | None = None,
+    ) -> str:
+        ref = f"1720000000.{len(self.sent) + 1:04d}"
+        self.sent.append(
+            {
+                "channel": channel,
+                "text": text,
+                "blocks": blocks,
+                "thread_ref": thread_ref,
+                "ts": ref,
+            }
+        )
+        return ref
+
+    async def update(
+        self,
+        channel: str,
+        message_ref: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.updates.append(
+            {
+                "channel": channel,
+                "message_ref": message_ref,
+                "text": text,
+                "blocks": blocks,
+            }
+        )
+
+
+@dataclass
+class SlackControl:
+    """The Slack surface, as a test sees it: what was delivered, and the way back in.
+
+    ``interaction`` and ``mention`` are the service's OWN handlers, captured when its
+    lifespan started the source. They are ``None`` until then — a test that finds them
+    unset is looking at a service whose lifespan never ran, which is worth failing on
+    rather than skipping past.
+    """
+
+    notifier: RecordingNotifier
+    interaction: InteractionHandler | None = None
+    mention: MentionHandler | None = None
+
+    def card_for(self, recommendation_id: UUID) -> dict[str, Any]:
+        """The delivered card whose buttons act on ``recommendation_id``.
+
+        Located by the id the card round-trips in its button values — the same thing
+        Slack echoes back on a click — so this finds the card the way the real callback
+        path identifies it. Raises rather than returning ``None``: "no card was
+        delivered" must fail the test that asked for one, not quietly become a
+        comparison against nothing.
+        """
+        wanted = str(recommendation_id)
+        for card in self.notifier.sent:
+            if wanted in json.dumps(card["blocks"] or []):
+                return card
+        raise AssertionError(
+            f"no delivered card carries recommendation {wanted}; "
+            f"{len(self.notifier.sent)} card(s) were sent"
+        )
+
+
+class _CapturingInteractionSource:
+    """A socketless ``InteractionSource`` that hands the real handlers to the test.
+
+    The production source opens a WebSocket to Slack on ``start``; this records the
+    handlers the lifespan built and returns. Nothing about the handlers is faked — they
+    close over the real database, the real notifier and the real metrics.
+    """
+
+    def __init__(
+        self,
+        control: SlackControl,
+        handler: InteractionHandler,
+        mention_handler: MentionHandler,
+    ) -> None:
+        self._control = control
+        self._handler = handler
+        self._mention_handler = mention_handler
+
+    async def start(self) -> None:
+        self._control.interaction = self._handler
+        self._control.mention = self._mention_handler
+
+    async def close(self) -> None:
+        return None
+
+
 # --- the routing transport (worker → in-process agents) -----------------------
 
 
 class _RoutingTransport(httpx.AsyncBaseTransport):
     """Routes an outbound request to the in-process app for its URL host.
 
-    An unknown host raises ``ConnectError`` — exactly what an unreachable service is.
-    ``feedback-service`` (Phase 9) has no route, so the worker's dispatch to it fails
-    the way a real missing service would, and the event dead-letters rather than being
-    silently delivered.
+    An unknown host raises ``ConnectError`` — exactly what an unreachable service is,
+    and what makes a dispatch to a service this harness does not run fail the way a
+    real missing service would rather than being silently delivered.
     """
 
     def __init__(self, routes: dict[str, httpx.ASGITransport]) -> None:
@@ -275,6 +413,15 @@ class Pipeline:
     _processor: DispatchProcessor
     _worker_db: Database
     apps: dict[str, FastAPI]
+    #: feedback-service's Slack surface: delivered cards, and the click entry point.
+    slack: SlackControl
+    #: Correlation ids of every outbox event the drain claimed.
+    #:
+    #: The outbox is a QUEUE — ``mark_dispatched`` deletes a delivered event — so
+    #: after a full drain no row is left to read the id off. Recorded as they pass,
+    #: which is what lets the traceability test still assert the invariant, and over
+    #: all four hand-offs rather than the one event left behind by failing.
+    dispatched_correlation_ids: list[UUID] = field(default_factory=list)
 
     @property
     def mock(self) -> GatewayControl:
@@ -309,8 +456,7 @@ class Pipeline:
 
         Each hop's handler commits its next outbox event before responding, so the next
         claim sees it: one loop walks the whole pipeline. Settled = a claim returns
-        nothing due (everything dispatched, or scheduled for a future retry like the
-        Phase-9 ``recommendation.created``).
+        nothing due (everything dispatched, or scheduled for a future retry).
         """
         for _ in range(max_iterations):
             async with self._worker_db.session() as session:
@@ -318,10 +464,42 @@ class Pipeline:
                 await session.commit()
             if not events:
                 return
+            self.dispatched_correlation_ids.extend(e.correlation_id for e in events)
             for event in events:
                 await self._processor(event)
         raise AssertionError(
             f"the pipeline did not settle within {max_iterations} drain iterations"
+        )
+
+    async def click(
+        self,
+        action_id: str,
+        *,
+        recommendation_id: UUID,
+        user_id: str = "U_E2E_ENGINEER",
+    ) -> None:
+        """Press one button on the delivered RCA card, through the REAL handler.
+
+        Builds the vendor-neutral ``NotificationInteraction`` the Slack plugin would
+        have built from a ``block_actions`` payload and hands it to the handler
+        feedback-service itself constructed. The channel and message ref come from the
+        card that was actually delivered, so a click can only ever reference a card this
+        pipeline really posted.
+        """
+        handler = self.slack.interaction
+        assert handler is not None, (
+            "feedback-service's interaction handler was never captured — its lifespan "
+            "did not start the source"
+        )
+        card = self.slack.card_for(recommendation_id)
+        await handler(
+            NotificationInteraction(
+                action_id=action_id,
+                value=str(recommendation_id),
+                user_id=user_id,
+                channel_id=card["channel"],
+                message_ts=card["ts"],
+            )
         )
 
     async def scrape(self, service: str) -> str:
@@ -348,12 +526,17 @@ async def _assemble_services(
     database_url: str,
     gateway: GatewayControl | None,
 ) -> Pipeline:
-    """Build the four agents + the real worker + the ingestion client.
+    """Build the pipeline's services + the real worker + the ingestion client.
 
     Assumes ``RADAR_SECRETS_DIR`` and ``RADAR_GATEWAY_URL`` are already set and the
     gateway (mock or real) is already serving. Shared by the mock and live builders so
     the *pipeline* is identical either way — only the gateway behind it differs.
+
+    feedback-service is built with both Slack seams substituted, so it needs no bot
+    token and opens no socket; everything else about it is the real service.
     """
+    slack = SlackControl(notifier=RecordingNotifier())
+
     apps: dict[str, FastAPI] = {
         "ingestion": create_ingestion_app(
             metrics_registry=CollectorRegistry(), with_tracing=False
@@ -367,20 +550,28 @@ async def _assemble_services(
         "reasoner-agent": create_reasoner_app(
             metrics_registry=CollectorRegistry(), with_tracing=False
         ),
+        FEEDBACK_SERVICE: create_feedback_app(
+            metrics_registry=CollectorRegistry(),
+            with_tracing=False,
+            notifier_override=slack.notifier,
+            interaction_source_factory=lambda handler, mention: (
+                _CapturingInteractionSource(slack, handler, mention)
+            ),
+        ),
     }
     for app in apps.values():
         await stack.enter_async_context(app.router.lifespan_context(app))
 
     routes = {
-        service: httpx.ASGITransport(app=apps[service]) for service in AGENT_SERVICES
+        service: httpx.ASGITransport(app=apps[service]) for service in DISPATCH_SERVICES
     }
     worker_client = await stack.enter_async_context(
         httpx.AsyncClient(transport=_RoutingTransport(routes))
     )
     dispatcher = EventDispatcher(
         worker_client,
-        TargetResolver(overrides={s: f"http://{s}/events" for s in AGENT_SERVICES}),
-        DispatchTokenMap({s: AGENT_TOKEN for s in AGENT_SERVICES}),
+        TargetResolver(overrides={s: f"http://{s}/events" for s in DISPATCH_SERVICES}),
+        DispatchTokenMap({s: AGENT_TOKEN for s in DISPATCH_SERVICES}),
         # THE catch that keeps the live latency honest: the reasoner hop calls an LLM
         # and can take tens of seconds, so the worker must wait the real 90s dispatch
         # budget — the production value, ordered above the reasoner's own 60s. A shorter
@@ -407,6 +598,7 @@ async def _assemble_services(
         _processor=DispatchProcessor(worker_db, dispatcher),
         _worker_db=worker_db,
         apps=apps,
+        slack=slack,
     )
 
 
