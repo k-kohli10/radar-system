@@ -2399,6 +2399,95 @@ test(feedback): add bot query handler tests
 Done when: POST mock alert -> Slack RCA card appears -> thumbs up creates feedback row.
 @radar open returns list of open incidents in Slack.
 
+### Footprint divergence: stage 1 touches ingestion and packages/database
+
+Recorded because the plan is the source of truth, and a phase whose real history
+diverges from its stated footprint should say so rather than let the gap
+accumulate silently (same discipline as Phase 8's "Added during implementation").
+
+Both the "Git State Per Phase" line for Phase 9 (`+ apps/feedback-service
+plugins/notifications`) and the commit list above are wrong about this phase's
+footprint. They describe Phase 9 as feedback-service and the Slack plugin only.
+Stage 1 — the ingestion-side incident lifecycle — is entirely in `apps/ingestion`
+and `packages/database`, with no feedback-service and no Slack:
+
+```
+fix(ingestion): stop resolved alerts from opening incidents
+feat(database): add validated incident status transitions with audit log
+feat(ingestion): mark alerts resolved on alertmanager resolved webhook
+feat(ingestion): resolve incidents when their last firing alert resolves
+```
+
+Why it belongs here and not in an earlier phase: closure is a lifecycle
+guarantee, and the build order deliberately proves the lifecycle end to end —
+Alertmanager `resolved` webhook -> alerts flip -> incident resolves — BEFORE any
+Slack surface exists, so the closure path is provable without a bot. Pulling it
+into Phase 5 (ingestion) would have built incident *resolution* before incidents
+had a downstream that cares; deferring it into the Slack work would have tangled a
+database state machine with bot wiring. The state-machine helper lives in
+`packages/database` because feedback-service needs the identical transition logic
+in stages 3–4 (engineer Slack action, `@radar close`), and one enforced state
+machine must not become two.
+
+The ADR 0016 amendments this stage required (feedback-service owns
+`open -> investigating`; ingestion's authority widened to `{open, investigating}
+-> resolved`; `closed_at` reserved) are recorded inline in ADR 0016 above.
+
+### What shipped
+
+Phase 9 was built in five stages plus a feedback-metrics close-out. Both
+done-conditions hold:
+
+1. **mock alert -> RCA card -> 👍 creates a feedback row** — stages 2–3.
+2. **`@radar open` returns open incidents in Slack** — stage 4, proven end to end
+   through the wired Socket Mode listener, not just the parser unit.
+
+- **Stage 1 — incident lifecycle** (ingestion + `packages/database`): the validated
+  `transition_status` state machine with its audit log, and the Alertmanager
+  `resolved` path that flips alerts and resolves an incident when its last firing
+  alert clears. Built before any Slack surface so closure is provable without a bot
+  (see the footprint note above).
+- **Stage 2 — RCA delivery**: the Slack notification backend, the RCA card
+  formatter, at-least-once delivery on `recommendation.created` (post then record,
+  one card under a row lock held across the post), and the `open -> investigating`
+  transition gated on delivery (ADR 0016 Amendment 1).
+- **Stage 3 — interactive callbacks**: the neutral `NotificationInteraction`
+  contract, the Socket Mode source + `chat.update`, the strict callback parser
+  (deep-treatment — it writes against the wrong recommendation or resolves the wrong
+  incident if it mis-parses), and the handler that writes 👍/👎 rows or resolves the
+  incident, the concurrent-resolve loser recording the forensic
+  `incident.invalid_transition` audit and returning benignly.
+- **feedback-metrics**: `radar_feedback_total{sentiment}`, incremented after the row
+  commits so the counter counts recorded feedback, never attempted.
+- **Stage 4 — the `@radar` bot**: the neutral `BotMention` contract, `app_mention`
+  received over the same socket, the command parser (the one parse surface — bot
+  handle stripped first, closed verb set, `<id>` validated at parse), the read
+  queries as repository methods in `packages/database`, and the atomic wire-up that
+  turns the bot on: parse -> query -> in-thread reply, with the `bot_max_rows` cap
+  enforced at the handler.
+
+### Deferred, with reasons
+
+- **The correction modal** (a 📝 on the RCA card capturing a human's fix) — the
+  consumer that re-reasons over a correction does not exist yet, so a captured
+  correction would land in a `feedback` row nobody reads. Deferred until something
+  acts on it; `correction_text` stays reserved on the schema and the contract.
+- **`@radar close`** (`resolved -> closed`) — the state machine has the edge and
+  `transition_status` stamps `closed_at`, but no caller reaches `closed` (ADR 0016
+  Amendment 3). The bot is read-only in v1; a state-changing command is a different
+  rigor tier and lands when close is actually wanted.
+- **True ephemeral bot replies** — `BotResponse.ephemeral` exists on the contract,
+  but the notification backend has no `chat.postEphemeral` (which needs a user id
+  and is not threadable). v1 posts a threaded in-thread reply instead; real
+  ephemeral lands if and when the backend grows the call.
+
+### Limitation
+
+The bot is **read-only and best-effort**. A mention is acked before it is handled
+(Slack's ~3s Socket Mode window), so a lost reply is a re-ask, not a retry — the
+deliberate trade for an interactive surface, the same one the interaction callbacks
+make. No `@radar` command mutates state.
+
 ---
 
 ## Phase 10: Observability
@@ -3713,6 +3802,13 @@ could trigger a post-incident review workflow.
 `closed_at` is set when transitioning to this state. Closed incidents do not appear
 in `@radar open` results.
 
+> **Amendment 3 (Phase 9): `closed_at` is RESERVED, not yet reached.** The
+> `resolved -> closed` edge and its `closed_at` stamp exist in the shipped state
+> machine (`transition_status` sets `closed_at` on that transition), but no Phase 9
+> caller performs it: `@radar close` is deferred, so in practice `closed_at` stays
+> NULL until that command lands. Recorded here so the column reads as deliberately
+> reserved rather than silently orphaned. See Amendments (Phase 9) below.
+
 ---
 
 ## State Transition Diagram
@@ -3761,13 +3857,15 @@ transition.
 ## Who Can Trigger Each Transition
 
 ```
-open -> investigating      : reasoner-agent (via recommendation.created outbox event)
-open -> resolved           : ingestion (alert resolved payload received)
-investigating -> resolved  : feedback-service (engineer Slack action or alert resolved)
-resolved -> closed         : feedback-service (Slack bot command @radar close)
+open -> investigating          : feedback-service (on recommendation.created — see Amendment 1)
+open -> resolved               : ingestion (alert resolved payload received)
+investigating -> resolved      : ingestion (last firing alert resolves) OR
+                                 feedback-service (engineer Slack action) — see Amendment 2
+resolved -> closed             : feedback-service (Slack bot command @radar close)
 ```
 
 No other service changes incident status. This is enforced by the repository layer.
+See **Amendments (Phase 9)** below for the two authority corrections above.
 
 The `IncidentRepository.transition_status()` method validates the transition before
 writing:
@@ -3791,7 +3889,7 @@ async def transition_status(
     valid_next = VALID_TRANSITIONS.get(incident.status, set())
 
     if new_status not in valid_next:
-        raise InvalidStateTransition(
+        raise InvalidStateTransitionError(
             f"Cannot transition {incident.status} -> {new_status} "
             f"for incident {incident_id}"
         )
@@ -3877,12 +3975,61 @@ incident status. The incident stays in its current state.
 
 ---
 
+## Amendments (Phase 9 — v0.9-feedback)
+
+Recorded when `IncidentRepository.transition_status` was codified in
+`packages/database`. The state machine itself (four states, four edges) is
+unchanged; these correct the surrounding prose where it contradicted the shipped
+enforcement, and are kept here rather than silently editing the original text.
+
+**Amendment 1 — feedback-service owns `open -> investigating`, not reasoner-agent.**
+The "Who Can Trigger" table originally attributed this transition to reasoner-agent;
+the State Definitions section (unchanged) already said it happens "when
+`recommendation.created` is processed by feedback-service," so the ADR contradicted
+itself. feedback-service is correct, on two grounds that agree. *Structural:* the
+service that PROCESSES an event performs the write — `recommendation.created` is
+emitted by the reasoner and consumed by feedback-service, and emitting an event does
+not make you the actor for a transition triggered by consuming it. *Semantic:*
+`investigating` must mean "a human has been told," which is true when the card is
+DELIVERED, not when the recommendation row is written — if the reasoner transitioned,
+an incident would sit in `investigating` while Slack delivery was still queued in the
+outbox, or had dead-lettered.
+
+**Amendment 2 — ingestion's authority is `{open, investigating} -> resolved`.**
+Originally ingestion was granted only `open -> resolved`. But an Alertmanager
+`resolved` webhook usually arrives AFTER the RCA card has been sent, i.e. while the
+incident is already `investigating` — the common case. Restricting ingestion to
+`open -> resolved` left that common path unauthorized, describing a system that could
+not handle its own primary flow. Ingestion may now resolve from either `open` or
+`investigating`, actor `ingestion`, `resolved_by: "alert_resolution"`. The
+alternative — routing the webhook through an outbox event to feedback-service — was
+rejected because it makes incident resolution depend on a service that need not exist
+yet, inverting the build order (ingestion-side lifecycle is proven BEFORE Slack).
+This is consistent with "Multiple Alerts on One Incident" above, which already has
+ingestion resolving the incident when its last firing alert resolves.
+
+**Amendment 3 — `closed_at` is reserved, not orphaned.** See the note under the
+`closed` state definition. The edge and stamp ship; no Phase 9 caller reaches them.
+
+**Amendment 4 — the exception is named `InvalidStateTransitionError`.** The illustrative
+code above originally wrote `InvalidStateTransition`; the shipped class carries the
+`Error` suffix to match RADAR's error hierarchy (`ConflictError`, `NotFoundError`, …),
+which the repo's ruff config (N818) enforces. It subclasses `ConflictError` (409): an
+illegal transition is a conflict with current state, most often because the state moved
+under the caller. The shipped `transition_status` signature also differs from the
+sketch above — it takes the incident id (loaded under `SELECT ... FOR UPDATE`, not via
+`get`), keyword-only `actor` / `correlation_id` / `audit_payload` / `occurred_at`,
+writes the `audit_log` row for a valid transition in the caller's transaction, and
+writes nothing on rejection (the caller records the `incident.invalid_transition`
+attempt in its own transaction).
+
+---
+
 ## Decision Record
 
 Four states. Defined valid transitions. Transition validation in the repository
 layer, not in services. Every transition writes to audit_log. Invalid transitions
 are logged and rejected, not silently accepted.
--e
 
 ---
 
@@ -3950,19 +4097,14 @@ Prometheus alert:
 This fires if more than 5 events dead-letter in a 10-minute window. A single
 dead-letter event does not fire the alert. A sustained rate does.
 
-The Slack bot shows dead letter count in the status command:
-
-```
-@radar status
--> 2 open incidents. Outbox depth: 0. Dead letter queue: 3 events.
-   Run @radar dead-letters to investigate.
-
-@radar dead-letters
--> 3 dead-letter events:
-   1. alert.normalized -> watcher-agent | last error: connection refused | 5 attempts | 14:32 UTC
-   2. incident.plan_requested -> planner-agent | last error: 503 | 5 attempts | 14:35 UTC
-   3. incident.reasoning_requested -> reasoner-agent | last error: 422 | 5 attempts | 14:41 UTC
-```
+> **Corrected (Phase 9):** the paragraph originally here described `@radar status`
+> reporting a dead-letter count and an `@radar dead-letters` command listing them.
+> Neither shipped. `@radar status` reports open incidents, last RCA, and outbox
+> depth only (`bot.py`'s `_run_status`) — no dead-letter count. There is no
+> `@radar dead-letters` verb in `BotCommandType`. The real v1 way to inspect and
+> replay dead letters is the admin HTTP endpoints (`curl`) under
+> [Replay Mechanism](#replay-mechanism) below. A Slack-native dead-letter view is
+> unbuilt, same status as `@radar replay` further down that section.
 
 ---
 

@@ -19,7 +19,7 @@ level::
 from __future__ import annotations
 
 from .alerts import FINGERPRINT_FIELDS, NormalizedAlert, Severity
-from .bot import BotCommand, BotCommandType, BotResponse
+from .bot import BotCommand, BotCommandType, BotMention, BotResponse
 from .events import (
     AlertNormalizedPayload,
     EventEnvelope,
@@ -50,7 +50,7 @@ from .llm import (
 )
 from .logs import LogsBackend
 from .metrics import MetricsBackend
-from .notifications import NotificationBackend
+from .notifications import NotificationBackend, NotificationInteraction
 from .traces import Span, TracesBackend
 
 __version__ = "0.3.0"
@@ -88,9 +88,11 @@ __all__ = [
     # bot
     "BotCommand",
     "BotCommandType",
+    "BotMention",
     "BotResponse",
     # notifications
     "NotificationBackend",
+    "NotificationInteraction",
     # logs
     "LogsBackend",
     # metrics

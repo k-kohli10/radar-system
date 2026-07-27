@@ -30,14 +30,55 @@ The client is therefore built with ``timeout=None`` — httpx does not enforce a
 ``asyncio.timeout`` is the single bound, and there is exactly one number to reason
 about. A hung connection is still bounded, because the ``asyncio`` timeout wraps the
 whole await, not just the read.
+
+WHAT THE MODEL IS SHOWN — AND WHAT IT IS NOT
+--------------------------------------------
+The user message is RENDERED from the bundle, not dumped from it. The difference
+matters because ``retrieved_context`` chunks arrive carrying the knowledge
+service's own bookkeeping — ``grade`` (CRAG's per-chunk verdict) and ``status``
+(``fixture`` until the corpus has a human review pass) — and neither is
+information the model can use well.
+
+Grades in particular were actively harmful — though not for the reason first
+supposed, and the difference decides what to do with them next. The grader is
+NOT degenerate: across every chunk RADAR has stored, 27 graded ``partial`` and
+12 ``sufficient``, and one bundle routinely carries both (3 and 2, in one case).
+``sufficient`` is reachable and the grading call earns its keep.
+
+The failure is what happens when a bundle contains no ``sufficient`` chunk at
+all. Then "weight excerpts graded sufficient over those graded partial" has
+nothing to prefer, and the instruction resolves to *all of your context is the
+weaker kind* — so the model answers with the EMPTY-context language ("no runbook
+covers this") while looking at a bundle full of the right runbook. Roughly one
+bundle in eight is all-``partial``, and in RADAR's stored history that one is
+exactly the one that failed: 8 recommendations carried non-empty context, the
+single all-``partial`` one produced the empty-context RCA, the other seven did
+not. Measured on that bundle against the real gateway: the empty-context
+language appeared in 1 of 20 draws pre-fix and 0 of 40 post-fix.
+
+So the grades are a real signal in the pipeline and a hazard in the prompt. What
+they are worth to the model is a per-chunk ORDERING; what the prompt turned them
+into was a verdict on the context as a whole. Passing them as text is what made
+that conversion possible — an ordering can be expressed by the order the chunks
+appear in, which is the obvious next move and is deliberately NOT taken here (it
+needs its own measurement, and this change is a bug fix).
+
+So the projection is a WHITELIST (:data:`PROMPTED_CHUNK_FIELDS`), not a list of
+fields to strip. A blocklist would admit every future chunk field by default, and
+the failure mode of admitting one is the one described above: nothing errors,
+nothing logs, the RCA just quietly gets worse. Grades are still computed, still
+gate inclusion, and still land in ``recommendations.context_bundle`` for the
+audit trail — the only thing that changed is that they stop at the prompt.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 import httpx
 from pydantic import SecretStr, ValidationError
@@ -58,8 +99,7 @@ COMPLETE_PATH = "/v1/complete"
 SYSTEM_PROMPT = """\
 You are an SRE incident analysis assistant.
 You will be given incident metadata, a structured investigation plan, and
-retrieved_context: excerpts from this platform's own runbooks, each graded for
-how well it fits this incident (sufficient or partial).
+retrieved_context: excerpts from this platform's own runbooks.
 Respond ONLY with a valid JSON object. No text before or after it.
 
 Schema:
@@ -74,8 +114,7 @@ Schema:
 
 Using retrieved_context:
 - When it is non-empty, ground your analysis in it: prefer its specific
-  thresholds, commands, and procedures over generic advice, and weight
-  excerpts graded sufficient over those graded partial.
+  thresholds, commands, and procedures over generic advice.
 - When it is EMPTY, this platform's runbooks do not cover this incident. That
   is a fact you were given, not a gap to fill: reason from the incident
   metadata and the investigation plan alone, and say in root_cause that no
@@ -105,10 +144,74 @@ retrieval-unavailable look identical in the bundle, deliberately (the model
 should reason the same way in both). The stored wrapper's `retrieval` key is
 where the system keeps them apart.
 
+It says nothing about GRADES, and must not: the rule it used to carry made an
+all-``partial`` bundle read as uniformly low-quality context and drove the model
+onto the empty-context path with the right runbook in front of it. See "WHAT THE
+MODEL IS SHOWN" in the module docstring — the prompt and
+:func:`render_user_message` have to agree, and neither may mention a grade on its
+own.
+
 It asks for JSON and nothing else — but a model that returns prose anyway is not an
 error the reasoner can prevent, only one it can survive. That is the parser's problem
 and the fallback's.
 """
+
+
+PROMPTED_CHUNK_FIELDS = ("title", "runbook_id", "section", "content")
+"""The ONLY ``retrieved_context`` keys the model is shown.
+
+A whitelist on purpose. The chunks arrive from the knowledge service's context API
+carrying ``grade`` and ``status`` alongside these four, and a blocklist ("drop
+grade, drop status") would admit whatever field that API grows next — silently,
+into the prompt, with no test and no log line to notice it. Here, a new field
+reaches the model only when somebody adds it to this tuple and says why.
+
+Order is the reading order in the rendered JSON: what the excerpt is, where it
+came from, and then the text itself.
+"""
+
+
+def render_user_message(bundle: ContextBundle) -> str:
+    """The user message: the bundle, with each retrieved chunk projected down.
+
+    Every non-chunk field goes through verbatim — the model needs the live
+    severity, the alert name, the plan's steps. Each chunk is reduced to
+    :data:`PROMPTED_CHUNK_FIELDS`, which is what stops the pipeline's grading
+    bookkeeping from reaching the prompt; the module docstring has the incident
+    that made this necessary.
+
+    This is the ONE place the prompt's user half is built. It is a named function
+    rather than an inline dump so the "no grades in the prompt" property is
+    testable without a gateway, an incident, or a model.
+    """
+    payload = bundle.model_dump(mode="json")
+    chunks: list[dict[str, Any]] = payload["retrieved_context"]
+    payload["retrieved_context"] = [_prompted_fields(chunk) for chunk in chunks]
+    # indent=2, matching what the bundle used to be dumped as: the model reads
+    # this, and a wall of single-line JSON is measurably harder to ground in.
+    return json.dumps(payload, indent=2)
+
+
+def _prompted_fields(chunk: dict[str, Any]) -> dict[str, Any]:
+    """One chunk, reduced to the fields the model sees.
+
+    A missing field is dropped rather than raised on — the reasoner's whole
+    contract is that an incident gets an RCA, and dying over a malformed chunk
+    would trade a grounded analysis for a dead-lettered event. But it is not
+    dropped SILENTLY: the reasoner does not validate the context API's chunk
+    shape (see ``knowledge._ContextResponse``), so a chunk arriving without
+    ``content`` means the model is being shown an empty excerpt, and that is a
+    real defect upstream that would otherwise look like the model ignoring its
+    context.
+    """
+    missing = [name for name in PROMPTED_CHUNK_FIELDS if name not in chunk]
+    if missing:
+        log.warning(
+            "llm.chunk_missing_prompted_fields",
+            missing=missing,
+            runbook_id=chunk.get("runbook_id"),
+        )
+    return {name: chunk[name] for name in PROMPTED_CHUNK_FIELDS if name in chunk}
 
 
 class LLMFailureReason(StrEnum):
@@ -185,7 +288,7 @@ class GatewayClient:
             mode=LLMMode.EXTENDED,
             messages=[
                 Message(role="system", content=SYSTEM_PROMPT),
-                Message(role="user", content=bundle.model_dump_json(indent=2)),
+                Message(role="user", content=render_user_message(bundle)),
             ],
         )
         headers = {AGENT_TOKEN_HEADER: self._token.get_secret_value()}

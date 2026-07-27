@@ -1,0 +1,35 @@
+[project]
+name = "radar-plugin-notifications-slack"
+version = "0.1.0"
+description = "RADAR notification backend plugin for Slack: implements the radar-contracts NotificationBackend protocol over the slack-sdk async Web API client. Portable — depends only on radar-contracts and the vendor SDK."
+requires-python = ">=3.12"
+dependencies = [
+    "radar-contracts",
+    "slack-sdk==3.34.0",
+    # slack_sdk's AsyncWebClient imports aiohttp at module load, but slack-sdk
+    # does NOT declare it (there is no async extra). Declared here explicitly, or
+    # importing this plugin raises ModuleNotFoundError at runtime.
+    "aiohttp==3.14.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.0",
+    "pytest-asyncio==0.24.0",
+    "mypy==2.1.0",
+]
+
+[tool.uv.sources]
+radar-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/radar_plugin_notifications_slack"]
+
+[tool.mypy]
+strict = true
+python_version = "3.14"
+plugins = ["pydantic.mypy"]

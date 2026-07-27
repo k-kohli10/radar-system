@@ -38,6 +38,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SEED_MAP: dict[str, dict[str, str]] = {
     "secret/data/radar/postgres": {"postgres_dsn": "POSTGRES_DSN"},
     "secret/data/radar/llm": {"openai_api_key": "OPENAI_API_KEY"},
+    # The Slack tokens are human-supplied (from the Slack app config), like the
+    # provider API key — RADAR mints nothing here. slack_bot_token (xoxb-) is what
+    # feedback-service posts RCA cards with; slack_app_token (xapp-) is for Socket
+    # Mode and is consumed by the bot in a later commit, seeded now so the secret
+    # is in Vault when that lands. Both merge into the feedback-service secret
+    # alongside its minted agent_token.
+    "secret/data/radar/feedback-service": {
+        "slack_bot_token": "SLACK_BOT_TOKEN",
+        "slack_app_token": "SLACK_APP_TOKEN",
+    },
 }
 
 

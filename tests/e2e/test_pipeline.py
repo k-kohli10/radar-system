@@ -12,9 +12,12 @@ first place the whole chain exists at once.
 
 from __future__ import annotations
 
+import json
+from uuid import UUID
+
 from radar_database import (
-    STATUS_DEAD_LETTER,
     AuditLog,
+    Feedback,
     Incident,
     InvestigationPlan,
     OutboxEvent,
@@ -22,7 +25,28 @@ from radar_database import (
 )
 from sqlalchemy import func, select
 
-from tests.e2e.harness import Pipeline, correlation_ids
+from tests.e2e.harness import FEEDBACK_SERVICE, Pipeline, correlation_ids
+
+#: RADAR's own action id for the 👍 button, echoed back on a click. Hard-coded rather
+#: than imported so a rename in the service is caught HERE — the id is a wire value the
+#: Slack payload carries, and importing the enum would make the test agree with any
+#: rename automatically, including one that breaks every card already in a channel.
+FEEDBACK_UP = "feedback.up"
+
+
+def _counter(metrics: str, sentiment: str) -> float:
+    """``radar_feedback_total`` for one sentiment, 0.0 before it is first incremented.
+
+    A Prometheus counter with labels emits no sample until a label combination is used,
+    so absent means zero here — but only for this exact family/label pair, so a typo in
+    either would read as a flat zero. The test asserts a DELTA across a known increment,
+    which is what makes that failure mode visible.
+    """
+    needle = f'radar_feedback_total{{sentiment="{sentiment}"}} '
+    for line in metrics.splitlines():
+        if line.startswith(needle):
+            return float(line[len(needle) :])
+    return 0.0
 
 
 async def test_alert_becomes_a_recommendation(pipeline: Pipeline) -> None:
@@ -94,22 +118,22 @@ async def test_a_duplicate_alert_produces_no_second_rca(pipeline: Pipeline) -> N
     )
 
 
-async def test_recommendation_created_dead_letters_until_phase_9(
+async def test_the_whole_outbox_drains_with_nothing_left_behind(
     pipeline: Pipeline,
 ) -> None:
-    """The hand-off events are consumed; the one with no consumer yet dead-letters.
+    """Every hand-off is consumed, including the last one. Nothing dead-letters.
 
-    The outbox is a queue, not a log: ``mark_dispatched`` DELETES a delivered event, so
-    after a full drain the three intermediate hand-offs (``alert.normalized``,
-    ``incident.plan_requested``, ``incident.reasoning_requested``) are gone — consumed
-    by the stage that handled them. That they were emitted and delivered is proven by
-    the rows they produced (the previous test).
+    The outbox is a queue, not a log: ``mark_dispatched`` DELETES a delivered event,
+    so a fully-walked pipeline leaves the table EMPTY — all four hand-offs
+    (``alert.normalized``, ``incident.plan_requested``,
+    ``incident.reasoning_requested``, ``recommendation.created``) gone, each consumed
+    by the stage that handled it.
 
-    The one event left is ``recommendation.created``. Its target,
-    ``feedback-service``, does not exist until Phase 9 and has no dispatch token, so the
-    worker dead-letters it rather than delivering it. That is the correct, visible
-    boundary of the POC — and the recommendation ROW is already durably written, which
-    is what the pipeline is for.
+    Until Phase 9 this test asserted the opposite for the last event:
+    ``feedback-service`` did not exist, so ``recommendation.created`` dead-lettered and
+    one row stayed behind. An empty table is now the correct terminal state, and the
+    dead-letter MECHANISM is proven where it belongs — against the worker, in
+    ``apps/outbox-worker/tests/test_dead_letter_promotion.py``.
     """
     await pipeline.post_alert()
     await pipeline.drain()
@@ -117,9 +141,75 @@ async def test_recommendation_created_dead_letters_until_phase_9(
     async with pipeline.db.session() as session:
         remaining = list(await session.scalars(select(OutboxEvent)))
 
-    assert len(remaining) == 1, "delivered hand-offs should have been consumed"
-    assert remaining[0].event_type == "recommendation.created"
-    assert remaining[0].status == STATUS_DEAD_LETTER
+    assert remaining == [], (
+        "the outbox did not fully drain; left behind: "
+        f"{[(e.event_type, e.status) for e in remaining]}"
+    )
+
+
+async def test_alert_to_card_to_feedback_row(pipeline: Pipeline) -> None:
+    """Phase 9's done-condition #1, end to end: alert → RCA card → 👍 → feedback row.
+
+    The first place the whole loop exists at once. Every stage is real — ingestion,
+    the watcher, the planner, the reasoner, the outbox-worker, feedback-service, and
+    Postgres — with only the LLM provider and the Slack TRANSPORT substituted. In
+    particular the card is built by the real formatter and the click is handled by the
+    real interaction handler, reached through the vendor-neutral contract the Slack
+    plugin uses.
+
+    Four claims, and each would hide a different broken seam if it were dropped:
+
+    1. ``recommendation.created`` was DELIVERED, not dead-lettered — the worker reached
+       feedback-service. Asserted as the delivered card, because a delivered event that
+       posted nothing is the failure this is really guarding.
+    2. The incident moved ``open -> investigating`` ON delivery, so ``investigating``
+       means "a human has been told" (ADR 0016 Amendment 1).
+    3. A 👍 writes ONE feedback row, linked to the right recommendation AND the right
+       incident, with the sentiment the contract names.
+    4. ``radar_feedback_total`` moved. The counter is incremented after the row commits,
+       so a dashboard reading it is reading recorded feedback, not attempts.
+    """
+    response = await pipeline.post_alert()
+    assert response.status_code == 202
+    incident_id = UUID(response.json()["incident_id"])
+
+    await pipeline.drain()
+
+    async with pipeline.db.session() as session:
+        rec = (await session.scalars(select(Recommendation))).one()
+
+    # (1) The card the on-call engineer would have seen, from a delivered event.
+    card = pipeline.slack.card_for(rec.id)
+    assert len(pipeline.slack.notifier.sent) == 1, "exactly one card per recommendation"
+    assert rec.root_cause in json.dumps(card["blocks"]), (
+        "the delivered card does not carry this recommendation's root cause"
+    )
+
+    # (2) Delivery is what moves the incident, not the recommendation being written.
+    async with pipeline.db.session() as session:
+        incident = await session.get(Incident, incident_id)
+        assert incident is not None
+        assert incident.status == "investigating", (
+            f"delivery did not transition the incident; status={incident.status!r}"
+        )
+
+    before = _counter(await pipeline.scrape(FEEDBACK_SERVICE), "helpful")
+
+    # (3) The 👍, through the real handler.
+    await pipeline.click(FEEDBACK_UP, recommendation_id=rec.id)
+
+    async with pipeline.db.session() as session:
+        feedback = (await session.scalars(select(Feedback))).one()
+
+    assert feedback.recommendation_id == rec.id, "feedback linked to the wrong RCA"
+    assert feedback.incident_id == incident_id, "feedback linked to the wrong incident"
+    assert feedback.sentiment == "helpful"
+
+    # (4) And the counter moved, after the row committed.
+    after = _counter(await pipeline.scrape(FEEDBACK_SERVICE), "helpful")
+    assert after == before + 1, (
+        f"radar_feedback_total{{sentiment=helpful}} went {before} -> {after}"
+    )
 
 
 async def test_one_correlation_id_runs_through_every_row(pipeline: Pipeline) -> None:
@@ -142,13 +232,31 @@ async def test_one_correlation_id_runs_through_every_row(pipeline: Pipeline) -> 
     assert plan.correlation_id == ingress
     assert rec.correlation_id == ingress
 
-    # Every audit row and every outbox event carries it too — not just the entity rows.
-    for table in (AuditLog, OutboxEvent):
-        ids = await correlation_ids(pipeline.db, table)
-        assert ids, f"no {table.__name__} rows were written"
-        assert set(ids) == {ingress}, (
-            f"{table.__name__} carries a correlation id the pipeline did not mint"
-        )
+    # Every audit row carries it too — not just the entity rows.
+    audit_ids = await correlation_ids(pipeline.db, AuditLog)
+    assert audit_ids, "no AuditLog rows were written"
+    assert set(audit_ids) == {ingress}, (
+        "AuditLog carries a correlation id the pipeline did not mint"
+    )
+
+    # And every outbox EVENT, read from what the drain claimed rather than from the
+    # table. The outbox is a queue: a delivered event is deleted, so now that the whole
+    # pipeline drains there is no row left to inspect. This is strictly more coverage
+    # than querying it used to give — all four hand-offs, where a post-drain SELECT only
+    # ever saw the one event that failed to deliver.
+    # The COUNT is asserted, not just the values: `set(...) == {ingress}` holds just as
+    # well for one recorded id as for four, so on its own it would keep passing if a hop
+    # stopped emitting and the chain silently got shorter — the regression this test
+    # exists to catch. Four hand-offs, and if a fifth is ever added this fails and says
+    # so rather than quietly checking three of them.
+    assert len(pipeline.dispatched_correlation_ids) == 4, (
+        "expected the four hand-offs (alert.normalized, incident.plan_requested, "
+        "incident.reasoning_requested, recommendation.created); got "
+        f"{len(pipeline.dispatched_correlation_ids)}"
+    )
+    assert set(pipeline.dispatched_correlation_ids) == {ingress}, (
+        "an outbox event carried a correlation id the pipeline did not mint"
+    )
 
 
 async def test_the_reasoner_actually_called_the_gateway(pipeline: Pipeline) -> None:

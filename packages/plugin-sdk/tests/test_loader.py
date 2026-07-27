@@ -28,6 +28,15 @@ class RecordingNotifier:
     ) -> str:
         return f"{self.token}:{channel}"
 
+    async def update(
+        self,
+        channel: str,
+        message_ref: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> None: ...
+
 
 def _loader() -> BackendLoader:
     reg = PluginRegistry()

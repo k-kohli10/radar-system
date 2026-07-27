@@ -27,6 +27,15 @@ class GoodNotifier:
     ) -> str:
         return f"{self.token}:{channel}"
 
+    async def update(
+        self,
+        channel: str,
+        message_ref: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> None: ...
+
 
 class AnotherNotifier:
     async def send(
@@ -38,6 +47,15 @@ class AnotherNotifier:
         thread_ref: str | None = None,
     ) -> str:
         return "ok"
+
+    async def update(
+        self,
+        channel: str,
+        message_ref: str,
+        text: str,
+        *,
+        blocks: list[dict[str, Any]] | None = None,
+    ) -> None: ...
 
 
 class BadNotifier:

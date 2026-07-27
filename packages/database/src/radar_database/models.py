@@ -195,6 +195,14 @@ class Recommendation(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer)
     completion_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    # The Slack message timestamp of the delivered RCA card, or NULL until it is
+    # delivered. Set once, after chat.postMessage returns (feedback-service), so
+    # its presence means "this RCA was delivered". Uniqueness (idx_rec_slack_ts
+    # below): two recommendations must never claim the same Slack message — a
+    # cross-row integrity guard, NOT the no-double-post mechanism (that is
+    # feedback-service's FOR UPDATE + this being NULL-checked under the lock). See
+    # the delivery handler's module docstring.
+    slack_message_ts: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -219,6 +227,9 @@ class Recommendation(Base):
         Index("idx_rec_created_at", text("created_at DESC")),
         Index("idx_rec_correlation", "correlation_id"),
         Index("idx_rec_is_fallback", "is_fallback"),
+        # One recommendation per Slack message (cross-row integrity). NULLs are
+        # distinct in Postgres, so undelivered recommendations coexist freely.
+        Index("idx_rec_slack_ts", "slack_message_ts", unique=True),
     )
 
 

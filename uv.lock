@@ -12,6 +12,7 @@ members = [
     "radar-common",
     "radar-contracts",
     "radar-database",
+    "radar-feedback-service",
     "radar-ingestion",
     "radar-knowledge-service",
     "radar-llm-gateway",
@@ -24,6 +25,7 @@ members = [
     "radar-plugin-llm-openai",
     "radar-plugin-logs-elastic",
     "radar-plugin-metrics-prometheus",
+    "radar-plugin-notifications-slack",
     "radar-plugin-sdk",
     "radar-reasoner-agent",
     "radar-system",
@@ -2152,6 +2154,59 @@ dev = [
 ]
 
 [[package]]
+name = "radar-feedback-service"
+version = "0.1.0"
+source = { editable = "apps/feedback-service" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "prometheus-client" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "radar-common" },
+    { name = "radar-contracts" },
+    { name = "radar-database" },
+    { name = "radar-plugin-notifications-slack" },
+    { name = "radar-telemetry" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "structlog" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "radar-testing" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = "==0.115.0" },
+    { name = "prometheus-client", specifier = "==0.21.0" },
+    { name = "pydantic", specifier = "==2.13.4" },
+    { name = "pydantic-settings", specifier = "==2.6.0" },
+    { name = "radar-common", editable = "packages/common" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+    { name = "radar-database", editable = "packages/database" },
+    { name = "radar-plugin-notifications-slack", editable = "plugins/notifications/slack" },
+    { name = "radar-telemetry", editable = "packages/telemetry" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.51" },
+    { name = "structlog", specifier = "==24.4.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = "==0.32.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = "==0.28.0" },
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+    { name = "radar-testing", editable = "packages/testing" },
+]
+
+[[package]]
 name = "radar-ingestion"
 version = "0.5.0"
 source = { editable = "apps/ingestion" }
@@ -2616,6 +2671,37 @@ dev = [
 ]
 
 [[package]]
+name = "radar-plugin-notifications-slack"
+version = "0.1.0"
+source = { editable = "plugins/notifications/slack" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "radar-contracts" },
+    { name = "slack-sdk" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = "==3.14.1" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+    { name = "slack-sdk", specifier = "==3.34.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
+]
+
+[[package]]
 name = "radar-plugin-sdk"
 version = "0.2.0"
 source = { editable = "packages/plugin-sdk" }
@@ -2877,6 +2963,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/10/9b/5f14927848d2fd4aa891fd88d883788c5a7baba561c7874732364045708c/ruff-0.15.20-py3-none-win32.whl", hash = "sha256:ed65ef510e43a137207e0f01cfcf998aeddb1aeeda5c9d35023e910284d7cf21", size = 10857322, upload-time = "2026-06-25T17:20:28.612Z" },
     { url = "https://files.pythonhosted.org/packages/fa/f0/fe47c501f9dea92a26d788ff98bb5d92ed4cb4c88792c5c88af6b697dc8e/ruff-0.15.20-py3-none-win_amd64.whl", hash = "sha256:a525c81c70fb0380344dd1d8745d8cc1c890b7fc94a58d5a07bd8eb9557b8415", size = 11993274, upload-time = "2026-06-25T17:20:31.871Z" },
     { url = "https://files.pythonhosted.org/packages/d7/2b/9555445e1201d92b3195f45cdb153a0b68f24e0a4273f6e3d5ab46e212bb/ruff-0.15.20-py3-none-win_arm64.whl", hash = "sha256:2f5b2a6d614e8700388806a14996c40fab2c47b819ef57d790a34878858ed9ca", size = 11343498, upload-time = "2026-06-25T17:20:35.03Z" },
+]
+
+[[package]]
+name = "slack-sdk"
+version = "3.34.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/ff/6eb67fd5bd179fa804dbd859d88d872d3ae343955e63a319a73a132d406f/slack_sdk-3.34.0.tar.gz", hash = "sha256:ff61db7012160eed742285ea91f11c72b7a38a6500a7f6c5335662b4bc6b853d", size = 233629, upload-time = "2024-12-17T22:20:30.612Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/25/2d/8724ef191cb64907de1e4e4436462955501e00f859a53d0aa794d0d060ff/slack_sdk-3.34.0-py2.py3-none-any.whl", hash = "sha256:c61f57f310d85be83466db5a98ab6ae3bb2e5587437b54fa0daa8fae6a0feffa", size = 292480, upload-time = "2024-12-17T22:20:28.949Z" },
 ]
 
 [[package]]

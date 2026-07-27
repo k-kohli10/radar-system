@@ -72,16 +72,20 @@ AGENT_SERVICES = (
     "planner-agent",
     "reasoner-agent",
     "knowledge-service",
+    "feedback-service",
 )
 
 #: Targets the outbox worker dispatches to. Its dispatch_tokens map is rebuilt
-#: from exactly these, every run. Phase 9's feedback-service joins this list when
-#: it exists; until then a recommendation.created event has nowhere to go and will
-#: dead-letter, which is correct and expected.
+#: from exactly these, every run. feedback-service joined here in Phase 9: without
+#: its entry the worker has no token for the reasoner's recommendation.created
+#: event and refuses to dispatch it (``no_dispatch_token``, permanent → immediate
+#: dead-letter), which would look like a Slack problem when the real cause is a
+#: missing token map entry.
 DISPATCH_TARGETS = (
     "watcher-agent",
     "planner-agent",
     "reasoner-agent",
+    "feedback-service",
 )
 
 #: Gateway grants: service -> the modes it may use, ONE TOKEN PER MODE.

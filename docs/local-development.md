@@ -171,10 +171,10 @@ mean and when you need them:
 | `make agent-secrets` | pull each agent's secrets into `~/.radar-dev/secrets/<service>/` |
 | `make gateway-secrets` | pull the gateway's API key and token map |
 | `make ingestion-secrets` | pull the per-source webhook tokens |
-| `make dev-apps` | start the seven app processes |
+| `make dev-apps` | start the eight app processes |
 | `make stop-apps` | stop them |
 | `make ps-apps` | readiness table |
-| `make logs-apps` | tail all seven logs |
+| `make logs-apps` | tail all eight logs |
 | `make index` | index `docs/runbooks/` into Elasticsearch (incremental) |
 
 ---
@@ -199,6 +199,8 @@ flowchart LR
     PA["planner-agent"]:::agent
     RA["reasoner-agent"]:::agent
     GW["llm-gateway"]:::gw
+    FS["feedback-service"]:::svc
+    SLACK["Slack<br/><i>outside the trust boundary</i>"]:::ext
     PG[("Postgres<br/>outbox_events")]:::db
 
     SRC -->|"<b>X-Radar-Webhook-Token</b><br/>one per source"| ING
@@ -208,8 +210,12 @@ flowchart LR
     OW -->|"<b>X-Radar-Agent-Token</b><br/>= <i>watcher's</i> token"| WA
     OW -->|"= <i>planner's</i> token"| PA
     OW -->|"= <i>reasoner's</i> token"| RA
+    OW -->|"= <i>feedback-service's</i> token"| FS
 
     RA -->|"<b>X-Radar-Agent-Token</b><br/>= its <i>gateway_token</i><br/>grant: mode=extended"| GW
+
+    FS -->|"<b>bot token</b> (xoxb-)<br/>posts RCA cards + replies"| SLACK
+    FS -->|"<b>app token</b> (xapp-)<br/>Socket Mode: clicks + @radar arrive back"| SLACK
 
     WA -.->|"writes event"| PG
     PA -.->|"writes event"| PG
@@ -222,16 +228,24 @@ flowchart LR
     classDef db fill:#eceff1,stroke:#5b6b73,color:#000
 ```
 
-Two things this picture is making precise:
+Three things this picture is making precise:
 
 - **The worker sends the *target's* token, not its own.** It is the only caller of
-  any `/events` endpoint, so it holds all three. That is not a hole in the
-  per-service model — it is forced by it, and the worker can already forge any event
-  it likes. What per-service tokens buy is still real: a token leaked from the
-  watcher opens the watcher, and nothing else.
+  any `/events` endpoint, so it holds all four (watcher, planner, reasoner,
+  feedback-service). That is not a hole in the per-service model — it is forced by
+  it, and the worker can already forge any event it likes. What per-service tokens
+  buy is still real: a token leaked from the watcher opens the watcher, and nothing
+  else.
 - **Solid arrows are authenticated HTTP; dashed arrows are the outbox.** Agents never
   call each other. A handoff is a row in Postgres, written in the same transaction as
   the state change that caused it (ADR 0003).
+- **feedback-service is the pipeline's outward edge.** It consumes
+  `recommendation.created` from the worker like any agent, then crosses one more
+  boundary — to Slack — with its **own two tokens**: a bot token (`xoxb-`) to post
+  RCA cards and threaded replies, and an app-level token (`xapp-`) to open the Socket
+  Mode connection that carries button clicks and `@radar` mentions back. Two tokens
+  because they authorize different things (posting vs. the socket) — the same
+  per-credential discipline as agent vs. gateway.
 
 ### The two token systems
 
@@ -318,6 +332,7 @@ One directory per service, mirroring its per-pod Vault mount in production:
 ├── planner-agent/    agent_token, postgres_dsn
 ├── reasoner-agent/   agent_token, gateway_token, postgres_dsn
 ├── outbox-worker/    agent_token, dispatch_tokens, postgres_dsn
+├── feedback-service/ agent_token, postgres_dsn, slack_bot_token, slack_app_token
 ├── openai_api_key         ┐
 ├── gateway_tokens         ├─ flat: the gateway and ingestion still read these
 └── webhook_token_*        ┘
@@ -509,15 +524,16 @@ curl -s localhost:8081/v1/complete \
 
 ## 🔥 Run the whole pipeline
 
-Seven processes: ingestion, the three agents, the outbox worker, the
-llm-gateway, and the knowledge service. `make dev-apps` starts them all,
-tracks PIDs in `.dev-run/`, and prints a readiness table.
+Eight processes: ingestion, the three agents, the outbox worker, the
+llm-gateway, the knowledge service, and the feedback-service. `make dev-apps`
+starts them all, tracks PIDs in `.dev-run/`, and prints a readiness table.
 
 ### From nothing to a working pipeline
 
 ```bash
 scripts/bootstrap.sh                # tools, uv, .env, deps
 # edit .env: set OPENAI_API_KEY
+#            (+ SLACK_BOT_TOKEN and SLACK_APP_TOKEN for feedback-service — Phase 9)
 
 make dev-infra                      # 6 containers
 make ps                             # wait: all healthy
@@ -528,14 +544,20 @@ make agent-secrets
 make gateway-secrets
 make ingestion-secrets
 
-make dev-apps                       # 7 processes
+make dev-apps                       # 8 processes
 make index                          # build the runbook index
-make ps-apps                        # all 7 ready
+make ps-apps                        # all 8 ready
 ```
 
 `knowledge-service` reports **not ready** until `make index` has run — its
 readiness check verifies the live index's vector dimension, and there is no
 index before the first pass. It flips to ready on the next `make ps-apps`.
+
+`feedback-service` (Phase 9) needs **real** Slack tokens to go ready: it opens a
+Socket Mode connection at startup (before it reports ready), so a placeholder
+`SLACK_APP_TOKEN` passes secret-load but fails the connect and holds `/readyz` at
+503. Without a real Slack app it stays not-ready and `recommendation.created`
+retries — the rest of the pipeline (ingestion → agents → reasoner) is unaffected.
 
 > ⚠️ **Vault is dev-mode and in-memory.** `make stop-infra` wipes it. On every
 > restart re-run `make seed && make tokens` and the three `*-secrets` pulls.
@@ -549,34 +571,40 @@ index before the first pass. It flips to ready on the next `make ps-apps`.
 | llm-gateway | 8081 | | reasoner-agent | 8093 |
 | ingestion | 8090 | | outbox-worker | 8094 |
 | watcher-agent | 8091 | | knowledge-service | 8095 |
-| planner-agent | 8092 | | | |
+| planner-agent | 8092 | | feedback-service | 8096 |
 
-### Fire an alert
+### Complete e2e test
+
+Test the full pipeline by firing alerts that exercise three scenarios: retrieval-grounded RCAs,
+ungrounded RCAs (no runbook match), and LLM fallback (gateway down). The complete test takes
+~60 seconds:
 
 ```bash
 TOK=$(cat ~/.radar-dev/secrets/ingestion/webhook_token_mock)
 fire() { curl -s -X POST http://127.0.0.1:8090/alerts/mock \
   -H "X-Radar-Webhook-Token: $TOK" -H "Content-Type: application/json" -d "$1"; echo; }
-```
 
-Three scenarios, ~20-30s each (real LLM call):
-
-```bash
-# grounded — a runbook covers this
+# Test 1: grounded — runbook found, 5 chunks retrieved
+echo "=== Test 1: Grounded RCA (with runbook) ==="
 fire '{"service_name":"order-service","alert_name":"OrderServiceHighMemory","severity":"medium"}'
 
-# honestly ungrounded — right service, no runbook covers this failure
+# Test 2: ungrounded — right service, no runbook covers this
+echo "=== Test 2: Ungrounded RCA (no runbook) ==="
 fire '{"service_name":"inventory-service","alert_name":"InventoryCustomerPiiExposedInLogs","severity":"high"}'
 
-# LLM fallback — kill the gateway first
+# Test 3: fallback — LLM gateway is down, use synthesis fallback
+echo "=== Test 3: Fallback RCA (LLM unavailable) ==="
 kill $(cat .dev-run/llm-gateway.pid)
+sleep 1
 fire '{"service_name":"checkout-service","alert_name":"CheckoutTimeoutRate","severity":"high"}'
 ```
 
-Use a different service per scenario: a repeat within 5 minutes deduplicates
-onto the open incident instead of creating a new one.
+Each alert takes ~20–30s for the LLM to process. Use a different service per scenario: a repeat
+within 5 minutes deduplicates onto the open incident instead of creating a new one.
 
-### Read the results
+### Verify the results
+
+After ~60 seconds (all three scenarios complete):
 
 ```sql
 SELECT is_fallback, llm_provider, confidence,
@@ -586,15 +614,15 @@ SELECT is_fallback, llm_provider, confidence,
 FROM recommendations ORDER BY created_at DESC LIMIT 3;
 ```
 
-| scenario | retrieval | chunks | row |
-|---|---|---|---|
-| grounded | `grounded` | 5 | RCA cites the runbook's specifics |
-| no coverage | `empty` | 0 | RCA states no runbook covers it |
-| gateway down | `unavailable` | 0 | `is_fallback=t`, `llm_provider=none` |
+| scenario | is_fallback | retrieval | chunks | root_cause |
+|---|---|---|---|---|
+| grounded | `f` | `grounded` | 5 | cites the runbook's specifics |
+| ungrounded | `f` | `empty` | 0 | states no runbook covers it |
+| gateway down | `t` | `unavailable` | 0 | `llm_provider=none`, fallback text |
 
 `empty` means the grader judged nothing relevant; `unavailable` means retrieval
-failed. Both leave the context empty — the distinction is recorded so an RCA's
-grounding is auditable.
+failed outright (the gateway was down). Both leave the context empty — the
+distinction is recorded so an RCA's grounding stays auditable.
 
 Trace one incident end to end:
 
@@ -604,14 +632,17 @@ SELECT event_type, actor, created_at FROM audit_log
   ORDER BY created_at;
 ```
 
-`recommendation.created` dead-letters until Phase 9's feedback-service exists.
-That is correct, and requeueable.
+`recommendation.created` is delivered by feedback-service (Phase 9): it posts the
+RCA card to Slack and moves the incident to `investigating`, adding
+`notification.delivered` and `incident.investigating` to the trail above. (It only
+delivers when feedback-service is ready — i.e. real Slack tokens are set; otherwise
+the event retries and dead-letters, correct then and still requeueable.)
 
 ### Everyday use
 
 ```bash
 make ps-apps        # readiness table
-make logs-apps      # tail all seven
+make logs-apps      # tail all eight
 make stop-apps      # stop the apps
 make stop-infra     # stop the containers
 ```
@@ -688,6 +719,42 @@ of already-open shells. Open a new terminal, or:
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
+</details>
+
+<details>
+<summary><strong><code>feedback-service</code> stays DOWN or not-ready after <code>make dev-apps</code></strong></summary>
+
+The feedback-service opens a real Socket Mode connection to Slack at startup and
+does not report ready until it succeeds. This is deliberate: a bot that cannot
+hear button clicks and mentions is broken from the start, and discovering that
+when an incident card is already in the channel is worse than refusing to go
+ready.
+
+**Check your Slack tokens are valid:**
+
+1. Verify `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in `.env` are real (not
+   placeholders like `__SET_ME__`). They must be from an actual Slack workspace
+   where the RADAR bot is installed.
+2. Confirm the bot has permissions: **Socket Mode** enabled at the app level, and
+   the bot user scope includes `app_mentions:read` and `reactions:write`.
+3. Check the logs: `tail .dev-run/feedback-service.log` for the actual error —
+   common issues are revoked tokens, missing app-level Socket Mode permissions,
+   or network timeouts.
+
+**If tokens are valid but the connection hangs**, it may be a network issue or
+the Slack SDK waiting on a timeout. Kill it and try again:
+
+```bash
+pkill -f "feedback-service"
+make dev-apps  # restarts it
+```
+
+**If you have no real Slack workspace**, the rest of the pipeline works fine
+without it: ingestion → watcher → planner → reasoner all run and produce
+recommendations. Only the delivery step (posting RCA cards) is blocked. The
+`recommendation.created` event retries in the outbox while feedback-service is
+not ready, and succeeds once you plug in real credentials or until it
+dead-letters (see "Recovering a dead-lettered event" above).
 </details>
 
 ---

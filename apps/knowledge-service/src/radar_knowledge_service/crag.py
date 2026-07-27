@@ -49,11 +49,25 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 class Grade(StrEnum):
     """How well a chunk supports the incident.
 
-    Three levels rather than a score: the reasoner's decision is ternary — use
+    Three levels rather than a score: the decision this feeds is ternary — use
     it, use it with caution, ignore it — and a 0-10 scale would invite arguing
-    about whether a 6 is usable. The vocabulary matches the implementation plan's
-    retrieval strategy, where the reasoner consumes ``sufficient`` and
-    ``partial`` and skips ``insufficient``.
+    about whether a 6 is usable.
+
+    What CONSUMES the distinction changed, and the docstring said otherwise for a
+    while. ``insufficient`` still decides inclusion (:data:`USABLE`), so the
+    grading call is load-bearing. But ``sufficient`` versus ``partial`` no longer
+    reaches the reasoner's prompt: the reasoner projects chunks down to
+    title/runbook_id/section/content, because instructing a model to prefer
+    ``sufficient`` excerpts backfires on an all-``partial`` bundle — it reads as
+    "all of your context is the weaker kind" and drives an empty-context RCA with
+    the right runbook in hand. See ``radar_reasoner_agent.llm``.
+
+    So the pair is currently kept for the audit trail and for a per-chunk ordering
+    nobody consumes yet. It is NOT dead weight to collapse away on that basis: the
+    grader demonstrably discriminates (27 ``partial`` to 12 ``sufficient`` across
+    every chunk stored, both grades often within one bundle), so the signal exists
+    and the open question is how to give the model it without the framing that
+    misfired.
     """
 
     SUFFICIENT = "sufficient"

@@ -34,8 +34,3 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["google.generativeai", "google.generativeai.*"]
 ignore_missing_imports = true
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests"]
