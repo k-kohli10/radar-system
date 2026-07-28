@@ -84,3 +84,23 @@ inherit these.
   `build_query` (or raising `_default`'s specificity) moves alert-shaped no-coverage
   queries off the boundary. Judge against the 17-probe set PLUS the alert-shaped case
   recorded in `tests/retrieval/probes.yaml`, criterion fixed before the change.
+
+- **Correction-gated re-reason (deferred at Phase 9).** The 📝 correction modal was
+  deferred because no consumer re-reasons over a correction, so a captured fix would
+  land in a `recommendation_feedback` row nobody reads — `correction_text` stays
+  reserved on the schema and the contract, and `InteractionAction` deliberately omits
+  the action. What makes the consumer worth building is that the pipeline already
+  knows which RCAs are ungrounded and why: CRAG's `empty` verdict is kept distinct
+  from `unavailable` the whole way to the stored bundle, so an incident whose RCA was
+  written with nothing behind it is identifiable after the fact rather than inferred.
+  A correction on one of those is not a per-incident patch competing with retrieved
+  context — it is the only ground truth available for an incident the corpus does not
+  cover, and it names the runbook that should exist. Gating on a correction rather
+  than on 👎 follows from the same reasoning: a bare thumbs-down carries nothing to
+  reason differently from. Scope it narrowly, though. The sharpest RCA failure
+  measured so far — an all-`partial` bundle driving an empty-context RCA with the
+  right runbook in hand, fixed in the prompt projection and pinned by
+  `tests/e2e/test_prompt_grade_leak.py` — was systemic, and a correction loop would
+  have absorbed it as a stream of plausible one-off human fixes instead of surfacing
+  it. Note also that this is the first edge to run the pipeline backwards:
+  feedback-service is currently terminal and calls no `write_outbox`.

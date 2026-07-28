@@ -59,7 +59,8 @@ def test_each_action_id_maps_to_its_action(
 
 
 def test_action_id_set_is_exactly_the_three_v1_actions() -> None:
-    """Guard the closed vocabulary itself: correction is NOT here (stage 5)."""
+    """Guard the closed vocabulary itself: correction is NOT here (deferred — see
+    "Correction-gated re-reason" in docs/roadmap.md)."""
     assert {a.value for a in InteractionAction} == {
         "feedback.up",
         "feedback.down",
