@@ -44,7 +44,9 @@ class InteractionAction(StrEnum):
     (feedback-service's ``cards``) and echoed back on a click. One definition, shared
     by the formatter that writes it and this parser that reads it, so the two cannot
     disagree about what a button means — the same drift-guard as the fingerprint
-    tuple. (Correction is deliberately absent: it is a modal, deferred to stage 5.)
+    tuple. (Correction is deliberately absent: it is a modal, deferred at Phase 9
+    because nothing re-reasons over a correction yet — see "Correction-gated
+    re-reason" in docs/roadmap.md.)
     """
 
     FEEDBACK_UP = "feedback.up"
