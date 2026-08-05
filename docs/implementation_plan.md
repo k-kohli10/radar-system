@@ -639,14 +639,20 @@ radar-system/
 │   │   ├── tests/
 │   │   └── pyproject.toml
 │   │
-│   └── plugin-sdk/
-│       ├── src/radar_plugin_sdk/
+│   ├── plugin-sdk/
+│   │   ├── src/radar_plugin_sdk/
+│   │   │   ├── __init__.py
+│   │   │   ├── registry.py
+│   │   │   ├── base.py
+│   │   │   ├── loader.py
+│   │   │   └── config.py
+│   │   ├── tests/
+│   │   └── pyproject.toml
+│   │
+│   └── testing/                       # radar-testing: shared pytest fixtures.
+│       ├── src/radar_testing/         # Dev dependency only, never a runtime import.
 │       │   ├── __init__.py
-│       │   ├── registry.py
-│       │   ├── base.py
-│       │   ├── loader.py
-│       │   └── config.py
-│       ├── tests/
+│       │   └── postgres.py
 │       └── pyproject.toml
 │
 ├── plugins/
@@ -658,8 +664,10 @@ radar-system/
 │   │   └── elastic/
 │   ├── metrics/
 │   │   └── prometheus/
-│   ├── traces/
+│   ├── knowledge/
 │   │   └── elastic/
+│   ├── traces/
+│   │   └── elastic/                   # Phase 10. Not built yet.
 │   └── notifications/
 │       └── slack/
 │
@@ -732,11 +740,15 @@ radar-system/
 │       ├── inventory-check-latency.md
 │       └── payment-gateway-errors.md
 │
-├── tests/
-│   ├── integration/
-│   ├── e2e/
-│   │   └── test_vertical_slice.py
-│   └── load/
+├── tests/                             # Cross-service tests. Per-service unit
+│   ├── e2e/                           # tests live in each app's own tests/.
+│   │   ├── harness.py
+│   │   ├── test_pipeline.py
+│   │   └── ...
+│   ├── retrieval/                     # Retrieval probes + scored baselines.
+│   │   ├── probes.yaml
+│   │   └── baseline*.json
+│   └── load/                          # Phase 13. Not built yet.
 │
 ├── scripts/
 │   ├── bootstrap.sh
