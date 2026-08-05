@@ -14,7 +14,7 @@ capability and introduce a second source of truth for "is something wrong right 
 ## Decision
 RADAR does not detect anomalies. Detection is entirely owned by Prometheus alertmanager
 and Kibana Watcher, configured via alert rules that live in
-`radar-infra/prometheus/alerting-rules.yml`. That's config, not RADAR application code.
+`deploy/prometheus/alerting-rules.yml`. That's config, not RADAR application code.
 RADAR receives only pre-fired alerts, via `POST /alerts/prometheus` and
 `POST /alerts/kibana` on the ingestion service. RADAR's job starts at correlation, not
 detection.
@@ -22,8 +22,8 @@ detection.
 ## Consequences
 - RADAR has no metric-evaluation or log-pattern-matching code anywhere in the
   codebase. That entire problem space is out of scope by design, not by oversight.
-- Alert thresholds and rules are edited in `radar-infra`, independent of any
-  radar-system deployment. An SRE can tune what fires without touching application
+- Alert thresholds and rules are edited under `deploy/`, independent of any
+  application deployment. An SRE can tune what fires without touching application
   code.
 - RADAR's correctness for a given incident depends on the upstream alert firing
   correctly in the first place. RADAR has no way to catch a condition that Prometheus
