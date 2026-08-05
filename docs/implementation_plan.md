@@ -2584,7 +2584,15 @@ docs: add adr 0012 cd approach
 docs: add cluster connectivity setup guide
 ```
 
-Done when: changing feedback-service builds only feedback-service. Merge deploys it.
+Done when: changing feedback-service builds only feedback-service, and a change
+under `deploy/` triggers no application build. Merge deploys it.
+
+The second clause is not a nice-to-have. ADR 0018 retired the radar-infra
+repository on the argument that path-based CI delivers the same release-cadence
+isolation the split existed for — so `deploy/`-changes-nothing IS that decision's
+justification. Until CI enforces it, the property is asserted and not proven, and
+the single-repo decision ships unverified. Pin it with a test that fails if a
+`deploy/`-only change queues an application build.
 
 ---
 
