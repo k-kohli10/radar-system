@@ -2832,7 +2832,6 @@ Do not add dependencies not in the approved list.
 0 Redis
 0 Jaeger
 ```
--e
 
 ---
 
@@ -2972,7 +2971,6 @@ a corner.
 Postgres transactional outbox for v1 and likely beyond. Revisit only if incident
 volume exceeds what a single Postgres instance can handle comfortably, which at
 homelab scale will not happen.
--e
 
 ---
 
@@ -3129,7 +3127,6 @@ is faster and more predictable.
 No LangChain. No LangGraph. No LiteLLM. Raw Python with direct SDK calls through
 a custom gateway. This decision does not get revisited unless RADAR needs to support
 20+ providers simultaneously, which is not a v1, v2, or likely v3 requirement.
--e
 
 ---
 
@@ -3306,7 +3303,6 @@ The migration is incremental and does not require rewriting application code.
 
 Static 32-byte hex tokens in Vault for v1. Revisit for v2 if RADAR has external
 users or a security audit that identifies this as an unacceptable risk.
--e
 
 ---
 
@@ -3553,7 +3549,6 @@ follow the rules above.
 Integer schema versions. Extra fields ignored. Version checked before parsing.
 Both versions supported during transitions. Old versions removed only after drain.
 All changes documented in CHANGELOG.
--e
 
 ---
 
@@ -3765,7 +3760,6 @@ Before opening a PR with a migration, verify:
 Alembic for migrations. All rules above apply to every migration with no exceptions.
 Reversibility and backward compatibility are non-negotiable. The checklist runs
 in CI and in code review.
--e
 
 ---
 
