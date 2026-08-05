@@ -22,7 +22,7 @@ reasoning, and delivery.
 Do not revisit these during implementation.
 
 ```
-Repos              : radar-system (product), radar-infra (platform config)
+Repos              : radar-system only. Single repository. (Superseded entry — see below.)
 Namespaces         : radar (app workloads), radar-infra (platform deps)
 Agent comms        : Postgres transactional outbox only. No direct HTTP between agents.
 Agent pipeline     : Watcher -> Planner -> Reasoner
@@ -50,6 +50,27 @@ Jaeger             : Not in this architecture.
 Runbooks           : Human-written markdown about TARGET services. RAG-indexed.
 RADAR ops docs     : docs/operations/. Not RAG-indexed.
 ```
+
+### The one entry that was revisited: Repos
+
+Recorded rather than silently rewritten, because this block says "do not revisit
+these" and one of them was revisited — the same discipline as Phase 8's "Added
+during implementation" and Phase 9's footprint divergence note. A locked decision
+that changes should say so, and say why, instead of quietly reading as though it
+had always been that way.
+
+The original entry was `radar-system (product), radar-infra (platform config)`.
+**ADR 0018 supersedes ADR 0001 and retires the second repository**: cadence
+isolation, the benefit the split existed for, is delivered inside one repo by the
+path-based CI that ADR 0001 already committed to building, while the two-repo cost
+lands squarely on the Phase 14 fifteen-minute-quickstart done-when. radar-infra was
+never created, so nothing had to move.
+
+Note that the **Namespaces** line below it still reads `radar-infra`, and correctly
+so. That is a Kubernetes namespace for platform dependencies, not a repository, and
+ADR 0018 does not touch it — including the Vault init-container's
+`vault.radar-infra.svc.cluster.local` address in the ADR 0007 pattern. Anything
+sweeping this document for `radar-infra` must distinguish the two senses.
 
 ---
 
@@ -345,15 +366,16 @@ templates:
 
 ---
 
-## Repositories
+## Repository
 
 ### radar-system
-Product monorepo. All app code, packages, plugins, Helm chart, docs, tests, CI/CD.
+The only repository. All app code, packages, plugins, Helm charts, platform
+config, docs, tests, CI/CD.
 
-### radar-infra
-Config only. Helm values for platform deps, Grafana dashboard JSON,
-Prometheus alert rules, OTel collector config, Fluent Bit config.
-Mostly YAML files pointing at community Helm charts.
+Platform configuration — Helm values for platform deps, Grafana dashboard JSON,
+Prometheus alert rules, OTel collector config, Fluent Bit config — is not a
+separate repository. It lives under `deploy/`, separated from product code by
+directory rather than by repo boundary (ADR 0018).
 
 ---
 
@@ -641,20 +663,40 @@ radar-system/
 │
 ├── deploy/
 │   ├── helm/
-│   │   └── radar/
-│   │       ├── templates/
-│   │       │   ├── ingestion/
-│   │       │   ├── llm-gateway/
-│   │       │   ├── outbox-worker/
-│   │       │   ├── watcher-agent/
-│   │       │   ├── planner-agent/
-│   │       │   ├── reasoner-agent/
-│   │       │   ├── knowledge-service/
-│   │       │   └── feedback-service/
-│   │       ├── Chart.yaml
-│   │       └── values.yaml
-│   └── compose/
-│       └── docker-compose.yml
+│   │   ├── radar/
+│   │   │   ├── templates/
+│   │   │   │   ├── ingestion/
+│   │   │   │   ├── llm-gateway/
+│   │   │   │   ├── outbox-worker/
+│   │   │   │   ├── watcher-agent/
+│   │   │   │   ├── planner-agent/
+│   │   │   │   ├── reasoner-agent/
+│   │   │   │   ├── knowledge-service/
+│   │   │   │   └── feedback-service/
+│   │   │   ├── Chart.yaml
+│   │   │   └── values.yaml
+│   │   └── platform-deps/
+│   │       ├── postgres/values.yaml
+│   │       ├── elasticsearch/values.yaml
+│   │       ├── kibana/values.yaml
+│   │       ├── prometheus/values.yaml
+│   │       ├── grafana/values.yaml
+│   │       └── vault/values.yaml
+│   ├── compose/
+│   │   └── docker-compose.yml
+│   ├── prometheus/
+│   │   ├── alerting-rules.yml
+│   │   └── prometheus.yml
+│   ├── grafana/
+│   │   ├── radar-overview.json
+│   │   ├── llm-gateway.json
+│   │   ├── outbox-health.json
+│   │   ├── incident-pipeline.json
+│   │   └── feedback-quality.json
+│   ├── otel/
+│   │   └── config.yml
+│   └── fluent-bit/
+│       └── config.yml
 │
 ├── docs/
 │   ├── adr/
@@ -713,33 +755,16 @@ radar-system/
 └── uv.lock
 ```
 
-### radar-infra
+Everything that was previously listed here as a second `radar-infra/` tree is
+folded into the `deploy/` block above (ADR 0018): platform-dependency Helm values
+at `deploy/helm/platform-deps/`, dashboards at `deploy/grafana/`, alerting rules
+and scrape config at `deploy/prometheus/`, collector config at `deploy/otel/`,
+and log shipping at `deploy/fluent-bit/`.
 
-```
-radar-infra/
-├── helm/
-│   ├── postgres/values.yaml
-│   ├── elasticsearch/values.yaml
-│   ├── kibana/values.yaml
-│   ├── prometheus/values.yaml
-│   ├── grafana/values.yaml
-│   └── vault/values.yaml
-├── compose/
-│   └── docker-compose.yml
-├── dashboards/
-│   ├── radar-overview.json
-│   ├── llm-gateway.json
-│   ├── outbox-health.json
-│   ├── incident-pipeline.json
-│   └── feedback-quality.json
-├── prometheus/
-│   └── alerting-rules.yml
-├── otel-collector/
-│   └── config.yml
-├── fluent-bit/
-│   └── config.yml
-└── README.md
-```
+That tree was also wrong on a point predating ADR 0018: it listed
+`compose/docker-compose.yml` under radar-infra, but the compose stack has lived at
+`deploy/compose/docker-compose.yml` in radar-system since Phase 1. Folding the
+trees together settles both.
 
 ---
 
@@ -2495,14 +2520,18 @@ make. No `@radar` command mutates state.
 
 Deliverables:
 ```
-All five Grafana dashboards as ConfigMaps in radar-infra
-Prometheus alerting rules in radar-infra
+deploy/grafana/      all five dashboards as ConfigMaps
+deploy/prometheus/   alerting rules (exists) + prometheus.yml + a compose mount
+deploy/otel/         collector config
+deploy/fluent-bit/   config
 OTel trace coverage across all services confirmed
 Fluent Bit log shipping confirmed
 docs/operations/ runbooks for RADAR itself
-deploy/prometheus/prometheus.yml + a compose mount   # see below
 plugins/traces/elastic/                              # deferred from Phase 8
 ```
+
+All config lands in this repository under `deploy/`, not in a separate
+radar-infra repo — see ADR 0018, which retired it.
 
 **The dev stack's Prometheus is deliberately unwired until here.**
 `deploy/prometheus/alerting-rules.yml` exists and is proven — two e2e tests mount
@@ -2652,7 +2681,7 @@ Phase 8  + apps/knowledge-service plugins/traces docs/runbooks (real content)
            TAG: v0.2.0
 Phase 9  + apps/feedback-service plugins/notifications
            TAG: v0.3.0
-Phase 10 + observability config in radar-infra docs/operations
+Phase 10 + deploy/grafana deploy/otel deploy/fluent-bit docs/operations
            TAG: v0.4.0
 Phase 11 + .github/workflows scripts/detect-changed-services.py
            TAG: v0.5.0
@@ -2779,7 +2808,7 @@ Do not add dependencies not in the approved list.
 
 ```
 14 phases
-2 repos    : radar-system, radar-infra
+1 repo     : radar-system
 2 namespaces: radar, radar-infra
 3 agents   : Watcher (correlate), Planner (plan), Reasoner (RCA + fallback)
 1 gateway  : raw Python, 3 SDKs, 4 modes, token IAM, provider fallback
