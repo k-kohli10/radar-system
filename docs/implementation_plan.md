@@ -260,11 +260,7 @@ RADAR ingestion normalizes -> deduplicates -> outbox -> pipeline starts
 ```
 
 Two distinct sets of alert rules live under `deploy/prometheus/`, told apart by
-what they watch, not by where they live. The **e-commerce alert rules** watch the
-simulated shop and exist to generate incidents for RADAR to work on
-(`alerting-rules.yml`, see "Alert rules" below). **RADAR's own service alerts**
-watch RADAR itself — LLM gateway fallback, outbox backlog, agent health — and are
-a Phase 10 deliverable. Both are config, not application code.
+what they watch rather than where they live. See "Alert rules" below for both.
 
 ---
 
