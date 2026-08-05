@@ -1,7 +1,7 @@
 # ADR 0001: Monorepo for radar-system
 
 ## Status
-Accepted
+Superseded by ADR-0017 (2026-08-05)
 
 ## Context
 RADAR is made up of eight services (ingestion, llm-gateway, outbox-worker,
