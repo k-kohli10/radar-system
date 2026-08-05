@@ -717,7 +717,15 @@ radar-system/
 │   │   ├── 0009-slack-only-notifications.md
 │   │   ├── 0010-external-detection-not-radar.md
 │   │   ├── 0011-inbound-webhook-token.md
-│   │   └── 0012-cd-approach.md
+│   │   ├── 0012-cd-approach.md
+│   │   ├── 0013-watcher-correlation-scope.md
+│   │   ├── 0014-event-schema-versioning.md
+│   │   ├── 0015-database-migration-rules.md
+│   │   ├── 0016-incident-lifecycle-state-machine.md
+│   │   ├── 0017-dead-letter-replay.md
+│   │   ├── 0018-single-repository.md
+│   │   ├── 0019-no-llm-frameworks.md
+│   │   └── 0020-static-token-auth.md
 │   ├── architecture/
 │   │   ├── system-overview.md
 │   │   ├── agent-pipeline.md
@@ -2488,7 +2496,8 @@ done-conditions hold:
 - **Stage 2 — RCA delivery**: the Slack notification backend, the RCA card
   formatter, at-least-once delivery on `recommendation.created` (post then record,
   one card under a row lock held across the post), and the `open -> investigating`
-  transition gated on delivery (ADR 0016 Amendment 1).
+  transition gated on delivery
+  ([ADR 0016](adr/0016-incident-lifecycle-state-machine.md) Amendment 1).
 - **Stage 3 — interactive callbacks**: the neutral `NotificationInteraction`
   contract, the Socket Mode source + `chat.update`, the strict callback parser
   (deep-treatment — it writes against the wrong recommendation or resolves the wrong
@@ -2511,8 +2520,9 @@ done-conditions hold:
   correction would land in a `feedback` row nobody reads. Deferred until something
   acts on it; `correction_text` stays reserved on the schema and the contract.
 - **`@radar close`** (`resolved -> closed`) — the state machine has the edge and
-  `transition_status` stamps `closed_at`, but no caller reaches `closed` (ADR 0016
-  Amendment 3). The bot is read-only in v1; a state-changing command is a different
+  `transition_status` stamps `closed_at`, but no caller reaches `closed`
+  ([ADR 0016](adr/0016-incident-lifecycle-state-machine.md) Amendment 3).
+  The bot is read-only in v1; a state-changing command is a different
   rigor tier and lands when close is actually wanted.
 - **True ephemeral bot replies** — `BotResponse.ephemeral` exists on the contract,
   but the notification backend has no `chat.postEphemeral` (which needs a user id
