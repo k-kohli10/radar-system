@@ -259,10 +259,12 @@ Kibana Watcher evaluates log patterns on schedule
 RADAR ingestion normalizes -> deduplicates -> outbox -> pipeline starts
 ```
 
-The e-commerce alert rules live in `deploy/prometheus/alerting-rules.yml` in
-this repo (see "Alert rules" below); RADAR's own service alerts live in
-radar-infra and are a Phase 10 deliverable. Both are config, not application
-code.
+Two distinct sets of alert rules live under `deploy/prometheus/`, told apart by
+what they watch, not by where they live. The **e-commerce alert rules** watch the
+simulated shop and exist to generate incidents for RADAR to work on
+(`alerting-rules.yml`, see "Alert rules" below). **RADAR's own service alerts**
+watch RADAR itself — LLM gateway fallback, outbox backlog, agent health — and are
+a Phase 10 deliverable. Both are config, not application code.
 
 ---
 
@@ -1443,11 +1445,13 @@ metric is computed from it at scrape time, so expiry IS the reset.
 
 ### Alert rules
 
-Live in `deploy/prometheus/alerting-rules.yml` in radar-system, NOT in
-radar-infra. They describe a made-up shop that exists to generate incidents;
-RADAR's own service alerts (LLM gateway fallback, outbox backlog, agent health)
-belong in radar-infra and are a Phase 10 deliverable. Six rules across four
-services:
+Live in `deploy/prometheus/alerting-rules.yml`. These are the **target-stack**
+rules: they describe a made-up shop that exists to generate incidents for RADAR to
+work on. RADAR's own **service-health** alerts (LLM gateway fallback, outbox
+backlog, agent health) are a separate Phase 10 deliverable and land beside them
+under `deploy/prometheus/` in their own file. The distinction is what each set
+watches — the simulated shop versus RADAR itself — not which repository holds it;
+there is only one repository (ADR 0018). Six rules across four services:
 
 ```
 order-service       OrderProcessingFailureRate  > 0.05        for 1m   critical
