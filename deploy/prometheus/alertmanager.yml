@@ -1,0 +1,30 @@
+# RADAR Alertmanager — compose (dev) routing.
+#
+# Receives firing alerts from Prometheus and forwards them to ingestion's real
+# front door, POST /alerts/prometheus. This is what makes the scrape -> fire ->
+# webhook path real in the dev stack.
+
+route:
+  receiver: radar
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 1h
+
+receivers:
+  - name: radar
+    webhook_configs:
+      # Dev-convenience wiring to ingestion's front door on the host.
+      #
+      # KNOWN LIMITATION (Phase 12): ingestion authenticates /alerts/prometheus
+      # with the X-Radar-Webhook-Token header (ADR 0011). Alertmanager v0.27's
+      # webhook http_config can send Authorization / basic-auth but NOT an
+      # arbitrary custom header, so this POST currently 401s at ingestion — a
+      # local 401 here is expected and self-explaining, not a misconfiguration.
+      # Authenticated AM -> ingestion needs an Alertmanager with
+      # http_config.http_headers (>= v0.28); tracked as a Phase 12 item.
+      #
+      # The real scrape -> fire -> webhook proof does not depend on this: it is
+      # tests/e2e/test_real_prometheus_alert.py, which asserts the alert reaches
+      # a webhook receiver with the right labels.
+      - url: http://host.docker.internal:8090/alerts/prometheus
+        send_resolved: false

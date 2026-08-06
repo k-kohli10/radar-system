@@ -2649,6 +2649,17 @@ Chart must have: resource limits, probes, Vault init-container, RBAC, HPA for
 ingestion and llm-gateway, correlation rules and plan templates as ConfigMaps,
 configurable backend providers.
 
+**Deferred from Phase 10 — authenticated Alertmanager → ingestion.** Ingestion
+authenticates `POST /alerts/prometheus` with the `X-Radar-Webhook-Token` header
+(ADR 0011). Alertmanager v0.27 (the compose pin) can send `Authorization` /
+basic-auth but not an arbitrary custom header, so `deploy/prometheus/alertmanager.yml`
+wires the webhook to ingestion as a dev convenience that 401s (documented at the
+receiver). Real authenticated delivery needs an Alertmanager with
+`http_config.http_headers` (≥ v0.28); bump the image and set the token header from
+the mounted secret when the k8s wiring lands. Phase 10's scrape → fire → webhook
+proof does not depend on it — `tests/e2e/test_real_prometheus_alert.py` asserts
+the alert reaches a webhook receiver with the right labels.
+
 Commits:
 ```
 feat(helm): add radar application chart
