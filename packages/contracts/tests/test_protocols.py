@@ -23,6 +23,7 @@ from radar_contracts import (
     MetricsBackend,
     NotificationBackend,
     Span,
+    TraceQuery,
     TracesBackend,
 )
 
@@ -97,6 +98,11 @@ class FakeTracesBackend:
         yield FakeSpan()
 
 
+class FakeTraceQuery:
+    async def get_trace(self, correlation_id: str) -> list[dict[str, Any]]:
+        return []
+
+
 class FakeNotificationBackend:
     async def send(
         self,
@@ -130,6 +136,7 @@ def test_conforming_objects_satisfy_their_protocol() -> None:
     assert isinstance(FakeMetricsBackend(), MetricsBackend)
     assert isinstance(FakeTracesBackend(), TracesBackend)
     assert isinstance(FakeSpan(), Span)
+    assert isinstance(FakeTraceQuery(), TraceQuery)
     assert isinstance(FakeNotificationBackend(), NotificationBackend)
 
 
@@ -142,6 +149,7 @@ def test_nonconforming_object_fails_every_protocol() -> None:
         LogsBackend,
         MetricsBackend,
         TracesBackend,
+        TraceQuery,
         NotificationBackend,
     ):
         assert not isinstance(obj, protocol)

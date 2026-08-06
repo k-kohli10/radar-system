@@ -51,7 +51,7 @@ from .llm import (
 from .logs import LogsBackend
 from .metrics import MetricsBackend
 from .notifications import NotificationBackend, NotificationInteraction
-from .traces import Span, TracesBackend
+from .traces import Span, TraceQuery, TracesBackend
 
 __version__ = "0.3.0"
 
@@ -99,6 +99,7 @@ __all__ = [
     "MetricsBackend",
     # traces
     "Span",
+    "TraceQuery",
     "TracesBackend",
     # knowledge
     "EmbeddingProvider",
