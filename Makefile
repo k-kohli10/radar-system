@@ -40,6 +40,12 @@ lint:
 test:
 	@uv run pytest; ec=$$?; if [ $$ec -eq 5 ]; then echo "no tests collected yet — ok for this phase"; exit 0; else exit $$ec; fi
 
+# Fast inner loop: drops the `infra` Docker tests (notably the ~2min real-Prometheus
+# scrape->fire->webhook proof). `make test` and CI keep them — this only spares the
+# quick local loop, never the full suite.
+test-quick:
+	@uv run pytest -m 'not live and not infra'; ec=$$?; if [ $$ec -eq 5 ]; then echo "no tests collected yet — ok for this phase"; exit 0; else exit $$ec; fi
+
 clean: env-check
 	$(COMPOSE) down -v
 
