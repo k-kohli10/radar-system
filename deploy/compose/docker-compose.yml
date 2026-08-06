@@ -114,6 +114,7 @@ services:
       - prometheus-data:/prometheus
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../prometheus/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro
+      - ../prometheus/radar-service-alerts.yml:/etc/prometheus/radar-service-alerts.yml:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

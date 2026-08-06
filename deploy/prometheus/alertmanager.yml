@@ -9,8 +9,22 @@ route:
   group_wait: 10s
   group_interval: 5m
   repeat_interval: 1h
+  routes:
+    # RADAR's OWN service-health alerts carry alert_source=radar. Send them to a
+    # blackhole, NOT to ingestion: routing them to /alerts/prometheus would make
+    # RADAR file incidents about its own health — a self-monitoring loop (e.g. a
+    # RadarAgentDown alert for the reasoner becomes an incident the reasoner must
+    # then process). Wiring these to a real ops receiver (Slack/email) is a later
+    # concern; here they simply do not become incidents. The simulated-shop alerts
+    # have no alert_source label and fall through to `radar` -> ingestion.
+    - matchers:
+        - alert_source="radar"
+      receiver: blackhole
 
 receivers:
+  # No configs: RADAR self-alerts routed here are intentionally dropped.
+  - name: blackhole
+
   - name: radar
     webhook_configs:
       # Dev-convenience wiring to ingestion's front door on the host.

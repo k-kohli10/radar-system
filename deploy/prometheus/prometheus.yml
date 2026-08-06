@@ -19,7 +19,10 @@ global:
   evaluation_interval: 15s
 
 rule_files:
+  # Two files, kept physically distinct: the simulated-shop rules and RADAR's own
+  # service-health rules. Both load; neither is merged into the other.
   - /etc/prometheus/alerting-rules.yml
+  - /etc/prometheus/radar-service-alerts.yml
 
 alerting:
   alertmanagers:
