@@ -2582,6 +2582,28 @@ docs(operations): add vault secret rotation runbook
 Done when: single mock alert traceable end to end in Kibana APM by correlation_id alone.
 LLM fallback alert fires when gateway is mocked to fail.
 
+**Prerequisite for step 12 — two incident-lifecycle metrics are defined but never
+observed.** `radar_incident_duration_seconds` and `radar_incidents_total` exist in
+`radar_telemetry.metrics` (on the `IncidentMetrics` family) but nothing ever
+records them: the duration histogram has zero observations and the incidents
+counter is never incremented (it is even registered on feedback-service, not
+ingestion). So the incident-pipeline dashboard's "Ingestion→recommendation
+latency" and "Incidents opened" panels read "No data" — each carries a panel
+description saying so. Step 7 leaves them empty by design (config-only).
+
+Before step 12's measurement, land a **dedicated, labeled instrumentation commit
+with its own test** (not folded into a config step) that wires the observations:
+- ingestion increments `radar_incidents_total{service,severity}` when it opens an
+  incident;
+- the pipeline observes `radar_incident_duration_seconds` at RECOMMENDATION
+  creation, measuring `recommendation.created_at - incident.created_at` — i.e.
+  INGESTION-TO-RECOMMENDATION (pipeline) latency, NOT open-to-resolution (which
+  would fold in human-loop time). The metric's current help text
+  ("open-to-resolution") is misleading and is corrected in that commit.
+
+Only then does step 12 ("measure real p50/p95 off the dashboards, delete the ~50s
+placeholder") have data to read.
+
 ---
 
 ## Phase 11: CI/CD
