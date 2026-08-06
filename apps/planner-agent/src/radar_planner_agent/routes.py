@@ -46,10 +46,10 @@ from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
-from radar_common import EventsAuth, bind_correlation_id, get_logger
+from radar_common import EventsAuth, get_logger
 from radar_contracts import EventEnvelope, PlanRequestedPayload
 from radar_database import Database, is_already_processed, mark_processed
-from radar_telemetry import PlannerMetrics
+from radar_telemetry import PlannerMetrics, bind_correlation_id
 from sqlalchemy.exc import IntegrityError
 
 from radar_planner_agent.config import SERVICE_NAME

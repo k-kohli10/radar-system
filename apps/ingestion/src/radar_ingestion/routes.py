@@ -29,11 +29,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from radar_common import (
     InvalidPayloadError,
-    bind_correlation_id,
     get_logger,
     new_correlation_id,
 )
 from radar_database import Database
+from radar_telemetry import bind_correlation_id
 
 from radar_ingestion.normalizer import AlertSource, normalize
 from radar_ingestion.publisher import persist_alert
