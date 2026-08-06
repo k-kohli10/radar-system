@@ -34,7 +34,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from radar_common import bind_correlation_id, clear_context, get_logger
+from radar_common import bind_log_correlation_id, clear_context, get_logger
 from radar_database import (
     DEFAULT_BATCH_SIZE,
     STATUS_DEAD_LETTER,
@@ -103,7 +103,7 @@ class Reaper:
                 session, older_than_seconds=self._interval, limit=self._batch_size
             )
             for event in stuck:
-                bind_correlation_id(event.correlation_id)
+                bind_log_correlation_id(event.correlation_id)
                 try:
                     dead = await mark_failed(
                         session, event, error=REAP_ERROR, immediate=True

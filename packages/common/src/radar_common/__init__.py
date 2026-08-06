@@ -50,7 +50,7 @@ from .errors import (
 from .ids import new_correlation_id, new_event_id, new_id, parse_uuid
 from .logging import (
     CORRELATION_ID_KEY,
-    bind_correlation_id,
+    bind_log_correlation_id,
     clear_context,
     configure_logging,
     get_logger,
@@ -68,7 +68,7 @@ __all__ = [
     "__version__",
     # logging
     "CORRELATION_ID_KEY",
-    "bind_correlation_id",
+    "bind_log_correlation_id",
     "clear_context",
     "configure_logging",
     "get_logger",

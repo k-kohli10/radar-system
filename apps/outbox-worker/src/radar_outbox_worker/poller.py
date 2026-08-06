@@ -35,7 +35,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 
-from radar_common import bind_correlation_id, clear_context, get_logger
+from radar_common import bind_log_correlation_id, clear_context, get_logger
 from radar_database import (
     DEFAULT_BATCH_SIZE,
     STATUS_PENDING,
@@ -144,7 +144,7 @@ class Poller:
                     "outbox.batch.drain_interrupted", remaining=len(events) - index
                 )
                 return
-            bind_correlation_id(event.correlation_id)
+            bind_log_correlation_id(event.correlation_id)
             try:
                 await self._handle_event(event)
             except Exception as exc:
