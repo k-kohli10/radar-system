@@ -2612,6 +2612,10 @@ needs a mountable file while a static k8s manifest needs the content inline:
   `collector-daemonset.yaml`.
 - `traces-index-template.json` ↔ the `traces-index-template` ConfigMap in
   `traces-index-template.yaml`.
+- `deploy/fluent-bit/parsers.conf` ↔ the `parsers.conf` key in the
+  `fluent-bit-config` ConfigMap in `fluent-bit-daemonset.yaml`. (The two
+  `fluent-bit.conf` files legitimately DIFFER — compose tails `.dev-run`, k8s
+  tails container logs — so only the parser is a byte-identical pair.)
 
 Phase 10 keeps each pair byte-identical by hand; nothing structural prevents them
 drifting silently. Add a CI job that, for each pair, extracts the ConfigMap's

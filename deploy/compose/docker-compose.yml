@@ -127,6 +127,23 @@ services:
       timeout: 5s
       retries: 10
 
+  fluent-bit:
+    image: fluent/fluent-bit:3.2.2
+    # Tails the host-run services' real JSON logs from .dev-run/*.log (mounted at
+    # /var/log/radar) and ships them to Elasticsearch as radar-logs-*, the index
+    # the logs plugin queries. No healthcheck: the image has no shell/curl — the
+    # HTTP health endpoint on 2020 is published for host-side checks, and the real
+    # proof is logs landing in ES.
+    volumes:
+      - ../fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ../fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - ../../.dev-run:/var/log/radar:ro
+    ports:
+      - "127.0.0.1:2020:2020"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
   vault:
     image: hashicorp/vault:1.18.0
     command: server -dev
