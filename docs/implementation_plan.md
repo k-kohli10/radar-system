@@ -2598,10 +2598,26 @@ ci: add lint typecheck and test pipeline
 ci: add changed service detection script
 ci: add multi-arch docker buildx
 ci: add helm validation
+ci: assert otel collector config copies are byte-identical
 ci: add cd workflow to home lab
 docs: add adr 0012 cd approach
 docs: add cluster connectivity setup guide
 ```
+
+**Deferred from Phase 10 — `deploy/otel/` config drift check.** Two config files
+under `deploy/otel/` each exist in two places that MUST match, because compose
+needs a mountable file while a static k8s manifest needs the content inline:
+
+- `collector-config.yaml` ↔ the `otel-collector-config` ConfigMap in
+  `collector-daemonset.yaml`.
+- `traces-index-template.json` ↔ the `traces-index-template` ConfigMap in
+  `traces-index-template.yaml`.
+
+Phase 10 keeps each pair byte-identical by hand; nothing structural prevents them
+drifting silently. Add a CI job that, for each pair, extracts the ConfigMap's
+embedded value and asserts it equals the standalone file verbatim, failing the
+build on any divergence. Same assert-don't-trust discipline as the
+`deploy/`-only-change guard above.
 
 Done when: changing feedback-service builds only feedback-service, and a change
 under `deploy/` triggers no application build. Merge deploys it.

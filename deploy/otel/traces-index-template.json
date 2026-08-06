@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "description": "RADAR OTel traces data-stream template. A bare Elasticsearch + Kibana (no Fleet/APM integration) ships no template for the traces-generic-default data stream, so the OTel collector's elasticsearch exporter (mapping.mode: otel) cannot create it and every span is rejected. This template is the minimal thing that makes the data stream auto-create. String attributes map to keyword so correlation_id is term-queryable at attributes.correlation_id — the join key the traces plugin and the step-10 done-condition query by. It is NOT Elastic's full APM field set; traces are fully queryable and viewable in Kibana APM via dynamic mappings.",
+    "managed_by": "radar"
+  },
+  "index_patterns": ["traces-generic-default"],
+  "data_stream": {},
+  "priority": 200,
+  "template": {
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings_as_keyword": {
+            "match_mapping_type": "string",
+            "mapping": { "type": "keyword", "ignore_above": 2048 }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp": { "type": "date" }
+      }
+    }
+  }
+}

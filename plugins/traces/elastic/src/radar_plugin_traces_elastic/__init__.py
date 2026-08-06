@@ -9,12 +9,19 @@ side of tracing — emission is the telemetry package's OTLP path (ADR 0008).
 
 from __future__ import annotations
 
-from .backend import BACKEND, ElasticTracesBackend
+from .backend import (
+    BACKEND,
+    CORRELATION_ID_FIELD,
+    TRACES_INDEX,
+    ElasticTracesBackend,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
     "BACKEND",
+    "CORRELATION_ID_FIELD",
+    "TRACES_INDEX",
     "ElasticTracesBackend",
     "__version__",
 ]

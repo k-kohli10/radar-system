@@ -52,6 +52,54 @@ services:
       timeout: 5s
       retries: 20
 
+  es-traces-init:
+    # One-shot: installs the traces data-stream index template into Elasticsearch
+    # so the collector's exporter can create traces-generic-default. Without it a
+    # fresh stack hits index_not_found and drops every span. curl -fS exits
+    # non-zero on any HTTP error, so a failed install fails this service and, via
+    # service_completed_successfully below, blocks the collector — the ordering
+    # that stops `make down -v && make up` from reintroducing that race.
+    image: curlimages/curl:8.11.1
+    restart: "no"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ../otel/traces-index-template.json:/tmp/traces-index-template.json:ro
+    command:
+      - -fsS
+      - -X
+      - PUT
+      - http://elasticsearch:9200/_index_template/radar-traces
+      - -H
+      - "Content-Type: application/json"
+      - --data-binary
+      - "@/tmp/traces-index-template.json"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    command: ["--config=/etc/otel/collector-config.yaml"]
+    # Mounts the single-source-of-truth config; the k8s ConfigMap embeds a
+    # byte-identical copy (see deploy/otel/collector-daemonset.yaml).
+    volumes:
+      - ../otel/collector-config.yaml:/etc/otel/collector-config.yaml:ro
+    ports:
+      # OTLP gRPC (4317) is where host-run RADAR services export spans — matches
+      # radar_telemetry.tracing's default localhost:4317. 4318 is OTLP/HTTP.
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      es-traces-init:
+        # Traces template must exist before the collector accepts traffic.
+        condition: service_completed_successfully
+    # No healthcheck: the collector-contrib image is distroless (no shell, wget,
+    # or curl) so an in-container probe is impossible. Liveness is proven instead
+    # by the DaemonSet's httpGet probe on the health_check extension (13133),
+    # which needs no in-container tooling. Nothing in compose depends on this
+    # service being healthy — host-run services export best-effort.
+
   prometheus:
     image: prom/prometheus:v2.55.0
     ports:

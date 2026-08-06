@@ -17,7 +17,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from elastic_transport import ConnectionError as ESConnectionError
-from radar_plugin_traces_elastic import ElasticTracesBackend
+from radar_plugin_traces_elastic import (
+    CORRELATION_ID_FIELD,
+    TRACES_INDEX,
+    ElasticTracesBackend,
+)
 from radar_plugin_traces_elastic.backend import _MAX_SPANS
 
 CLIENT_PATH = "radar_plugin_traces_elastic.backend.AsyncElasticsearch"
@@ -42,8 +46,11 @@ async def test_get_trace_builds_term_query_sorted_ascending_returns_sources() ->
 
     client.search.assert_awaited_once()
     kwargs = client.search.call_args.kwargs
-    assert kwargs["index"] == "traces-apm-*"
-    assert kwargs["query"] == {"term": {"Attributes.correlation_id": "corr-123"}}
+    # Canonical names, shared with the exporter config and the step-10 assertion:
+    # imported, never re-spelled, so a rename can't silently pass here.
+    assert kwargs["index"] == TRACES_INDEX == "traces-generic-default"
+    assert kwargs["query"] == {"term": {CORRELATION_ID_FIELD: "corr-123"}}
+    assert CORRELATION_ID_FIELD == "attributes.correlation_id"
     # Causal order: root span first, so the trace reads root to leaf.
     assert kwargs["sort"] == [{"@timestamp": {"order": "asc"}}]
     # The anti-truncation guard: never the ES default of 10.

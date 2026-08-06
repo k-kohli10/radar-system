@@ -15,15 +15,23 @@ reconstructs one incident's whole path across all services. It creates no index:
 the traces data stream and its mapping are owned by the collector's Elasticsearch
 exporter, not by a query client.
 
-FIELD NAMES COUPLE TO THE COLLECTOR'S EXPORTER MAPPING
-------------------------------------------------------
-Where ``correlation_id`` and the span start time actually land in the document
-depends on how the OTel collector's Elasticsearch exporter maps spans, which is
-configured in ``deploy/otel/`` (Phase 10, step 2). The defaults here assume the
-APM-compatible data stream (``traces-apm-*``) with span attributes under
-``Attributes.*`` and the span start at ``@timestamp``. All three are constructor
-settings precisely so this backend and the exporter config can be reconciled to
-the same names without a code change.
+WHERE THE FIELD NAMES COME FROM — AND WHY THEY ARE CONSTANTS
+-----------------------------------------------------------
+Where ``correlation_id`` and the span start time land in the stored document is
+fixed by the OTel collector's Elasticsearch exporter mapping, configured in
+``deploy/otel/`` with ``mapping.mode: otel`` (OTel-native, ADR 0008). That mode
+writes the ``traces-generic-default`` data stream and preserves span attributes
+under ``attributes.*``, so ``correlation_id`` is queryable at
+``attributes.correlation_id`` and the span start at ``@timestamp`` — both
+verified against a live collector-to-Elasticsearch round trip.
+
+``CORRELATION_ID_FIELD`` is the ONE canonical spelling of that join-key path. It
+is the exporter's output (documented in the collector config), this backend's
+default, and the field the Phase-10 step-10 done-condition test asserts on — all
+three referencing this single symbol, so a rename surfaces as a broken import or
+a failing test, never a silently-missed trace. The names remain constructor
+settings so a different deployment can override them, but the default is the
+canonical one and nothing hard-codes the string a second time.
 
 POC scope: a correct single-index query returning a whole trace. Connection
 pooling, retry-with-jitter, and cross-cluster search are deferred to Phase 13.
@@ -37,6 +45,18 @@ from elasticsearch import AsyncElasticsearch
 
 BACKEND = "elastic"
 """Registry name this backend registers under for ``TraceQuery``."""
+
+CORRELATION_ID_FIELD = "attributes.correlation_id"
+"""Canonical document path of the trace join key.
+
+Shared by the collector's OTel-native exporter mapping (``deploy/otel/``), this
+backend's default, and the step-10 done-condition assertion. Pinning it in one
+place means the exporter, the query, and the proof cannot silently drift out of
+agreement about where ``correlation_id`` lives.
+"""
+
+TRACES_INDEX = "traces-generic-default"
+"""Data stream the OTel-native exporter writes traces to (``mapping.mode: otel``)."""
 
 #: Hard cap on spans returned for one trace. Elasticsearch's default ``search``
 #: size is 10, and a single incident's trace across eight FastAPI services
@@ -54,19 +74,19 @@ class ElasticTracesBackend:
         self,
         *,
         hosts: str | list[str],
-        index: str = "traces-apm-*",
+        index: str = TRACES_INDEX,
         api_key: str | None = None,
-        correlation_id_field: str = "Attributes.correlation_id",
+        correlation_id_field: str = CORRELATION_ID_FIELD,
         timestamp_field: str = "@timestamp",
     ) -> None:
         """Bind to an Elasticsearch cluster and traces index.
 
-        ``hosts`` is one URL or a list of them; ``index`` is the index or index
-        pattern the collector's Elasticsearch exporter writes spans to.
-        ``correlation_id_field`` is the document field carrying the join key and
-        ``timestamp_field`` the span start time to order on — both defaulted to
-        the APM data stream convention and overridable to match the exporter
-        mapping configured in ``deploy/otel/``.
+        ``hosts`` is one URL or a list of them; ``index`` is the data stream the
+        collector's Elasticsearch exporter writes spans to. ``correlation_id_field``
+        is the document field carrying the join key and ``timestamp_field`` the
+        span start time to order on — defaulted to the OTel-native mapping the
+        collector is configured with (``deploy/otel/``) and overridable for a
+        deployment that maps differently.
         """
         self._client = AsyncElasticsearch(hosts=_as_list(hosts), api_key=api_key)
         self._index = index
@@ -79,6 +99,13 @@ class ElasticTracesBackend:
         One incident's full path is reconstructable from this single value. Spans
         come back in causal order (ascending span start time) so the trace reads
         root to leaf. An unknown id yields an empty list rather than an error.
+
+        Note the data stream is created lazily by the exporter on the first span,
+        so on a brand-new stack that has never received a trace this raises a
+        backend "index not found" error rather than returning ``[]``. That is
+        deliberate: it fails loud on a missing or misnamed target instead of
+        masking it as an empty result — the exact class of bug a silent empty
+        would hide. Once any trace has been written, unknown ids return ``[]``.
         """
         response = await self._client.search(
             index=self._index,
