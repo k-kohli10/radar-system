@@ -2645,6 +2645,16 @@ embedded value and asserts it equals the standalone file verbatim, failing the
 build on any divergence. Same assert-don't-trust discipline as the
 `deploy/`-only-change guard above.
 
+**CI prerequisite — kubeconform needs schema-repo egress.** The Phase 10
+kubeconform proof (`make kubeconform` / `tests/e2e/test_kubeconform.py`, in the
+default suite via `-m 'not live'`) runs the pinned `ghcr.io/yannh/kubeconform`
+image, which fetches the Kubernetes JSON schemas from the `kubernetes-json-schema`
+repo (raw.githubusercontent.com) at run time. The CI runner therefore needs Docker
+AND network egress to that host; without it the check reports "CANNOT TRUST —
+ERROR(s): schema-fetch / network egress" (exit 2), deliberately distinct from a
+manifest actually being invalid. If CI must run air-gapped, pre-cache the schemas
+and point kubeconform at them with `-schema-location`.
+
 Done when: changing feedback-service builds only feedback-service, and a change
 under `deploy/` triggers no application build. Merge deploys it.
 
