@@ -276,6 +276,27 @@ def create_events_router(
             outcome.llm_provider, outcome.confidence.value
         ).inc()
 
+        # INGESTION-TO-RECOMMENDATION latency, observed once per recommendation — the
+        # pipeline's own duration, NOT open-to-resolution (which would fold in
+        # human-loop time). Both timestamps are the DB's now(), so the span is
+        # skew-free. Reached only on the non-duplicate path (the duplicate returned
+        # above), so the two timestamps are always present. A `raise`, not an `assert`:
+        # `assert` is stripped under `python -O`, and a None slipping through here must
+        # fail loud in a request path, not silently skip the observation.
+        if (
+            stored.incident_opened_at is None
+            or stored.recommendation_created_at is None
+        ):
+            raise RuntimeError(
+                "a newly-stored recommendation is missing its latency timestamps; "
+                "store_recommendation must return both on the non-duplicate path"
+            )
+        metrics.incident_duration_seconds.observe(
+            (
+                stored.recommendation_created_at - stored.incident_opened_at
+            ).total_seconds()
+        )
+
         fallback = outcome.context_bundle.fallback
         if fallback is not None:
             # Keyed off the metadata, not off `is_fallback` — the two cannot disagree

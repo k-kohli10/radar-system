@@ -113,6 +113,64 @@ def test_duplicate_alert_dedups_to_the_same_incident(client: TestClient) -> None
     assert second.json()["incident_id"] == first.json()["incident_id"]
 
 
+# --- radar_incidents_total: one tick per incident OPENED ----------------------
+
+INCIDENTS_TOTAL = "radar_incidents_total"
+
+
+def _incidents_opened(
+    client: TestClient, *, service: str, severity: str
+) -> float | None:
+    """The value of radar_incidents_total for one (service, severity), or None.
+
+    None — not 0.0 — before the first open: prometheus_client emits no line for a label
+    set never observed, and the tests assert on that absence.
+    """
+    prefix = f'{INCIDENTS_TOTAL}{{service="{service}",severity="{severity}"}} '
+    for line in client.get("/metrics").text.splitlines():
+        if line.startswith(prefix):
+            return float(line[len(prefix) :])
+    return None
+
+
+def test_opening_an_incident_increments_incidents_total(client: TestClient) -> None:
+    """ingestion produces radar_incidents_total, ticked once per incident OPENED and
+    labelled by that incident's service and severity — the counter the plan wants on the
+    service that actually opens incidents, not on feedback-service where it sat at zero.
+    """
+    assert (
+        _incidents_opened(client, service="order-service", severity="critical") is None
+    )
+
+    response = _post(client, "mock", token=TOKENS["mock"], json=MOCK_BODY)
+    assert response.status_code == 202
+    assert response.json()["deduplicated"] is False
+
+    assert (
+        _incidents_opened(client, service="order-service", severity="critical") == 1.0
+    )
+
+
+def test_a_dedup_attach_does_not_increment_incidents_total(client: TestClient) -> None:
+    """The counter counts incidents OPENED, not alerts received.
+
+    A duplicate attaches to the existing incident within the dedup window, opening
+    nothing, so the counter must stay at 1 — otherwise a storm of repeats for one
+    incident would read on the dashboard as many incidents.
+
+    Mutation that must turn this red: drop the ``if not result.deduplicated`` guard in
+    the route, and the dedup below ticks the counter to 2.
+    """
+    first = _post(client, "mock", token=TOKENS["mock"], json=MOCK_BODY)
+    second = _post(client, "mock", token=TOKENS["mock"], json=MOCK_BODY)
+    assert first.json()["deduplicated"] is False
+    assert second.json()["deduplicated"] is True
+
+    assert (
+        _incidents_opened(client, service="order-service", severity="critical") == 1.0
+    )
+
+
 # --- per-source webhook auth --------------------------------------------------
 
 

@@ -76,6 +76,7 @@ so nothing depends on the delivery landing.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -138,6 +139,13 @@ class StorageOutcome:
     #: caught by the pre-check). The CONCURRENT one surfaces as ``IntegrityError`` at
     #: commit and is the caller's to absorb.
     duplicate: bool
+    #: The two DB timestamps whose difference is the ingestion-to-recommendation
+    #: latency (radar_incident_duration_seconds): the incident's ``opened_at`` (set by
+    #: ingestion) and the recommendation's ``created_at``. Both come from Postgres
+    #: ``now()``, so the span is measured on one clock. ``None`` on the duplicate path —
+    #: no new recommendation was written, so there is no new latency to observe.
+    incident_opened_at: datetime | None = None
+    recommendation_created_at: datetime | None = None
 
 
 async def store_recommendation(
@@ -159,7 +167,10 @@ async def store_recommendation(
     docstring: that ordering is the entire mechanism.
     """
     # ---- FK source 2. Ruled out by hand, because the FK cannot tell the caller. ----
-    if await session.get(Incident, incident_id) is None:
+    # Kept as a reference (not just an ``is None`` check): its ``opened_at`` is one
+    # half of the pipeline-latency span returned below.
+    incident = await session.get(Incident, incident_id)
+    if incident is None:
         raise IncidentNotFoundError(
             f"incident {incident_id} does not exist; it was deleted while the reasoner "
             "was waiting on the LLM. Refusing to write an RCA for an incident that is "
@@ -212,6 +223,14 @@ async def store_recommendation(
         latency_ms=outcome.latency_ms,
     )
     session.add(recommendation)
+    # Flush so Postgres assigns the server-default ``created_at`` (fetched back via
+    # RETURNING) and refresh to load it onto the object — it is the OTHER half of the
+    # latency span, and the caller observes it AFTER this transaction commits. The flush
+    # also surfaces the unique-index race here instead of at the caller's commit; the
+    # caller's ``except IntegrityError`` still wraps this call, so absorption is
+    # unchanged.
+    await session.flush()
+    await session.refresh(recommendation, ["created_at"])
 
     body = RecommendationCreatedPayload(
         incident_id=incident_id, recommendation_id=recommendation.id
@@ -232,7 +251,12 @@ async def store_recommendation(
             outcome=outcome,
         )
     )
-    return StorageOutcome(recommendation_id=recommendation.id, duplicate=False)
+    return StorageOutcome(
+        recommendation_id=recommendation.id,
+        duplicate=False,
+        incident_opened_at=incident.opened_at,
+        recommendation_created_at=recommendation.created_at,
+    )
 
 
 async def _existing_recommendation_id(

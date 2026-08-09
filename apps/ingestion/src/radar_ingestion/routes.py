@@ -33,7 +33,7 @@ from radar_common import (
     new_correlation_id,
 )
 from radar_database import Database
-from radar_telemetry import bind_correlation_id
+from radar_telemetry import IngestionMetrics, bind_correlation_id
 
 from radar_ingestion.normalizer import AlertSource, normalize
 from radar_ingestion.publisher import persist_alert
@@ -46,6 +46,7 @@ def create_alerts_router(
     *,
     get_database: Callable[[], Database | None],
     webhook_auth: WebhookAuth,
+    metrics: IngestionMetrics,
 ) -> APIRouter:
     """Build the ``/alerts/{prometheus,kibana,mock}`` routing surface.
 
@@ -53,6 +54,9 @@ def create_alerts_router(
     startup) or ``None`` if the service is not ready — the handler answers 503
     in that case rather than touching a missing database. Each endpoint is
     guarded by ``webhook_auth`` for its own source's ``X-Radar-Webhook-Token``.
+
+    ``metrics`` carries ``incidents_total``, ticked once per incident this route
+    OPENS (not per alert): dedup attaches and resolves do not move it.
     """
     router = APIRouter()
 
@@ -133,6 +137,16 @@ def create_alerts_router(
                 "alerts_resolved": result.alerts_resolved,
                 "incident_resolved": result.incident_resolved,
             }
+
+        if not result.deduplicated:
+            # A NEW incident was opened (a dedup attach reuses an existing one). Counted
+            # here, AFTER the commit above: incrementing before it would count opens
+            # that a rolled-back transaction never made durable, and the dashboards
+            # would read more incidents than the table holds. `service`/`severity` are
+            # the alert's own labels, so the counter groups the way the incidents do.
+            metrics.incidents_total.labels(
+                alert.service_name, alert.severity.value
+            ).inc()
 
         log.info(
             "alert.persisted",

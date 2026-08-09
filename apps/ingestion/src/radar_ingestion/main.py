@@ -30,6 +30,7 @@ from prometheus_client import REGISTRY, CollectorRegistry
 from radar_common import ConfigurationError, bootstrap
 from radar_database import Database
 from radar_telemetry import (
+    create_ingestion_metrics,
     create_request_metrics,
     instrument_fastapi,
     render_latest,
@@ -90,6 +91,9 @@ def create_app(
 
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
+    # ingestion is the only service that opens incidents, so radar_incidents_total is
+    # produced here — not on feedback-service, where it used to sit at zero forever.
+    ingestion_metrics = create_ingestion_metrics(metrics_registry)
     database: Database | None = None
     webhook_tokens: WebhookTokenMap | None = None
 
@@ -137,7 +141,11 @@ def create_app(
     # Make 401 beat 422 on /alerts/*: a malformed body must not mask a bad token.
     install_guarded_webhook_validation_handler(app, webhook_auth)
     app.include_router(
-        create_alerts_router(get_database=get_database, webhook_auth=webhook_auth)
+        create_alerts_router(
+            get_database=get_database,
+            webhook_auth=webhook_auth,
+            metrics=ingestion_metrics,
+        )
     )
 
     @app.get("/healthz")

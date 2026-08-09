@@ -57,7 +57,7 @@ from radar_database import (
     InvalidStateTransitionError,
     Recommendation,
 )
-from radar_telemetry import IncidentMetrics
+from radar_telemetry import FeedbackMetrics
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from radar_feedback_service.callbacks import (
@@ -126,7 +126,7 @@ _FEEDBACK_ACK: dict[InteractionAction, str] = {
 
 
 def build_interaction_handler(
-    database: Database, notifier: NotificationBackend, metrics: IncidentMetrics
+    database: Database, notifier: NotificationBackend, metrics: FeedbackMetrics
 ) -> InteractionHandler:
     """The adapter the wired Socket Mode listener dispatches each button click to.
 
@@ -185,7 +185,7 @@ async def handle_callback(
     notifier: NotificationBackend,
     parsed: ParsedCallback,
     *,
-    metrics: IncidentMetrics,
+    metrics: FeedbackMetrics,
 ) -> CallbackOutcome:
     """Apply ``parsed`` — record feedback or resolve the incident — and reflect it.
 
@@ -207,7 +207,7 @@ async def _record_feedback(
     database: Database,
     notifier: NotificationBackend,
     parsed: ParsedCallback,
-    metrics: IncidentMetrics,
+    metrics: FeedbackMetrics,
 ) -> CallbackOutcome:
     """Write one ``feedback`` row for the rating, then acknowledge it on the card."""
     sentiment = _SENTIMENT[parsed.action]

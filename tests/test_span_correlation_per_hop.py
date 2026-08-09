@@ -52,6 +52,7 @@ from radar_ingestion.security import WEBHOOK_TOKEN_HEADER, WebhookAuth, WebhookT
 from radar_planner_agent.routes import create_events_router as planner_router
 from radar_reasoner_agent.routes import create_events_router as reasoner_router
 from radar_telemetry import (
+    create_ingestion_metrics,
     create_planner_metrics,
     create_reasoner_metrics,
     instrument_fastapi,
@@ -99,7 +100,11 @@ def _ingestion_hop() -> Hop:
     must carry *a* valid uuid rather than one we supplied."""
     token_map = WebhookTokenMap({AlertSource.MOCK: TOKEN})
     webhook_auth = WebhookAuth(lambda: token_map)
-    router = create_alerts_router(get_database=lambda: None, webhook_auth=webhook_auth)
+    router = create_alerts_router(
+        get_database=lambda: None,
+        webhook_auth=webhook_auth,
+        metrics=create_ingestion_metrics(CollectorRegistry()),
+    )
     return Hop(router, "/alerts/mock", {WEBHOOK_TOKEN_HEADER: TOKEN}, {}, None)
 
 

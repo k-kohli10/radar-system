@@ -64,7 +64,7 @@ from radar_plugin_notifications_slack import (
     SlackSocketSource,
 )
 from radar_telemetry import (
-    create_incident_metrics,
+    create_feedback_metrics,
     create_request_metrics,
     instrument_fastapi,
     render_latest,
@@ -141,11 +141,11 @@ def create_app(
 
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
-    # feedback-service produces radar_feedback_total; it registers the incident family
-    # that carries it. (The sibling incidents_total / duration counters on that family
-    # are ingestion's and stay at zero here — the family bundling is a known smell, not
-    # this service's to fix.)
-    incident_metrics = create_incident_metrics(metrics_registry)
+    # feedback-service produces radar_feedback_total and only that: the sibling
+    # incidents_total / incident_duration_seconds counters that used to share a family
+    # here now live with their producers (ingestion / reasoner), so this service no
+    # longer exports two counters it can never move.
+    feedback_metrics = create_feedback_metrics(metrics_registry)
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
     notifier: NotificationBackend | None = None
@@ -190,7 +190,7 @@ def create_app(
             # that will not open keeps the pod out of rotation (readiness stays false)
             # rather than advertising a bot whose buttons and mentions reach nothing.
             interaction_source = build_source(
-                build_interaction_handler(database, notifier, incident_metrics),
+                build_interaction_handler(database, notifier, feedback_metrics),
                 build_mention_handler(
                     database, notifier, max_rows=settings.bot_max_rows
                 ),
