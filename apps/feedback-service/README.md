@@ -20,14 +20,14 @@ Each delivered card carries three interactive buttons (`cards.py`):
 | 👎 Not helpful | Records a `not_helpful` feedback row against the recommendation |
 | ✅ Resolve | Transitions the incident to `resolved` (`{open, investigating} -> resolved`) |
 
-Resolve is dropped from the card once the incident is already resolved — Slack
+Resolve is dropped from the card once the incident is already resolved. Slack
 Block Kit has no disabled-button state, so there is nothing to grey out; the
 button is removed and a static "✅ Resolved" line takes its place. 👍/👎 stay,
 since rating the RCA's usefulness remains meaningful after resolution.
 
 ## `@radar` bot commands
 
-Read-only — no `@radar` command mutates state (that's what the card buttons are
+Read-only: no `@radar` command mutates state (that's what the card buttons are
 for). The full reference is the bot's own `_HELP` text (`bot.py`), reproduced here:
 
 | Command | Reply |
@@ -41,5 +41,5 @@ for). The full reference is the bot's own `_HELP` text (`bot.py`), reproduced he
 | anything else | "Unknown command" + this help text |
 
 **Not implemented**: `@radar close` and `@radar replay <event_id>` are both
-named in the spec (`docs/implementation_plan.md`) as future work — neither
+named in the spec (`docs/implementation_plan.md`) as future work; neither
 exists yet. Don't rely on either.

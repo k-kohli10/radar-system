@@ -22,7 +22,7 @@ reasoning, and delivery.
 Do not revisit these during implementation.
 
 ```
-Repos              : radar-system only. Single repository. (Superseded entry — see below.)
+Repos              : radar-system only. Single repository. (Superseded entry, see below.)
 Namespaces         : radar (app workloads), radar-infra (platform deps)
 Agent comms        : Postgres transactional outbox only. No direct HTTP between agents.
 Agent pipeline     : Watcher -> Planner -> Reasoner
@@ -54,8 +54,8 @@ RADAR ops docs     : docs/operations/. Not RAG-indexed.
 ### The one entry that was revisited: Repos
 
 Recorded rather than silently rewritten, because this block says "do not revisit
-these" and one of them was revisited — the same discipline as Phase 8's "Added
-during implementation" and Phase 9's footprint divergence note. A locked decision
+these" and one of them was revisited, following the same discipline as Phase 8's
+"Added during implementation" and Phase 9's footprint divergence note. A locked decision
 that changes should say so, and say why, instead of quietly reading as though it
 had always been that way.
 
@@ -68,7 +68,7 @@ never created, so nothing had to move.
 
 Note that the **Namespaces** line below it still reads `radar-infra`, and correctly
 so. That is a Kubernetes namespace for platform dependencies, not a repository, and
-ADR 0018 does not touch it — including the Vault init-container's
+ADR 0018 does not touch it, including the Vault init-container's
 `vault.radar-infra.svc.cluster.local` address in the ADR 0007 pattern. Anything
 sweeping this document for `radar-infra` must distinguish the two senses.
 
@@ -370,8 +370,8 @@ templates:
 The only repository. All app code, packages, plugins, Helm charts, platform
 config, docs, tests, CI/CD.
 
-Platform configuration — Helm values for platform deps, Grafana dashboard JSON,
-Prometheus alert rules, OTel collector config, Fluent Bit config — is not a
+Platform configuration (Helm values for platform deps, Grafana dashboard JSON,
+Prometheus alert rules, OTel collector config, Fluent Bit config) is not a
 separate repository. It lives under `deploy/`, separated from product code by
 directory rather than by repo boundary (ADR 0018).
 
@@ -1269,11 +1269,11 @@ v1 context bundle:
 }
 ```
 
-> **Note (Phase 7 as-built):** this is the bundle SENT to the model — the flat
+> **Note (Phase 7 as-built):** this is the bundle SENT to the model: the flat
 > prompt-facing shape. What is STORED in `recommendations.context_bundle` is a wrapper
 > that composes it with fallback metadata: `{"bundle": {…the v1 bundle above…},
 > "fallback": null | {"reason", "attempted_mode", "detail", "elapsed_ms"}}`. The nesting
-> is deliberate — it keeps "what the model saw" byte-for-byte reconstructable and
+> is deliberate: it keeps "what the model saw" byte-for-byte reconstructable and
 > separate from "why we fell back", and keeps fallback fields out of the prompt (the
 > bundle is `extra="forbid"` and serialized straight into the request). See
 > `reasoner-agent/fallback.py`.
@@ -1403,7 +1403,7 @@ All bot responses are ephemeral replies in the same thread as the mention
 Local POC only. Never deployed to Kubernetes. Lives at `apps/platform-sim/`
 (package `radar_platform_sim`).
 
-A SINGLE-PROCESS simulator of a multi-service e-commerce platform — not a set of
+A SINGLE-PROCESS simulator of a multi-service e-commerce platform, not a set of
 microservices, and never will be. One process exposes a domain metric and a chaos
 endpoint per scenario; the alert rule watching each metric carries the `service`
 label of the service being simulated. That is how one process fires alerts
@@ -1450,7 +1450,7 @@ Three request shapes, because the metric kinds validate differently:
   it rejects `{"rate": 15}` from someone who meant 15%, which would otherwise pin
   the gauge at 15.0 and breach every ratio rule at once while returning 200.
 - **absolute gauges** take `value` in the metric's own unit (seconds, bytes),
-  deliberately uncapped — 1.5s and 2.5e9 bytes are both ordinary.
+  deliberately uncapped: 1.5s and 2.5e9 bytes are both ordinary.
 - **counters** take `per_second`. A counter cannot be pinned: the rule reads
   `rate()`, the slope, so the metric must EVOLVE. Each scrape advances it by
   `per_second x elapsed` within the active window, carrying the fractional
@@ -1466,7 +1466,7 @@ rules: they describe a made-up shop that exists to generate incidents for RADAR 
 work on. RADAR's own **service-health** alerts (LLM gateway fallback, outbox
 backlog, agent health) are a separate Phase 10 deliverable and land beside them
 under `deploy/prometheus/` in their own file. The distinction is what each set
-watches — the simulated shop versus RADAR itself — not which repository holds it;
+watches (the simulated shop versus RADAR itself), not which repository holds it;
 there is only one repository (ADR 0018). Six rules across four services:
 
 ```
@@ -1480,7 +1480,7 @@ payment-gateway     PaymentDeclineRate          rate[2m] > 2  for 2m   medium
 
 `severity` must come from the canonical `Severity` enum
 (critical|high|medium|low|info). Prometheus's conventional `warning`/`page`
-spellings are rejected by ingestion with 422 — it validates against that set and
+spellings are rejected by ingestion with 422: it validates against that set and
 never translates one spelling to another.
 
 A rule has TWO bars and a spike must clear both: magnitude, and duration. A spike
@@ -2072,7 +2072,7 @@ POST within 5 minutes creates neither.
 
 ### Pre-Phase-8 extension (done later, on `pre-phase-8-order-stub-fix`)
 
-Phase 5 shipped a stub simulating order-service only, and MET its bar — the
+Phase 5 shipped a stub simulating order-service only, and MET its bar: the
 done-condition above is written entirely in terms of `/alerts/mock`. But Phase 8
 retrieval is triggered by incidents, and incidents come from alerts, so a stub
 that fires three scenarios would leave most of a 15-20 runbook corpus describing
@@ -2092,7 +2092,7 @@ test(platform-sim): prove a chaos spike drives an alert to an incident
 Scope decision, so it is not relitigated: the alert RULES are declared here, in
 `deploy/prometheus/alerting-rules.yml`. The running Prometheus + alertmanager,
 their compose wiring, and proving the real scrape -> fire -> webhook path in the
-default suite are **Phase 10's**, not Phase 5's — that infrastructure was always
+default suite are **Phase 10's**, not Phase 5's: that infrastructure was always
 a Phase 10 deliverable, and Phase 8 does not need it (ingestion creates the same
 incident whether the alert arrived from a real breach or a crafted POST, and the
 reasoner retrieves on service_name + alert_name either way). The real path is
@@ -2243,13 +2243,13 @@ docs/runbooks/                      # 17 runbooks as built: the 6 Tier-1 below
                                     # plus 11 depth runbooks (see its README)
 apps/knowledge-service/             # package: radar_knowledge_service
 plugins/knowledge/elastic/          # the dense-vector index + search primitives
-plugins/traces/elastic/             # DEFERRED to Phase 10 — see below
+plugins/traces/elastic/             # DEFERRED to Phase 10, see below
 ```
 
 `plugins/traces/elastic/` is **deferred to Phase 10**, for the same reason
 Prometheus/alertmanager wiring was: it is an OTel traces backend, and everything
-that would consume it — the collector, Fluent Bit, the tracing path, the
-dashboards — lands in Phase 10. Nothing in Phase 8 references it, and its
+that would consume it (the collector, Fluent Bit, the tracing path, the
+dashboards) lands in Phase 10. Nothing in Phase 8 references it, and its
 done-condition does not depend on it. Building it here would have added a
 component with no consumers to tick a list item.
 
@@ -2263,11 +2263,11 @@ docs(runbooks): add checkout timeout rate runbook
 docs(runbooks): add inventory latency runbook
 docs(runbooks): add payment gateway errors runbook
 docs(runbooks): add payment decline rate runbook
-    + 4 unplanned: "add {order,checkout,inventory,payment} ... depth runbooks"
-      — the 11 depth runbooks, so retrieval must disambiguate WITHIN a service
+    + 4 unplanned: "add {order,checkout,inventory,payment} ... depth runbooks",
+      the 11 depth runbooks, so retrieval must disambiguate WITHIN a service
 feat(knowledge): add runbook indexer with sha256 change detection
     + "add runbook chunker with content-addressed chunk ids" and
-      "add incremental indexing reconciliation" — the pure cores the
+      "add incremental indexing reconciliation", the pure cores the
       indexer is a shell over
 feat(knowledge): add elasticsearch dense vector index setup
     -> shipped under feat(plugin-knowledge-elastic): the mapping lives in
@@ -2310,8 +2310,8 @@ test(knowledge): pre-register the rank metric and its stability floor
 
 Why each was needed:
 
-- **The incremental-pickup e2e** proves the phase's central claim — adding a
-  runbook re-embeds only that runbook, and the new content is then retrievable —
+- **The incremental-pickup e2e** proves the phase's central claim (adding a
+  runbook re-embeds only that runbook, and the new content is then retrievable)
   on real Elasticsearch, gateway, OpenAI, and Postgres together. The planned
   `test(e2e): add knowledge-assisted rca test` covers the reasoner using
   retrieved content, which is a different claim.
@@ -2328,10 +2328,10 @@ Why each was needed:
   retrieval works; this measures what each stage contributes.
 - **The second gateway token** is a hard prerequisite: reranking calls the
   gateway in `reason` mode, the service held only an `embed` grant, and "one
-  token = one mode" is a Locked Decision — so it needed a second token, not a
+  token = one mode" is a Locked Decision, so it needed a second token, not a
   widened one.
 
-### `feat(knowledge): add cross-encoder reranking` — implemented, then REMOVED
+### `feat(knowledge): add cross-encoder reranking`: implemented, then REMOVED
 
 The deliverable was built in full (pure core, gateway client, wiring), measured
 against a criterion pre-registered before the stage existed, and then removed.
@@ -2341,16 +2341,16 @@ the predictions, `tests/retrieval/baseline-reranked.json` holds the result with
 
 At 20 repeats per probe, reranking:
 
-1. **did not reliably fix either target** — the depth case reached rank 1 in 9
+1. **did not reliably fix either target**: the depth case reached rank 1 in 9
    runs of 20, the repair case in 16 of 20;
-2. **was the pipeline's only source of run-to-run variance** — filter, kNN and
+2. **was the pipeline's only source of run-to-run variance**: filter, kNN and
    RRF return identical ranks on all 17 probes at n=20;
 3. **destabilised a probe** that had been rank 1 at every earlier stage;
 4. **cost a `reason`-mode LLM call on every incident.**
 
 It improved the average, which is not the same as improving the system. An
 on-call engineer sees one retrieval, not a distribution, so 16-in-20 means one
-incident in five grounds the RCA in the wrong runbook — and differently on
+incident in five grounds the RCA in the wrong runbook, and differently on
 different days for the same alert. Deterministic and slightly worse beats better
 on average but unpredictable, when each incident is a single draw and the result
 has to be debuggable afterwards.
@@ -2360,10 +2360,10 @@ step, and the plan's retrieval strategy (step 6) does not describe what is built
 `retrieval.py` carries the same summary where the stage used to be, so the
 absence reads as a finding rather than an oversight.
 
-An honest note on what this cost: the stage was built before it was measured,
+A note on what this cost: the stage was built before it was measured,
 because the pre-registered criterion needed something to measure. That order was
-deliberate and the work was not wasted — the negative result is only credible
-because the implementation was a real one — but it does mean a full slice of
+deliberate and the work was not wasted: the result is only credible
+because the implementation was a real one, but it does mean a full slice of
 code was written, proven, and deleted.
 
 `feat(knowledge): add hybrid bm25 and knn retrieval with rrf` was implemented as
@@ -2392,7 +2392,7 @@ tests/e2e/test_knowledge_assisted_rca.py
 
 Three items listed here as outstanding during the phase were closed before it
 ended: the indexer entrypoint (`make index`), `status: fixture` carried through
-to the context API, and the e2e gateway-port reconciliation — whose fix also
+to the context API, and the e2e gateway-port reconciliation, whose fix also
 made an explicitly-set-but-unreachable `RADAR_GATEWAY_URL` FAIL rather than skip,
 since a skip there reads as "opted out" when the truth is "misconfigured".
 
@@ -2453,7 +2453,7 @@ accumulate silently (same discipline as Phase 8's "Added during implementation")
 Both the "Git State Per Phase" line for Phase 9 (`+ apps/feedback-service
 plugins/notifications`) and the commit list above are wrong about this phase's
 footprint. They describe Phase 9 as feedback-service and the Slack plugin only.
-Stage 1 — the ingestion-side incident lifecycle — is entirely in `apps/ingestion`
+Stage 1, the ingestion-side incident lifecycle, is entirely in `apps/ingestion`
 and `packages/database`, with no feedback-service and no Slack:
 
 ```
@@ -2464,8 +2464,8 @@ feat(ingestion): resolve incidents when their last firing alert resolves
 ```
 
 Why it belongs here and not in an earlier phase: closure is a lifecycle
-guarantee, and the build order deliberately proves the lifecycle end to end —
-Alertmanager `resolved` webhook -> alerts flip -> incident resolves — BEFORE any
+guarantee, and the build order deliberately proves the lifecycle end to end
+(Alertmanager `resolved` webhook -> alerts flip -> incident resolves) BEFORE any
 Slack surface exists, so the closure path is provable without a bot. Pulling it
 into Phase 5 (ingestion) would have built incident *resolution* before incidents
 had a downstream that cares; deferring it into the Slack work would have tangled a
@@ -2484,30 +2484,30 @@ The ADR 0016 amendments this stage required (feedback-service owns
 Phase 9 was built in five stages plus a feedback-metrics close-out. Both
 done-conditions hold:
 
-1. **mock alert -> RCA card -> 👍 creates a feedback row** — stages 2–3.
-2. **`@radar open` returns open incidents in Slack** — stage 4, proven end to end
+1. **mock alert -> RCA card -> 👍 creates a feedback row**: stages 2–3.
+2. **`@radar open` returns open incidents in Slack**: stage 4, proven end to end
    through the wired Socket Mode listener, not just the parser unit.
 
-- **Stage 1 — incident lifecycle** (ingestion + `packages/database`): the validated
+- **Stage 1, incident lifecycle** (ingestion + `packages/database`): the validated
   `transition_status` state machine with its audit log, and the Alertmanager
   `resolved` path that flips alerts and resolves an incident when its last firing
   alert clears. Built before any Slack surface so closure is provable without a bot
   (see the footprint note above).
-- **Stage 2 — RCA delivery**: the Slack notification backend, the RCA card
+- **Stage 2, RCA delivery**: the Slack notification backend, the RCA card
   formatter, at-least-once delivery on `recommendation.created` (post then record,
   one card under a row lock held across the post), and the `open -> investigating`
   transition gated on delivery
   ([ADR 0016](adr/0016-incident-lifecycle-state-machine.md) Amendment 1).
-- **Stage 3 — interactive callbacks**: the neutral `NotificationInteraction`
+- **Stage 3, interactive callbacks**: the neutral `NotificationInteraction`
   contract, the Socket Mode source + `chat.update`, the strict callback parser
-  (deep-treatment — it writes against the wrong recommendation or resolves the wrong
+  (deep-treatment: it writes against the wrong recommendation or resolves the wrong
   incident if it mis-parses), and the handler that writes 👍/👎 rows or resolves the
   incident, the concurrent-resolve loser recording the forensic
   `incident.invalid_transition` audit and returning benignly.
 - **feedback-metrics**: `radar_feedback_total{sentiment}`, incremented after the row
   commits so the counter counts recorded feedback, never attempted.
-- **Stage 4 — the `@radar` bot**: the neutral `BotMention` contract, `app_mention`
-  received over the same socket, the command parser (the one parse surface — bot
+- **Stage 4, the `@radar` bot**: the neutral `BotMention` contract, `app_mention`
+  received over the same socket, the command parser (the one parse surface: bot
   handle stripped first, closed verb set, `<id>` validated at parse), the read
   queries as repository methods in `packages/database`, and the atomic wire-up that
   turns the bot on: parse -> query -> in-thread reply, with the `bot_max_rows` cap
@@ -2515,16 +2515,16 @@ done-conditions hold:
 
 ### Deferred, with reasons
 
-- **The correction modal** (a 📝 on the RCA card capturing a human's fix) — the
+- **The correction modal** (a 📝 on the RCA card capturing a human's fix): the
   consumer that re-reasons over a correction does not exist yet, so a captured
   correction would land in a `feedback` row nobody reads. Deferred until something
   acts on it; `correction_text` stays reserved on the schema and the contract.
-- **`@radar close`** (`resolved -> closed`) — the state machine has the edge and
+- **`@radar close`** (`resolved -> closed`): the state machine has the edge and
   `transition_status` stamps `closed_at`, but no caller reaches `closed`
   ([ADR 0016](adr/0016-incident-lifecycle-state-machine.md) Amendment 3).
   The bot is read-only in v1; a state-changing command is a different
   rigor tier and lands when close is actually wanted.
-- **True ephemeral bot replies** — `BotResponse.ephemeral` exists on the contract,
+- **True ephemeral bot replies**: `BotResponse.ephemeral` exists on the contract,
   but the notification backend has no `chat.postEphemeral` (which needs a user id
   and is not threadable). v1 posts a threaded in-thread reply instead; real
   ephemeral lands if and when the backend grows the call.
@@ -2532,7 +2532,7 @@ done-conditions hold:
 ### Limitation
 
 The bot is **read-only and best-effort**. A mention is acked before it is handled
-(Slack's ~3s Socket Mode window), so a lost reply is a re-ask, not a retry — the
+(Slack's ~3s Socket Mode window), so a lost reply is a re-ask, not a retry: the
 deliberate trade for an interactive surface, the same one the interaction callbacks
 make. No `@radar` command mutates state.
 
@@ -2554,18 +2554,18 @@ plugins/traces/elastic/                              # deferred from Phase 8
 ```
 
 All config lands in this repository under `deploy/`, not in a separate
-radar-infra repo — see ADR 0018, which retired it.
+radar-infra repo (see ADR 0018, which retired it).
 
 **The dev stack's Prometheus is deliberately unwired until here.**
-`deploy/prometheus/alerting-rules.yml` exists and is proven — two e2e tests mount
-it against a real Prometheus and drive an alert through to ingestion — but
+`deploy/prometheus/alerting-rules.yml` exists and is proven (two e2e tests mount
+it against a real Prometheus and drive an alert through to ingestion), but
 nothing in `deploy/compose/` mounts it, so the dev Prometheus runs on its default
 config with no rules and no scrape targets.
 
 Mounting the rules WITHOUT scrape configs would be worse than leaving it empty:
 every alert would sit permanently inactive with no metrics behind it, looking
 configured while being structurally unable to fire. Rules and scrape targets
-land together, here, with alertmanager — which is what makes the
+land together, here, with alertmanager, which is what makes the
 scrape -> fire -> webhook path real rather than declared.
 
 Commits:
@@ -2582,7 +2582,7 @@ docs(operations): add vault secret rotation runbook
 Done when: single mock alert traceable end to end in Kibana APM by correlation_id alone.
 LLM fallback alert fires when gateway is mocked to fail.
 
-**Prerequisite for step 12 — two incident-lifecycle metrics were defined but never
+**Prerequisite for step 12: two incident-lifecycle metrics were defined but never
 observed (DONE).** `radar_incident_duration_seconds` and `radar_incidents_total`
 existed in `radar_telemetry.metrics` but nothing recorded them: the duration
 histogram had zero observations and the incidents counter was never incremented
@@ -2592,17 +2592,17 @@ opened" panels read "No data". Step 7 left them empty by design (config-only).
 
 A dedicated, labeled instrumentation commit (with its own tests, proven
 mutation-style) then wired the observations, moving each metric onto the service
-that PRODUCES it — the bundled `IncidentMetrics` family dissolved into
+that PRODUCES it: the bundled `IncidentMetrics` family dissolved into
 `IngestionMetrics`, `ReasonerMetrics`, and `FeedbackMetrics`:
 - ingestion increments `radar_incidents_total{service,severity}` when it opens an
   incident (a dedup attach or a resolve does not move it);
 - the reasoner observes `radar_incident_duration_seconds` at RECOMMENDATION
-  creation, measuring `recommendation.created_at - incident.opened_at` — i.e.
+  creation, measuring `recommendation.created_at - incident.opened_at`, i.e.
   INGESTION-TO-RECOMMENDATION (pipeline) latency, NOT open-to-resolution (which
   would fold in human-loop time). The metric's misleading "open-to-resolution"
   help text was corrected in that commit.
 
-Step 12 then cleared the panels' "[pending instrumentation]" placeholders — they
+Step 12 then cleared the panels' "[pending instrumentation]" placeholders; they
 populate from the live metrics now. There was no literal "~50s" figure to delete;
 a REPRESENTATIVE p50/p95 is a load measurement, so the real number is deferred to
 Phase 13's load test (the in-process pipeline would only yield a small-sample,
@@ -2630,7 +2630,7 @@ docs: add adr 0012 cd approach
 docs: add cluster connectivity setup guide
 ```
 
-**Deferred from Phase 10 — `deploy/otel/` config drift check.** Two config files
+**Deferred from Phase 10: `deploy/otel/` config drift check.** Two config files
 under `deploy/otel/` each exist in two places that MUST match, because compose
 needs a mountable file while a static k8s manifest needs the content inline:
 
@@ -2640,8 +2640,8 @@ needs a mountable file while a static k8s manifest needs the content inline:
   `traces-index-template.yaml`.
 - `deploy/fluent-bit/parsers.conf` ↔ the `parsers.conf` key in the
   `fluent-bit-config` ConfigMap in `fluent-bit-daemonset.yaml`. (The two
-  `fluent-bit.conf` files legitimately DIFFER — compose tails `.dev-run`, k8s
-  tails container logs — so only the parser is a byte-identical pair.)
+  `fluent-bit.conf` files legitimately DIFFER: compose tails `.dev-run`, k8s
+  tails container logs, so only the parser is a byte-identical pair.)
 
 Phase 10 keeps each pair byte-identical by hand; nothing structural prevents them
 drifting silently. Add a CI job that, for each pair, extracts the ConfigMap's
@@ -2649,12 +2649,12 @@ embedded value and asserts it equals the standalone file verbatim, failing the
 build on any divergence. Same assert-don't-trust discipline as the
 `deploy/`-only-change guard above.
 
-**CI prerequisite — kubeconform needs schema-repo egress.** The Phase 10
+**CI prerequisite: kubeconform needs schema-repo egress.** The Phase 10
 kubeconform proof (`make kubeconform` / `tests/e2e/test_kubeconform.py`, in the
 default suite via `-m 'not live'`) runs the pinned `ghcr.io/yannh/kubeconform`
 image, which fetches the Kubernetes JSON schemas from the `kubernetes-json-schema`
 repo (raw.githubusercontent.com) at run time. The CI runner therefore needs Docker
-AND network egress to that host; without it the check reports "CANNOT TRUST —
+AND network egress to that host; without it the check reports "CANNOT TRUST:
 ERROR(s): schema-fetch / network egress" (exit 2), deliberately distinct from a
 manifest actually being invalid. If CI must run air-gapped, pre-cache the schemas
 and point kubeconform at them with `-schema-location`.
@@ -2664,7 +2664,7 @@ under `deploy/` triggers no application build. Merge deploys it.
 
 The second clause is not a nice-to-have. ADR 0018 retired the radar-infra
 repository on the argument that path-based CI delivers the same release-cadence
-isolation the split existed for — so `deploy/`-changes-nothing IS that decision's
+isolation the split existed for, so `deploy/`-changes-nothing IS that decision's
 justification. Until CI enforces it, the property is asserted and not proven, and
 the single-repo decision ships unverified. Pin it with a test that fails if a
 `deploy/`-only change queues an application build.
@@ -2685,7 +2685,7 @@ Chart must have: resource limits, probes, Vault init-container, RBAC, HPA for
 ingestion and llm-gateway, correlation rules and plan templates as ConfigMaps,
 configurable backend providers.
 
-**Deferred from Phase 10 — authenticated Alertmanager → ingestion.** Ingestion
+**Deferred from Phase 10: authenticated Alertmanager → ingestion.** Ingestion
 authenticates `POST /alerts/prometheus` with the `X-Radar-Webhook-Token` header
 (ADR 0011). Alertmanager v0.27 (the compose pin) can send `Authorization` /
 basic-auth but not an arbitrary custom header, so `deploy/prometheus/alertmanager.yml`
@@ -2693,7 +2693,7 @@ wires the webhook to ingestion as a dev convenience that 401s (documented at the
 receiver). Real authenticated delivery needs an Alertmanager with
 `http_config.http_headers` (≥ v0.28); bump the image and set the token header from
 the mounted secret when the k8s wiring lands. Phase 10's scrape → fire → webhook
-proof does not depend on it — `tests/e2e/test_real_prometheus_alert.py` asserts
+proof does not depend on it: `tests/e2e/test_real_prometheus_alert.py` asserts
 the alert reaches a webhook receiver with the right labels.
 
 Commits:
@@ -2717,7 +2717,7 @@ Done when: helm install deploys all services. All readiness probes pass.
 New work:
 - Load test: 100 concurrent mock alerts, p50/p95/p99 from ingestion to recommendation.
   This is where the incident-pipeline latency panel (`radar_incident_duration_seconds`)
-  gets its REPRESENTATIVE p50/p95 — deferred here from Phase 10 step 12, whose
+  gets its REPRESENTATIVE p50/p95, deferred here from Phase 10 step 12, whose
   in-process pipeline could only yield a small-sample, best-case (queueing-compressed)
   number.
 - Threat model document
@@ -2733,7 +2733,7 @@ docs(security): add threat model
 fix: address gaps from security audit
 ```
 
-Done when: load test results documented — including the representative p50/p95 read off
+Done when: load test results documented, including the representative p50/p95 read off
 the incident-pipeline latency panel (deferred from Phase 10 step 12). No data loss under
 load. Threat model written.
 
@@ -2805,7 +2805,7 @@ The only thing that matters until Phase 7 is complete:
 
 ```
 POST /alerts/mock (or a crafted /alerts/prometheus body via a platform-sim
-         chaos endpoint — see tests/e2e/test_platform_sim_alert_path.py)
+         chaos endpoint, see tests/e2e/test_platform_sim_alert_path.py)
   |
 ingestion
   normalize -> fingerprint -> dedup -> INSERT incident + outbox_event (one tx)
@@ -2932,12 +2932,12 @@ Full ADRs live in [adr/](adr/). They were previously appended to this
 document in full, which duplicated the files and collided with their
 numbering; the plan now links them.
 
-- [ADR 0003 — Postgres Transactional Outbox for All Agent Communication](adr/0003-postgres-outbox.md)
-- [ADR 0019 — No LangChain, LangGraph, or LiteLLM](adr/0019-no-llm-frameworks.md)  *(was ADR 0004 inline)*
-- [ADR 0020 — Static Token Auth for Internal Services in V1](adr/0020-static-token-auth.md)  *(was ADR 0013 inline)*
-- [ADR 0014 — Event Schema Versioning Rules](adr/0014-event-schema-versioning.md)
-- [ADR 0015 — Database Migration Rules](adr/0015-database-migration-rules.md)
-- [ADR 0016 — Incident Lifecycle State Machine](adr/0016-incident-lifecycle-state-machine.md)
-- [ADR 0017 — Dead Letter Replay Strategy](adr/0017-dead-letter-replay.md)
+- [ADR 0003: Postgres Transactional Outbox for All Agent Communication](adr/0003-postgres-outbox.md)
+- [ADR 0019: No LangChain, LangGraph, or LiteLLM](adr/0019-no-llm-frameworks.md)  *(was ADR 0004 inline)*
+- [ADR 0020: Static Token Auth for Internal Services in V1](adr/0020-static-token-auth.md)  *(was ADR 0013 inline)*
+- [ADR 0014: Event Schema Versioning Rules](adr/0014-event-schema-versioning.md)
+- [ADR 0015: Database Migration Rules](adr/0015-database-migration-rules.md)
+- [ADR 0016: Incident Lifecycle State Machine](adr/0016-incident-lifecycle-state-machine.md)
+- [ADR 0017: Dead Letter Replay Strategy](adr/0017-dead-letter-replay.md)
 
 See [adr/](adr/) for the complete set, including those never inlined here.

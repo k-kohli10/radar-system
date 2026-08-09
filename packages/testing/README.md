@@ -2,7 +2,7 @@
 
 Shared pytest fixtures for RADAR suites that need a **real Postgres**.
 
-Several of RADAR's guarantees *are* Postgres guarantees — `FOR UPDATE SKIP
+Several of RADAR's guarantees *are* Postgres guarantees: `FOR UPDATE SKIP
 LOCKED` row locking, transaction-scoped `NOW()`, deferrable foreign keys, real
 concurrent transactions. None of them exist against SQLite and a mock has no
 locking at all, so the suites that assert them need a running Postgres and must

@@ -61,7 +61,7 @@ chaos-driven. The simulator does not simulate traffic, so those two are exposed
 for scraping completeness and read zero at rest.
 
 Inventory latency is a **gauge holding a p95**, not a histogram. A histogram
-cannot be pinned — `histogram_quantile` over `rate(..._bucket[5m])` needs real
+cannot be pinned: `histogram_quantile` over `rate(..._bucket[5m])` needs real
 observations accruing over time, which the deadline design cannot produce, and
 faking them would couple the metric to scrape cadence.
 
@@ -69,7 +69,7 @@ faking them would couple the metric to scrape cadence.
 
 Two request shapes, because gauges and counters behave differently.
 
-**Gauges** — `/chaos/order-failures`, `/chaos/checkout-timeouts`,
+**Gauges**: `/chaos/order-failures`, `/chaos/checkout-timeouts`,
 `/chaos/payment-errors`:
 
 ```json
@@ -81,7 +81,7 @@ the gauge returns to its `0.0` baseline. There is no background reset task: a
 spike stores a monotonic **deadline** and the gauge value is computed from it at
 scrape time: active while `now < deadline`, baseline afterwards.
 
-**Absolute gauges** — `/chaos/inventory-latency`, `/chaos/order-memory`:
+**Absolute gauges**: `/chaos/inventory-latency`, `/chaos/order-memory`:
 
 ```json
 {"value": 1.5, "duration_seconds": 120}
@@ -94,7 +94,7 @@ not capped at 1.0. The ratio endpoints keep their `0.0-1.0` bound: it rejects
 `{"rate": 15}` from someone who meant 15%, which would otherwise breach every
 ratio rule at once while looking like a successful spike.
 
-**Counters** — `/chaos/payment-declines`:
+**Counters**: `/chaos/payment-declines`:
 
 ```json
 {"per_second": 10.0, "duration_seconds": 300}
@@ -104,14 +104,14 @@ A counter cannot be pinned: what the alert rule reads is `rate()`, the slope, so
 the metric has to *evolve* rather than hold. Each scrape advances the counter by
 `per_second × elapsed`, counting only time inside the active window, so two
 scrapes apart genuinely differ. `per_second` is events per second and is not
-capped at 1.0. Whole events only — a fractional remainder is carried to the next
+capped at 1.0. Whole events only: a fractional remainder is carried to the next
 scrape rather than rounded away.
 
 Note that the counter only moves when something scrapes `/metrics`. That is not
 a limitation: with no scrapes there is no `rate()` to observe in the first place.
 
 `POST /chaos/reset` clears every scenario immediately. It stops the decline ramp
-but **does not rewind** the counter — a counter going backwards tells Prometheus
+but **does not rewind** the counter: a counter going backwards tells Prometheus
 the process restarted, and `rate()` discards that interval, which would corrupt
 the very query the alert rule runs.
 

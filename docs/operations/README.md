@@ -1,6 +1,6 @@
 # RADAR operations runbooks
 
-Runbooks for **operating RADAR itself** — what an on-call engineer does when a
+Runbooks for **operating RADAR itself**: what an on-call engineer does when a
 RADAR service-health alert fires or a secret needs rotating.
 
 These are distinct from [`docs/runbooks/`](../runbooks/), which is the
@@ -16,4 +16,4 @@ and reads off the Grafana dashboards in [`deploy/grafana/`](../../deploy/grafana
 |---|---|---|
 | [LLM gateway failure](llm-gateway-failure.md) | `LLMTemplateFallbackActive` | `llm-gateway`, `incident-pipeline` |
 | [Outbox backlog](outbox-backlog.md) | `OutboxBacklogHigh` | `outbox-health` |
-| [Vault secret rotation](vault-secret-rotation.md) | — (procedure; a botched rotation *surfaces* as the two alerts above) | `radar-overview` |
+| [Vault secret rotation](vault-secret-rotation.md) | N/A (procedure; a botched rotation *surfaces* as the two alerts above) | `radar-overview` |
