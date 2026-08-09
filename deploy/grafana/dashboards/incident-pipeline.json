@@ -24,7 +24,7 @@
       "id": 1,
       "type": "timeseries",
       "title": "Incidents opened (/s)",
-      "description": "Reads 'No data' until radar_incidents_total is instrumented: the counter is defined but never incremented (ingestion should count each incident it opens). Wired in the same pre-step-12 instrumentation commit as the latency metric.",
+      "description": "Rate of incidents opened. Instrumented: ingestion increments radar_incidents_total{service,severity} on each incident it opens (a dedup attach or a resolve does not move it).",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -163,8 +163,8 @@
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Ingestion->recommendation latency p50/p95 (s) [pending instrumentation]",
-      "description": "Reads 'No data' until radar_incident_duration_seconds is instrumented. That histogram is defined but never observed yet; a dedicated pre-step-12 commit wires the .observe() to measure INGESTION-TO-RECOMMENDATION latency (recommendation.created_at - incident.created_at), i.e. pipeline latency, NOT open-to-resolution (which would include human-loop time). Step 12 reads p50/p95 off this panel once populated.",
+      "title": "Ingestion->recommendation latency p50/p95 (s)",
+      "description": "Ingestion-to-recommendation pipeline latency: the reasoner observes radar_incident_duration_seconds once per recommendation, measuring recommendation.created_at - incident.opened_at (both Postgres now(), one clock), i.e. pipeline latency, NOT open-to-resolution (which would include human-loop time). The panel is live and fills as recommendations are produced; a representative p50/p95 is measured under load in Phase 13 (100 concurrent alerts).",
       "gridPos": {
         "h": 8,
         "w": 12,
