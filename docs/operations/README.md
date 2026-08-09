@@ -10,7 +10,10 @@ RADAR's own failure modes.
 
 Each runbook maps to the RADAR service-health alerts in
 [`deploy/prometheus/radar-service-alerts.yml`](../../deploy/prometheus/radar-service-alerts.yml)
-and reads off the Grafana dashboards in [`deploy/grafana/`](../../deploy/grafana/).
+and reads off the Grafana dashboards in [`deploy/grafana/`](../../deploy/grafana/). How
+those alerts, dashboards, traces, and logs fit together (and why RADAR self-alerts go to
+a blackhole instead of becoming incidents) is drawn in
+[`docs/architecture/observability.md`](../architecture/observability.md).
 
 | Runbook | Alert | Dashboard |
 |---|---|---|

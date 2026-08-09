@@ -92,7 +92,7 @@ specification.
 | Path | Purpose |
 |---|---|
 | [`docs/adr/`](docs/adr/) | Architectural decision records: why, not just what |
-| [`docs/architecture/`](docs/architecture/) | System overview, agent pipeline, data model, sequence flows |
+| [`docs/architecture/`](docs/architecture/) | System overview, agent pipeline, data model, sequence flows, observability |
 | [`docs/operations/`](docs/operations/) | Runbooks for operating RADAR itself |
 | [`docs/runbooks/`](docs/runbooks/) | Runbooks about the target services RADAR reasons over |
 | [`docs/glossary.md`](docs/glossary.md) | Terminology used throughout the codebase and docs |
