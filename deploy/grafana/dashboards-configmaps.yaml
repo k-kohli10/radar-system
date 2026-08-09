@@ -747,7 +747,7 @@ data:
           "id": 1,
           "type": "timeseries",
           "title": "Incidents opened (/s)",
-          "description": "Rate of incidents opened. Instrumented: ingestion increments radar_incidents_total{service,severity} on each incident it opens (a dedup attach or a resolve does not move it).",
+          "description": "Rate of incidents opened. Instrumented: ingestion increments radar_incidents_total{service,severity} on each incident it opens (a dedup attach or a resolve does not move it). Grouped by exported_service: the metric's own 'service' label (the affected service) is renamed by Prometheus when it collides with the scrape target's 'service' label (the RADAR service exporting it).",
           "gridPos": {
             "h": 8,
             "w": 12,
@@ -772,8 +772,8 @@ data:
                 "type": "prometheus",
                 "uid": "radar-prometheus"
               },
-              "expr": "sum by (service, severity) (rate(radar_incidents_total[5m]))",
-              "legendFormat": "{{service}} {{severity}}",
+              "expr": "sum by (exported_service, severity) (rate(radar_incidents_total[5m]))",
+              "legendFormat": "{{exported_service}} {{severity}}",
               "refId": "A"
             }
           ]
