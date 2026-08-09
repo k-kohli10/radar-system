@@ -16,8 +16,7 @@ from uuid import UUID
 
 from opentelemetry import trace
 from opentelemetry.util.types import AttributeValue
-from radar_common import CORRELATION_ID_KEY
-from radar_common import bind_correlation_id as _bind_log_correlation_id
+from radar_common import CORRELATION_ID_KEY, bind_log_correlation_id
 
 
 def bind_correlation_id(correlation_id: UUID | str) -> None:
@@ -27,7 +26,7 @@ def bind_correlation_id(correlation_id: UUID | str) -> None:
     ``radar_common``) and the active span becomes searchable by it in Kibana APM.
     """
     value = str(correlation_id)
-    _bind_log_correlation_id(value)
+    bind_log_correlation_id(value)
     trace.get_current_span().set_attribute(CORRELATION_ID_KEY, value)
 
 

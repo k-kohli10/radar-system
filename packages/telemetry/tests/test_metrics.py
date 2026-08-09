@@ -24,14 +24,15 @@ EXPECTED_METRICS = {
     "radar_outbox_dead_letter_total",
     "radar_outbox_dispatch_duration_seconds",
     "radar_outbox_retry_total",
-    # incident pipeline
+    # ingestion
     "radar_incidents_total",
-    "radar_incident_duration_seconds",
+    # feedback
     "radar_feedback_total",
     # reasoner
     "radar_recommendations_total",
     "radar_recommendations_fallback_total",
     "radar_duplicate_recommendation_requests_total",
+    "radar_incident_duration_seconds",
 }
 
 
@@ -49,7 +50,8 @@ def test_all_metric_families_register_expected_names() -> None:
     rt.create_request_metrics(registry)
     rt.create_llm_metrics(registry)
     rt.create_outbox_metrics(registry)
-    rt.create_incident_metrics(registry)
+    rt.create_ingestion_metrics(registry)
+    rt.create_feedback_metrics(registry)
     rt.create_reasoner_metrics(registry)
     assert EXPECTED_METRICS <= _type_names(registry)
 

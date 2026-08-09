@@ -43,6 +43,8 @@ UNREACHABLE_GATEWAY = "http://127.0.0.1:1"
 FALLBACK_TOTAL = "radar_recommendations_fallback_total"
 RECOMMENDATIONS_TOTAL = "radar_recommendations_total"
 DUPLICATES_TOTAL = "radar_duplicate_recommendation_requests_total"
+DURATION_COUNT = "radar_incident_duration_seconds_count"
+DURATION_SUM = "radar_incident_duration_seconds_sum"
 
 
 @pytest_asyncio.fixture
@@ -120,6 +122,17 @@ def _envelope(incident_id: UUID, plan_id: UUID, correlation_id: UUID) -> dict[st
 
 async def _scrape(client: httpx.AsyncClient) -> str:
     return (await client.get("/metrics")).text
+
+
+def _unlabelled_sample(scrape: str, name: str) -> float | None:
+    """The value of the unlabelled sample line ``name`` in a scrape, or ``None``."""
+    for line in scrape.splitlines():
+        if line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == name:
+            return float(parts[1])
+    return None
 
 
 async def _post(client: httpx.AsyncClient, body: dict[str, Any]) -> httpx.Response:
@@ -244,3 +257,57 @@ async def test_the_concurrent_duplicate_is_counted_too(
     assert f"{DUPLICATES_TOTAL} 1.0" in scrape
     # One winner, one recommendation, counted once.
     assert f'{FALLBACK_TOTAL}{{reason="gateway_unavailable"}} 1.0' in scrape
+
+
+# --- the ingestion-to-recommendation latency histogram ------------------------
+
+
+async def test_incident_duration_is_observed_once_per_recommendation(
+    client: httpx.AsyncClient, db: Database
+) -> None:
+    """The pipeline latency lands exactly once, and only for a real WRITE.
+
+    It is observed at RECOMMENDATION creation, NOT at resolution — the incident here is
+    never resolved, so the old "open-to-resolution" reading would record nothing at all.
+    A count of exactly 1 is what proves the observation is keyed to the recommendation;
+    the positive, sub-minute sum is what proves it measures the incident's ``opened_at``
+    against the recommendation's ``created_at`` (a real span on one DB clock) rather
+    than a zero (created_at - created_at) or an unbounded human-loop duration.
+
+    Mutation that must turn this red: measure ``created_at - created_at`` (the sum goes
+    to 0.0), or observe open-to-resolution (nothing observed and the count is absent).
+    """
+    incident_id, plan_id, correlation_id = await _seed(db)
+
+    response = await _post(client, _envelope(incident_id, plan_id, correlation_id))
+    assert response.status_code == 200
+
+    scrape = await _scrape(client)
+    assert f"{DURATION_COUNT} 1.0" in scrape
+    total = _unlabelled_sample(scrape, DURATION_SUM)
+    assert total is not None and 0.0 < total < 60.0, (
+        f"expected a positive, sub-minute pipeline latency, got {total}"
+    )
+
+
+async def test_a_duplicate_adds_no_second_duration_observation(
+    client: httpx.AsyncClient, db: Database
+) -> None:
+    """Only a genuine recommendation is a data point.
+
+    The second event is a duplicate (one RCA per incident): it stores nothing, so it
+    must not add a latency observation — otherwise the histogram would count events, not
+    recommendations, and the average latency would be diluted by zero-work duplicates.
+
+    Mutation that must turn this red: move the observe above the duplicate early-return
+    in the route, so the second (no-write) event observes a second point.
+    """
+    incident_id, plan_id, correlation_id = await _seed(db)
+
+    first = await _post(client, _envelope(incident_id, plan_id, correlation_id))
+    second = await _post(client, _envelope(incident_id, plan_id, correlation_id))
+    assert first.json()["status"] == "processed"
+    assert second.json()["status"] == "already_recommended"
+
+    scrape = await _scrape(client)
+    assert f"{DURATION_COUNT} 1.0" in scrape, "a duplicate must not add a data point"

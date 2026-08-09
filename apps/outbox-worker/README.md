@@ -14,6 +14,6 @@ Delivery is at-least-once with idempotent consumers: **claim → commit → disp
 `audit_log` record) after the final attempt, and a reaper that recovers events
 stranded in `processing` by a crashed worker.
 
-It is a consumer, not an agent endpoint — there is **no** `POST /events` of its
+It is a consumer, not an agent endpoint: there is **no** `POST /events` of its
 own. It exposes `/healthz`, `/readyz`, `/metrics`, and token-guarded dead-letter
 admin endpoints (list + requeue).

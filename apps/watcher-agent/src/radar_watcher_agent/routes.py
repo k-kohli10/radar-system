@@ -39,9 +39,10 @@ from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
-from radar_common import EventsAuth, bind_correlation_id, get_logger
+from radar_common import EventsAuth, get_logger
 from radar_contracts import AlertNormalizedPayload, EventEnvelope
 from radar_database import Database, is_already_processed, mark_processed
+from radar_telemetry import bind_correlation_id
 
 from radar_watcher_agent.config import SERVICE_NAME
 from radar_watcher_agent.correlation import IncidentNotFoundError, correlate

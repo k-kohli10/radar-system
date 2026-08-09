@@ -1,0 +1,208 @@
+{
+  "uid": "incident-pipeline",
+  "title": "RADAR \u2014 Incident Pipeline",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "tags": [
+    "radar"
+  ],
+  "timezone": "utc",
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Incidents opened (/s)",
+      "description": "Rate of incidents opened. Instrumented: ingestion increments radar_incidents_total{service,severity} on each incident it opens (a dedup attach or a resolve does not move it). Grouped by exported_service: the metric's own 'service' label (the affected service) is renamed by Prometheus when it collides with the scrape target's 'service' label (the RADAR service exporting it).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "radar-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "radar-prometheus"
+          },
+          "expr": "sum by (exported_service, severity) (rate(radar_incidents_total[5m]))",
+          "legendFormat": "{{exported_service}} {{severity}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Plans created (/s)",
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "radar-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "radar-prometheus"
+          },
+          "expr": "sum by (outcome) (rate(radar_plans_created_total[5m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Recommendations (/s)",
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "radar-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "radar-prometheus"
+          },
+          "expr": "sum by (confidence) (rate(radar_recommendations_total[5m]))",
+          "legendFormat": "{{confidence}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Template fallbacks (/s)",
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "radar-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "radar-prometheus"
+          },
+          "expr": "sum by (reason) (rate(radar_recommendations_fallback_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Ingestion->recommendation latency p50/p95 (s)",
+      "description": "Ingestion-to-recommendation pipeline latency: the reasoner observes radar_incident_duration_seconds once per recommendation, measuring recommendation.created_at - incident.opened_at (both Postgres now(), one clock), i.e. pipeline latency, NOT open-to-resolution (which would include human-loop time). The panel is live and fills as recommendations are produced; a representative p50/p95 is measured under load in Phase 13 (100 concurrent alerts).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "radar-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {},
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "radar-prometheus"
+          },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(radar_incident_duration_seconds_bucket[10m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "radar-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(radar_incident_duration_seconds_bucket[10m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

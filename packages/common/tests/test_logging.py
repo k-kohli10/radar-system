@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import pytest
 from radar_common import (
-    bind_correlation_id,
+    bind_log_correlation_id,
     clear_context,
     configure_logging,
     get_logger,
@@ -55,7 +55,7 @@ def test_bound_correlation_id_rides_every_line(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     cid = uuid4()
-    bind_correlation_id(cid)
+    bind_log_correlation_id(cid)
     log = get_logger("demo")
     log.info("first")
     log.info("second")
@@ -66,7 +66,7 @@ def test_bound_correlation_id_rides_every_line(
 def test_clear_context_drops_correlation_id(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    bind_correlation_id(uuid4())
+    bind_log_correlation_id(uuid4())
     clear_context()
     get_logger("demo").info("after-clear")
     assert _last_line(capsys)["correlation_id"] is None

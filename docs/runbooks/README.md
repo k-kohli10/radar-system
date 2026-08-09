@@ -6,7 +6,7 @@ the corpus the knowledge-service indexes and the reasoner retrieves against.
 > **These are fixtures.** Every file here carries `status: fixture` in its
 > frontmatter. They are drafted to be structurally uniform and factually
 > plausible so retrieval and CRAG grading have real content to work
-> against — not to read as though a specific on-call engineer wrote them. A
+> against, not to read as though a specific on-call engineer wrote them. A
 > hand-editing pass for voice is deferred until before this repo is
 > portfolio-facing. `status: fixture` is the machine-visible marker for that
 > outstanding work; a runbook that has had the voice pass becomes
@@ -15,7 +15,7 @@ the corpus the knowledge-service indexes and the reasoner retrieves against.
 ## Frontmatter contract
 
 Every runbook begins with a YAML frontmatter block. These fields are the join
-keys between the corpus, the Postgres manifest, and the alerting rules — a typo
+keys between the corpus, the Postgres manifest, and the alerting rules; a typo
 in any of them fails **silently** (retrieval simply returns nothing, forever),
 which is why `tests/` asserts the join rather than trusting it.
 
@@ -65,7 +65,7 @@ The indexer chunks on **`##` (H2) section boundaries**, one chunk per section,
 with the document title prepended to each chunk as a breadcrumb so a chunk
 retrieved in isolation still says what it belongs to. `###` subsections stay
 with their parent H2 unless the section exceeds the size cap, in which case it
-splits at `###` — still a stable, author-visible boundary.
+splits at `###`, still a stable, author-visible boundary.
 
 **There is deliberately no overlap between chunks.** Overlap exists to rescue
 fixed-window chunking from cutting mid-thought; semantic section boundaries do
@@ -84,13 +84,13 @@ context and will read as a fragment.
 Keep sections in this order. It is what makes the corpus uniform enough for
 retrieval quality to be about *content* rather than about structural accidents.
 
-- `## Summary` — what is happening, in two or three sentences.
-- `## Symptoms` — what an engineer observes: alerts, dashboards, user reports.
-- `## Impact` — who is affected and how badly. Revenue-affecting or not.
-- `## Likely Causes` — ranked, most common first, each with its distinguishing
+- `## Summary`: what is happening, in two or three sentences.
+- `## Symptoms`: what an engineer observes: alerts, dashboards, user reports.
+- `## Impact`: who is affected and how badly. Revenue-affecting or not.
+- `## Likely Causes`: ranked, most common first, each with its distinguishing
   signal.
-- `## Investigation` — ordered, concrete steps. Name the actual tool and query.
-- `## Resolution` — the fix per cause, plus how to confirm it worked.
-- `## Escalation` — when to stop investigating and page someone, and whom.
-- `## Related` — links to adjacent runbooks. These are the near-misses retrieval
+- `## Investigation`: ordered, concrete steps. Name the actual tool and query.
+- `## Resolution`: the fix per cause, plus how to confirm it worked.
+- `## Escalation`: when to stop investigating and page someone, and whom.
+- `## Related`: links to adjacent runbooks. These are the near-misses retrieval
   has to rank correctly.

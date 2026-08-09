@@ -1,5 +1,5 @@
 {
-  "model": "opus",
+  "model": "claude-opus-4-8",
   "permissions": {
     "allow": [
       "Bash(git add:*)",

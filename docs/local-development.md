@@ -1,6 +1,6 @@
 # 🧑‍💻 Local Development
 
-From a clean laptop to six running services in about **ten minutes**, most of
+From a clean machine to nine running services in about **ten minutes**, most of
 that spent pulling Docker images while you grab a coffee. One script does the
 setup, one command starts the stack, and nothing secret ever touches the repo.
 
@@ -11,7 +11,7 @@ setup, one command starts the stack, and nothing secret ever touches the repo.
 ```bash
 scripts/bootstrap.sh   # checks tools, installs uv, generates .env, syncs deps
 make dev               # start the whole stack
-make ps                # watch all six services go healthy
+make ps                # watch all nine services come up
 ```
 
 That's the happy path. The rest of this guide explains each step, what it does
@@ -84,8 +84,9 @@ call an LLM or Slack do.
 make dev
 ```
 
-Six containers come up via Docker Compose. Every port binds to `127.0.0.1`
-**only**, so the dev stack is never exposed to your network.
+Nine containers come up via Docker Compose, plus a one-shot `es-traces-init` job
+that installs the Elasticsearch traces index template and exits. Every port binds
+to `127.0.0.1` **only**, so the dev stack is never exposed to your network.
 
 | Service | Version | URL | Credentials |
 |---|---|---|---|
@@ -93,8 +94,11 @@ Six containers come up via Docker Compose. Every port binds to `127.0.0.1`
 | 🔎 **Elasticsearch** | 8.16.0 | http://localhost:9200 | none · security off, localhost only |
 | 📊 **Kibana** | 8.16.0 | http://localhost:5601 | none |
 | 🔥 **Prometheus** | v2.55.0 | http://localhost:9090 | none |
+| 🚨 **Alertmanager** | v0.27.0 | http://localhost:9093 | none |
 | 📈 **Grafana** | 11.3.0 | http://localhost:3000 | `admin`, password in `.env` |
 | 🔐 **Vault** | 1.18.0 *(dev)* | http://localhost:8200 | root token in `.env` |
+| 🔭 **OTel Collector** | contrib 0.119.0 | OTLP `localhost:4317` / `:4318` | none |
+| 🪵 **Fluent Bit** | 3.2.2 | http://localhost:2020 | none |
 
 > ⏳ **First run pulls ~3–4 GB of images.** Every start after that takes
 > seconds.
@@ -105,8 +109,10 @@ Six containers come up via Docker Compose. Every port binds to `127.0.0.1`
 make ps
 ```
 
-All six should report `healthy` (Elasticsearch and Kibana take 30–60s to get
-there). Prefer to spot-check by hand?
+The seven services with health checks report `healthy` (Elasticsearch and Kibana
+take 30–60s to get there); `otel-collector` and `fluent-bit` define no health check
+and simply show `Up`. `es-traces-init` runs once and exits `0`. Prefer to spot-check
+by hand?
 
 ```bash
 curl -s http://localhost:9200/_cluster/health   # Elasticsearch
@@ -576,31 +582,52 @@ retries — the rest of the pipeline (ingestion → agents → reasoner) is unaf
 ### Complete e2e test
 
 Test the full pipeline by firing alerts that exercise three scenarios: retrieval-grounded RCAs,
-ungrounded RCAs (no runbook match), and LLM fallback (gateway down). The complete test takes
-~60 seconds:
+ungrounded RCAs (no runbook match), and LLM fallback (gateway down). The whole run takes about
+a minute, most of it the two live LLM calls.
+
+> ⚠️ **This posts to real Slack.** Completing the e2e drives the whole pipeline through
+> feedback-service, which posts a real RCA card per scenario to whatever Slack workspace the
+> stack is wired to (three cards). Run it against a personal or test channel, not a shared one.
+> If feedback-service is not ready (no real Slack tokens), the pipeline still runs and stores
+> the recommendations; only the Slack delivery step is skipped.
 
 ```bash
 TOK=$(cat ~/.radar-dev/secrets/ingestion/webhook_token_mock)
 fire() { curl -s -X POST http://127.0.0.1:8090/alerts/mock \
   -H "X-Radar-Webhook-Token: $TOK" -H "Content-Type: application/json" -d "$1"; echo; }
 
-# Test 1: grounded — runbook found, 5 chunks retrieved
+# how many recommendations exist now, so we can wait for ours to land
+count() { docker exec radar-postgres-1 psql -U radar -d radar -t \
+  -c "SELECT count(*) FROM recommendations;" | tr -d ' '; }
+base=$(count)
+
+# Test 1: grounded. A runbook covers this alert; CRAG keeps ~5 chunks.
 echo "=== Test 1: Grounded RCA (with runbook) ==="
 fire '{"service_name":"order-service","alert_name":"OrderServiceHighMemory","severity":"medium"}'
 
-# Test 2: ungrounded — right service, no runbook covers this
+# Test 2: ungrounded. Right service, but no runbook covers this alert.
 echo "=== Test 2: Ungrounded RCA (no runbook) ==="
 fire '{"service_name":"inventory-service","alert_name":"InventoryCustomerPiiExposedInLogs","severity":"high"}'
 
-# Test 3: fallback — LLM gateway is down, use synthesis fallback
+# WAIT for Tests 1 and 2 to commit BEFORE killing the gateway. Their LLM calls run
+# asynchronously a few seconds after ingestion, so killing the gateway too early makes
+# them fall back too, and all three come out as fallbacks instead of one.
+echo "Waiting for Tests 1 and 2 to land..."
+until [ "$(count)" -ge "$((base + 2))" ]; do sleep 2; done
+
+# Test 3: fallback. The LLM gateway is down, so the reasoner templates the RCA.
 echo "=== Test 3: Fallback RCA (LLM unavailable) ==="
 kill $(cat .dev-run/llm-gateway.pid)
-sleep 1
 fire '{"service_name":"checkout-service","alert_name":"CheckoutTimeoutRate","severity":"high"}'
+until [ "$(count)" -ge "$((base + 3))" ]; do sleep 2; done
+
+# Test 3 killed the gateway; restart it so the stack is healthy again.
+make dev-apps
 ```
 
-Each alert takes ~20–30s for the LLM to process. Use a different service per scenario: a repeat
-within 5 minutes deduplicates onto the open incident instead of creating a new one.
+A grounded or ungrounded alert takes a few seconds for the LLM; the fallback is near-instant,
+since it makes no LLM call. Use a different service per scenario: a repeat within 5 minutes
+deduplicates onto the open incident instead of creating a new one.
 
 ### Verify the results
 
@@ -617,12 +644,24 @@ FROM recommendations ORDER BY created_at DESC LIMIT 3;
 | scenario | is_fallback | retrieval | chunks | root_cause |
 |---|---|---|---|---|
 | grounded | `f` | `grounded` | 5 | cites the runbook's specifics |
-| ungrounded | `f` | `empty` | 0 | states no runbook covers it |
+| ungrounded | `f` | `grounded` | ~4 | states no runbook covers it (`confidence=low`) |
 | gateway down | `t` | `unavailable` | 0 | `llm_provider=none`, fallback text |
 
-`empty` means the grader judged nothing relevant; `unavailable` means retrieval
-failed outright (the gateway was down). Both leave the context empty — the
-distinction is recorded so an RCA's grounding stays auditable.
+The three `retrieval` outcomes are distinct and all recorded so an RCA's grounding
+stays auditable: `grounded` (CRAG kept relevant chunks), `empty` (the grader judged
+nothing relevant), and `unavailable` (retrieval failed outright, here because the
+gateway was down).
+
+Test 2 shows `grounded` with about four chunks, not `empty`, and that is expected. The
+planner has no template for `InventoryCustomerPiiExposedInLogs`, so it falls to
+`_default`, whose generic steps produce an alert-shaped query that grazes the inventory
+runbooks; CRAG keeps a few. The scenario still demonstrates honest no-coverage, but
+through the MODEL rejecting the irrelevant chunks ("No runbook covers this...",
+`confidence=low`) rather than through empty retrieval. This is the pre-registered
+Phase 8 boundary-instability appearing live: no-coverage detection is reliable for
+symptom-rich queries but boundary-unstable for the alert-shaped query an unknown alert
+produces (measured 2/5 empty). See the Phase 8 limitation note in
+[implementation_plan.md](implementation_plan.md) and its source in [roadmap.md](roadmap.md).
 
 Trace one incident end to end:
 
@@ -635,7 +674,7 @@ SELECT event_type, actor, created_at FROM audit_log
 `recommendation.created` is delivered by feedback-service (Phase 9): it posts the
 RCA card to Slack and moves the incident to `investigating`, adding
 `notification.delivered` and `incident.investigating` to the trail above. (It only
-delivers when feedback-service is ready — i.e. real Slack tokens are set; otherwise
+delivers when feedback-service is ready, i.e. real Slack tokens are set; otherwise
 the event retries and dead-letters, correct then and still requeueable.)
 
 ### Everyday use

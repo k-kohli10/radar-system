@@ -6,17 +6,17 @@ alertmanager, points them at a real platform-sim, and waits for an actual alert 
 arrive at an actual HTTP receiver. It is the artifact that says *yes, the declared rules
 work against a real evaluator* rather than only against a hand-built payload.
 
-OPT-IN, AND SKIPPED TWO WAYS
-----------------------------
-It needs Docker and takes ~2 minutes (the rule's ``for: 1m`` has to elapse), so it never
-runs by accident:
+IN THE DEFAULT SUITE, FAIL-LOUD
+-------------------------------
+This proves a done-condition, so it must not be silently skippable. It is ``infra``
+but not ``live``, so ``addopts = -m 'not live'`` includes it in the default suite
+(``make test``) and CI; without a working Docker it FAILS rather than skips. It
+needs Docker and takes ~2 minutes (the rule's ``for: 1m`` has to elapse), so the
+fast inner loop opts out via ``make test-quick`` (``-m 'not live and not infra'``)
+— but the full suite never does.
 
-- the ``infra`` marker is deselected by default (``addopts = -m 'not live and not
-  infra'``), so the normal suite, the pre-commit hook and CI skip it;
-- and even when opted in it SKIPS without a working Docker, so ``pytest -m infra`` on a
-  machine without Docker is a skip, not a red build.
-
-    pytest -m infra -s tests/e2e/test_real_prometheus_alert.py
+    make test-quick      # fast: no infra
+    make test            # full: includes this proof, fail-loud without Docker
 
 WHAT IT DELIBERATELY DOES NOT DO
 --------------------------------
@@ -47,6 +47,11 @@ import pytest
 import uvicorn
 from fastapi import FastAPI, Request
 
+# infra, and DELIBERATELY NOT `live`. The default suite runs `-m 'not live'`, so
+# being infra-but-not-live is the ONLY reason this done-condition proof stays in
+# `make test` and CI. Adding `live` here (or otherwise excluding infra by default)
+# would silently drop it from the default suite — exactly the false-green this
+# test exists to prevent. Do not mark it live.
 pytestmark = pytest.mark.infra
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -178,7 +183,11 @@ def _write_configs(tmp: Path, *, sim_port: int, receiver_port: int) -> None:
 
 def test_real_prometheus_fires_a_declared_rule_to_a_webhook(tmp_path: Path) -> None:
     if not _docker_works():
-        pytest.skip("Docker is not available; the real-Prometheus proof is opt-in")
+        # Fail-loud, NOT skip: this proof runs in the default suite, and a
+        # done-condition that silently skips when its dependency is down is a
+        # false green (the Phase 9 "293 skipped" lesson). No Docker here means the
+        # scrape -> fire -> webhook path went unproven — that is a failure.
+        pytest.fail("Docker is unavailable; the scrape->fire->webhook proof cannot run")
 
     from prometheus_client import CollectorRegistry
     from radar_platform_sim.main import create_app as create_sim_app

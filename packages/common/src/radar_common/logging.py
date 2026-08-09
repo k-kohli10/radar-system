@@ -2,14 +2,15 @@
 
 Every service logs one JSON object per line to stdout, which Fluent Bit ships to
 Elasticsearch. ``correlation_id`` is threaded through the whole incident
-pipeline, so it is bound once per request via :func:`bind_correlation_id` and
-then rides on every log line automatically through ``structlog`` context
-variables.
+pipeline, so it is bound once per request via :func:`bind_log_correlation_id`
+(or :func:`radar_telemetry.bind_correlation_id`, which also stamps the trace
+span) and then rides on every log line automatically through ``structlog``
+context variables.
 
 Usage::
 
     configure_logging(service_name="watcher-agent")
-    bind_correlation_id(event.correlation_id)
+    bind_log_correlation_id(event.correlation_id)
     log = get_logger(__name__)
     log.info("incident.opened", incident_id=str(incident.id))
 
@@ -70,9 +71,17 @@ def get_logger(name: str | None = None) -> FilteringBoundLogger:
     return cast(FilteringBoundLogger, structlog.get_logger(name))
 
 
-def bind_correlation_id(correlation_id: UUID | str) -> None:
+def bind_log_correlation_id(correlation_id: UUID | str) -> None:
     """Bind ``correlation_id`` so every subsequent log line in this context
-    carries it. Call once per request/event before doing any work."""
+    carries it. Call once per request/event before doing any work.
+
+    Named ``_log_`` deliberately: this binds the id to the LOG context only, not
+    to the current trace span. A request handler that wants the id on its span
+    too — so an incident is traceable in Kibana APM by correlation_id alone
+    (ADR 0008) — must call :func:`radar_telemetry.bind_correlation_id`, which
+    wraps this and also stamps the span. Confusing the two silently drops
+    correlation_id from traces; keeping the names distinct makes the choice
+    explicit at the import."""
     bind_contextvars(**{CORRELATION_ID_KEY: str(correlation_id)})
 
 

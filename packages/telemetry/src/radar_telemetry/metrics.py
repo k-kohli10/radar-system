@@ -1,9 +1,11 @@
 """Prometheus metric factories.
 
-The plan defines four metric families (see the Observability section). Each
-factory below builds one family and returns a frozen bundle of the metric
-objects; a service calls the factories it needs once at startup and renders them
-at ``/metrics`` with :func:`render_latest`.
+The plan's metric families (see the Observability section), one factory each: the
+platform-wide request family, then per-producer families — llm, outbox, ingestion,
+feedback, reasoner. Each factory builds one family and returns a frozen bundle of the
+metric objects; a service calls the factories it produces once at startup and renders
+them at ``/metrics`` with :func:`render_latest`. A metric lives with the service that
+PRODUCES it, so no service exports a counter it can never move.
 
 Factories take a ``registry`` (default: the global ``REGISTRY``) so tests can
 pass a fresh ``CollectorRegistry`` and avoid duplicate-registration errors.
@@ -169,27 +171,49 @@ def create_outbox_metrics(registry: CollectorRegistry = REGISTRY) -> OutboxMetri
 
 
 @dataclass(frozen=True)
-class IncidentMetrics:
-    """Incident pipeline business metrics."""
+class IngestionMetrics:
+    """ingestion's business metrics.
+
+    ``incidents_total`` used to sit on a shared ``IncidentMetrics`` family that only
+    feedback-service registered — so the counter for "an incident was opened" lived on
+    the one service that never opens one, and it sat at zero forever, indistinguishable
+    from "no incidents happened". A metric belongs to the service that PRODUCES it (the
+    same reasoning that moved the recommendation counters onto :class:`ReasonerMetrics`
+    below); ingestion is the only service that opens incidents, so the counter lives
+    here and is ticked at the open — see the ingestion route.
+    """
 
     incidents_total: Counter
-    incident_duration_seconds: Histogram
-    feedback_total: Counter
 
 
-def create_incident_metrics(registry: CollectorRegistry = REGISTRY) -> IncidentMetrics:
-    return IncidentMetrics(
+def create_ingestion_metrics(
+    registry: CollectorRegistry = REGISTRY,
+) -> IngestionMetrics:
+    return IngestionMetrics(
         incidents_total=Counter(
             "radar_incidents_total",
             "Total incidents opened.",
             ["service", "severity"],
             registry=registry,
         ),
-        incident_duration_seconds=Histogram(
-            "radar_incident_duration_seconds",
-            "Incident open-to-resolution duration in seconds.",
-            registry=registry,
-        ),
+    )
+
+
+@dataclass(frozen=True)
+class FeedbackMetrics:
+    """feedback-service's business metrics.
+
+    Only ``feedback_total``. This is what remains of the old ``IncidentMetrics`` family
+    after ``incidents_total`` moved to :class:`IngestionMetrics` and
+    ``incident_duration_seconds`` to :class:`ReasonerMetrics` — each to the service that
+    produces it, so no service exports a counter it can never move.
+    """
+
+    feedback_total: Counter
+
+
+def create_feedback_metrics(registry: CollectorRegistry = REGISTRY) -> FeedbackMetrics:
+    return FeedbackMetrics(
         feedback_total=Counter(
             "radar_feedback_total",
             "Total feedback submissions by sentiment.",
@@ -204,12 +228,16 @@ class ReasonerMetrics:
     """The reasoner's own business metrics.
 
     ``recommendations_total`` and ``recommendations_fallback_total`` used to sit on
-    :class:`IncidentMetrics`, and they are moved here because a metric belongs to the
-    service that PRODUCES it. Each agent registers only the family it owns (the planner
-    registers ``PlannerMetrics`` and nothing else), so leaving these on the incident
-    family meant the reasoner would have had to register ``incidents_total`` and
-    ``feedback_total`` as well — exporting two counters it can never increment, sitting
-    at zero forever, indistinguishable from "no incidents happened".
+    the old ``IncidentMetrics`` family, and they are moved here because a metric belongs
+    to the service that PRODUCES it. Each agent registers only the family it owns (the
+    planner registers ``PlannerMetrics`` and nothing else), so leaving these on the
+    incident family meant the reasoner would have had to register ``incidents_total``
+    and ``feedback_total`` as well — exporting two counters it can never increment,
+    sitting at zero forever, indistinguishable from "no incidents happened".
+
+    ``incident_duration_seconds`` is here for the same reason: it is OBSERVED at
+    recommendation creation (the reasoner is the only place the pipeline's end is
+    known), so the histogram lives with its producer though it is keyed to the incident.
 
     The names are unchanged, so nothing downstream of Prometheus notices the move.
     """
@@ -220,6 +248,8 @@ class ReasonerMetrics:
     recommendations_fallback_total: Counter
     #: Both duplicate paths: the pre-check AND the unique-index race.
     duplicate_recommendation_requests_total: Counter
+    #: Ingestion-to-recommendation pipeline latency, observed once per recommendation.
+    incident_duration_seconds: Histogram
 
 
 def create_reasoner_metrics(registry: CollectorRegistry = REGISTRY) -> ReasonerMetrics:
@@ -233,6 +263,16 @@ def create_reasoner_metrics(registry: CollectorRegistry = REGISTRY) -> ReasonerM
         duplicate_recommendation_requests_total=Counter(
             "radar_duplicate_recommendation_requests_total",
             "Total duplicate reasoning requests ignored (one RCA per incident).",
+            registry=registry,
+        ),
+        incident_duration_seconds=Histogram(
+            "radar_incident_duration_seconds",
+            # CORRECTED from the old "open-to-resolution": this measures
+            # INGESTION-TO-RECOMMENDATION (recommendation.created_at -
+            # incident.created_at) — the pipeline's own latency, NOT open-to-resolution,
+            # which would fold in unbounded human-loop time. Both timestamps are the
+            # DB's own now(), so the span is measured on one clock and is skew-free.
+            "Ingestion-to-recommendation pipeline latency in seconds.",
             registry=registry,
         ),
         recommendations_fallback_total=Counter(

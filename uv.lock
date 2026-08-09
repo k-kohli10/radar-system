@@ -27,6 +27,7 @@ members = [
     "radar-plugin-metrics-prometheus",
     "radar-plugin-notifications-slack",
     "radar-plugin-sdk",
+    "radar-plugin-traces-elastic",
     "radar-reasoner-agent",
     "radar-system",
     "radar-telemetry",
@@ -2726,6 +2727,35 @@ requires-dist = [
 dev = [
     { name = "mypy", specifier = "==2.1.0" },
     { name = "pytest", specifier = "==8.3.0" },
+]
+
+[[package]]
+name = "radar-plugin-traces-elastic"
+version = "0.1.0"
+source = { editable = "plugins/traces/elastic" }
+dependencies = [
+    { name = "elasticsearch", extra = ["async"] },
+    { name = "radar-contracts" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "elasticsearch", extras = ["async"], specifier = "==8.15.1" },
+    { name = "radar-contracts", editable = "packages/contracts" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = "==2.1.0" },
+    { name = "pytest", specifier = "==8.3.0" },
+    { name = "pytest-asyncio", specifier = "==0.24.0" },
 ]
 
 [[package]]

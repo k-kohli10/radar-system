@@ -1,0 +1,195 @@
+# RADAR OpenTelemetry Collector — Kubernetes DaemonSet.
+#
+# One collector per node in the `radar-infra` namespace, receiving OTLP from
+# RADAR pods and exporting spans to Elasticsearch in OTel-native mapping (ADR
+# 0008). Static manifest: kubeconform validates it (Phase 10, step 8). Proving it
+# actually schedules on a multi-node cluster needs the physical lab and is Phase
+# 12 — not attempted here.
+#
+# The ConfigMap below embeds deploy/otel/collector-config.yaml BYTE-IDENTICALLY.
+# Keep them in sync; a Phase 11 CI job asserts equality (see
+# docs/implementation_plan.md).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/part-of: radar
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/part-of: radar
+data:
+  # This value is deploy/otel/collector-config.yaml embedded byte-identically
+  # (Phase 11 CI asserts it). Edit the standalone file, then mirror it here.
+  collector-config.yaml: |
+    # RADAR OpenTelemetry Collector configuration.
+    #
+    # Edit only this file. deploy/otel/collector-daemonset.yaml embeds a copy in its
+    # ConfigMap; a Phase 11 CI job asserts the two are byte-identical (see
+    # docs/implementation_plan.md), so any change here must be mirrored there.
+    #
+    # Receives OTLP from every RADAR service and exports spans to Elasticsearch in
+    # OTel-native mapping (ADR 0008), viewed in Kibana APM. correlation_id rides as a
+    # span attribute and lands at attributes.correlation_id in the stored document —
+    # the sole join key the traces plugin (plugins/traces/elastic) queries a whole
+    # incident's trace by. Traces pipeline only: metrics stay on Prometheus scrape
+    # and logs on Fluent Bit, neither flowing through this collector.
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      # Refuses new data before the container hits its memory limit rather than being
+      # OOM-killed under a span burst.
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      # One bulk request to Elasticsearch per batch instead of one per span.
+      batch:
+        timeout: 5s
+
+    exporters:
+      elasticsearch:
+        endpoints:
+          - http://elasticsearch:9200
+        # OTel-native mapping: writes the traces-generic-default data stream, which
+        # Kibana 8.16 APM reads directly, and preserves span attributes under
+        # attributes.* so correlation_id is queryable at attributes.correlation_id.
+        mapping:
+          mode: otel
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [elasticsearch]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/part-of: radar
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector
+        app.kubernetes.io/part-of: radar
+    spec:
+      serviceAccountName: otel-collector
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      initContainers:
+        # Enforces Job-as-prerequisite ordering: block until the traces index
+        # template exists in Elasticsearch (installed by the es-traces-init Job in
+        # deploy/otel/traces-index-template.yaml), so the collector never starts
+        # exporting before its data stream can be created — the k8s equivalent of
+        # compose's service_completed_successfully. --retry-all-errors retries the
+        # 404 ES returns until the template is present.
+        - name: wait-for-traces-template
+          image: curlimages/curl:8.11.1
+          args:
+            - -fsS
+            - --retry
+            - "60"
+            - --retry-all-errors
+            - --retry-connrefused
+            - --retry-delay
+            - "2"
+            - -o
+            - /dev/null
+            - http://elasticsearch:9200/_index_template/radar-traces
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.119.0
+          args:
+            - --config=/etc/otel/collector-config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: health
+              containerPort: 13133
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+            items:
+              - key: collector-config.yaml
+                path: collector-config.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: otel-collector
+    app.kubernetes.io/part-of: radar
+spec:
+  selector:
+    app.kubernetes.io/name: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP

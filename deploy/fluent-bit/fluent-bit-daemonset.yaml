@@ -1,0 +1,190 @@
+# RADAR Fluent Bit — Kubernetes DaemonSet log shipping.
+#
+# One Fluent Bit per node in the radar-infra namespace, tailing container stdout
+# (/var/log/containers/*.log), enriching with pod metadata via the kubernetes
+# filter, and shipping the structured RADAR JSON to Elasticsearch as
+# radar-logs-YYYY.MM.DD — the same index the logs plugin queries. The compose
+# equivalent (deploy/fluent-bit/fluent-bit.conf) tails .dev-run/*.log instead but
+# shares the radar_json parser and the Elasticsearch output.
+#
+# Static manifest: kubeconform validates it (Phase 10, step 8). Proving it
+# schedules on a real multi-node cluster is Phase 12 — not attempted here.
+#
+# The ConfigMap embeds parsers.conf identically to deploy/fluent-bit/parsers.conf
+# (the inputs differ between compose and k8s, but the parser must not); keep them
+# in sync — see the Phase 11 note in docs/implementation_plan.md.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fluent-bit
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: radar
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: radar-fluent-bit
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: radar
+rules:
+  # The kubernetes filter reads pod metadata to enrich each log line.
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: radar-fluent-bit
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: radar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: radar-fluent-bit
+subjects:
+  - kind: ServiceAccount
+    name: fluent-bit
+    namespace: radar-infra
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: radar
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush            1
+        Log_Level        info
+        Parsers_File     parsers.conf
+        Daemon           Off
+        HTTP_Server      On
+        HTTP_Listen      0.0.0.0
+        HTTP_Port        2020
+
+    [INPUT]
+        Name             tail
+        Path             /var/log/containers/*.log
+        multiline.parser cri
+        Tag              kube.*
+        Refresh_Interval 5
+        Read_from_Head   true
+
+    # Enrich with pod metadata AND merge the container's JSON log into the record
+    # root, so `service`, `event`, correlation_id become top-level fields.
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Merge_Log           On
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+    # Ship only structured RADAR logs: a line without a `service` field (e.g. a
+    # runtime's own plain-text line) is dropped rather than indexed as noise.
+    [FILTER]
+        Name             grep
+        Match            kube.*
+        Regex            service .+
+
+    [OUTPUT]
+        Name               es
+        Match              kube.*
+        Host               elasticsearch
+        Port               9200
+        Logstash_Format    On
+        Logstash_Prefix    radar-logs
+        Suppress_Type_Name On
+        Retry_Limit        False
+  parsers.conf: |
+    # RADAR structlog JSON parser. Shared by the compose config and the k8s
+    # DaemonSet ConfigMap. RADAR services emit one JSON object per line to stdout
+    # (see radar_common.logging): service, event, level, timestamp (ISO-8601 UTC),
+    # correlation_id. Time_Keep On preserves the original `timestamp` field on the
+    # record so it ships to Elasticsearch — the field the logs plugin sorts on —
+    # rather than being consumed into Fluent Bit's internal clock.
+    [PARSER]
+        Name        radar_json
+        Format      json
+        Time_Key    timestamp
+        Time_Format %Y-%m-%dT%H:%M:%S.%LZ
+        Time_Keep   On
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: fluent-bit
+    app.kubernetes.io/part-of: radar
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fluent-bit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fluent-bit
+        app.kubernetes.io/part-of: radar
+    spec:
+      serviceAccountName: fluent-bit
+      # Ship logs from control-plane nodes too.
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: fluent-bit
+          image: fluent/fluent-bit:3.2.2
+          ports:
+            - name: http
+              containerPort: 2020
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: config
+              mountPath: /fluent-bit/etc/
+              readOnly: true
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: config
+          configMap:
+            name: fluent-bit-config

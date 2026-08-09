@@ -73,13 +73,17 @@ disallow_untyped_calls = false
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests", "packages", "apps", "plugins"]
-# Live and infra tests are OPT-IN: deselected everywhere by default (the normal
-# suite, the pre-commit hook, CI) so they can never burn credits, require Docker,
-# or flake in an automated run. Run them explicitly with `pytest -m live` or
-# `pytest -m infra` — a trailing `-m ...` overrides this default. Both still skip
-# when their prerequisite (an API key, a working Docker) is absent.
-addopts = "-m 'not live and not infra'"
+# `live` tests hit real external services (OpenAI): excluded by default so an
+# automated run never burns credits or flakes; opt in with `pytest -m live`.
+#
+# `infra` tests stand up real Docker infrastructure. The scrape -> fire -> webhook
+# proof (test_real_prometheus_alert) is NOT live, so the DEFAULT suite runs it and
+# it FAILS LOUD — not skips — without Docker: a done-condition proof must never be
+# silently skipped (the Phase 9 "293 skipped hid the proof" lesson). `make
+# test-quick` drops infra for the fast inner loop. The infra tests that are ALSO
+# live stay out of the default suite here, via `not live`.
+addopts = "-m 'not live'"
 markers = [
     "live: hits real external services (real OpenAI). Opt-in via `pytest -m live`; skips without OPENAI_API_KEY.",
-    "infra: stands up real infrastructure in Docker (Prometheus, alertmanager). Opt-in via `pytest -m infra`; skips without a working Docker.",
+    "infra: stands up real Docker infrastructure. In the default suite unless also `live`, and fails loud (not skip) without Docker; `make test-quick` excludes it.",
 ]

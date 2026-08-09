@@ -3,8 +3,9 @@
 Observability primitives shared by every RADAR service, kept out of the business
 logic so metrics, traces, and events look identical everywhere:
 
-- ``metrics`` — Prometheus metric factories for the platform-wide, LLM, outbox,
-  and incident-pipeline metrics, rendered at ``/metrics``.
+- ``metrics`` — Prometheus metric factories for the platform-wide request metrics
+  and the per-producer business families (llm, outbox, ingestion, feedback,
+  reasoner), rendered at ``/metrics``.
 - ``tracing`` — OpenTelemetry tracer setup exporting via OTLP/gRPC to the OTel
   Collector (forwarded to Elasticsearch, viewed in Kibana APM), plus FastAPI
   request instrumentation.
@@ -21,13 +22,15 @@ from __future__ import annotations
 
 from .events import bind_correlation_id, record_event
 from .metrics import (
-    IncidentMetrics,
+    FeedbackMetrics,
+    IngestionMetrics,
     LLMMetrics,
     OutboxMetrics,
     PlannerMetrics,
     ReasonerMetrics,
     RequestMetrics,
-    create_incident_metrics,
+    create_feedback_metrics,
+    create_ingestion_metrics,
     create_llm_metrics,
     create_outbox_metrics,
     create_planner_metrics,
@@ -45,13 +48,15 @@ __all__ = [
     "RequestMetrics",
     "LLMMetrics",
     "OutboxMetrics",
-    "IncidentMetrics",
+    "IngestionMetrics",
+    "FeedbackMetrics",
     "PlannerMetrics",
     "ReasonerMetrics",
     "create_request_metrics",
     "create_llm_metrics",
     "create_outbox_metrics",
-    "create_incident_metrics",
+    "create_ingestion_metrics",
+    "create_feedback_metrics",
     "create_planner_metrics",
     "create_reasoner_metrics",
     "render_latest",

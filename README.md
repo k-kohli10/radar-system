@@ -22,7 +22,7 @@ RADAR automates that first ten minutes. It doesn't replace the engineer's judgme
 gets them to an informed starting point faster, with a documented trail of what was
 correlated, what was retrieved, and what was recommended.
 
-**RCAs are grounded in your own runbooks — and say so when they aren't.** Retrieved
+**RCAs are grounded in your own runbooks, and say so when they aren't.** Retrieved
 excerpts are graded for whether they actually address the incident, not merely whether
 they look similar to it. When nothing in the corpus fits, the RCA reasons from the
 incident and the investigation plan and states that no runbook covers this, rather than
@@ -37,7 +37,7 @@ engineer following it at 3am.
 |---|---|
 | **Not a detection system** | Prometheus alerting rules and Kibana Watcher decide when something is wrong. RADAR only acts on alerts they've already fired. |
 | **Not an autonomous remediator** | RADAR recommends. It never executes changes against production systems. |
-| **Not a general purpose agent framework** | The agent pipeline (Watcher, Planner, Reasoner) is a fixed sequence built for incident triage — the Reasoner consults a knowledge service for runbook context, but no agent decides what to do next. It is not a platform for arbitrary agent workflows. |
+| **Not a general purpose agent framework** | The agent pipeline (Watcher, Planner, Reasoner) is a fixed sequence built for incident triage. The Reasoner consults a knowledge service for runbook context, but no agent decides what to do next. It is not a platform for arbitrary agent workflows. |
 | **Not a ticketing system** | Incident state lives in Postgres. There's no Jira/ServiceNow integration. |
 
 ---
@@ -92,7 +92,7 @@ specification.
 | Path | Purpose |
 |---|---|
 | [`docs/adr/`](docs/adr/) | Architectural decision records: why, not just what |
-| [`docs/architecture/`](docs/architecture/) | System overview, agent pipeline, data model, sequence flows |
+| [`docs/architecture/`](docs/architecture/) | System overview, agent pipeline, data model, sequence flows, observability |
 | [`docs/operations/`](docs/operations/) | Runbooks for operating RADAR itself |
 | [`docs/runbooks/`](docs/runbooks/) | Runbooks about the target services RADAR reasons over |
 | [`docs/glossary.md`](docs/glossary.md) | Terminology used throughout the codebase and docs |

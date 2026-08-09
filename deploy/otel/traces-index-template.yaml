@@ -1,0 +1,99 @@
+# RADAR OTel traces data-stream template — Kubernetes install Job.
+#
+# The compose equivalent is the `es-traces-init` one-shot in
+# deploy/compose/docker-compose.yml; this is its cluster form. The Job PUTs the
+# traces data-stream index template into Elasticsearch so the collector's
+# exporter can create `traces-generic-default`. Ordering is enforced on the
+# consumer side: the otel-collector DaemonSet's `wait-for-traces-template`
+# initContainer blocks until this template exists (see collector-daemonset.yaml),
+# so the collector never accepts traffic before its export target is creatable.
+#
+# The ConfigMap below embeds deploy/otel/traces-index-template.json
+# BYTE-IDENTICALLY. Keep them in sync; the Phase 11 CI job covers this pair too
+# (see docs/implementation_plan.md).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traces-index-template
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: es-traces-init
+    app.kubernetes.io/part-of: radar
+data:
+  traces-index-template.json: |
+    {
+      "_meta": {
+        "description": "RADAR OTel traces data-stream template. A bare Elasticsearch + Kibana (no Fleet/APM integration) ships no template for the traces-generic-default data stream, so the OTel collector's elasticsearch exporter (mapping.mode: otel) cannot create it and every span is rejected. This template is the minimal thing that makes the data stream auto-create. String attributes map to keyword so correlation_id is term-queryable at attributes.correlation_id — the join key the traces plugin and the step-10 done-condition query by. It is NOT Elastic's full APM field set; traces are fully queryable and viewable in Kibana APM via dynamic mappings.",
+        "managed_by": "radar"
+      },
+      "index_patterns": ["traces-generic-default"],
+      "data_stream": {},
+      "priority": 200,
+      "template": {
+        "mappings": {
+          "dynamic_templates": [
+            {
+              "strings_as_keyword": {
+                "match_mapping_type": "string",
+                "mapping": { "type": "keyword", "ignore_above": 2048 }
+              }
+            }
+          ],
+          "properties": {
+            "@timestamp": { "type": "date" }
+          }
+        }
+      }
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: es-traces-init
+  namespace: radar-infra
+  labels:
+    app.kubernetes.io/name: es-traces-init
+    app.kubernetes.io/part-of: radar
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: es-traces-init
+        app.kubernetes.io/part-of: radar
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: es-traces-init
+          image: curlimages/curl:8.11.1
+          # curl is the image entrypoint; these are its args. --retry-all-errors
+          # (+ --retry-connrefused) tolerates Elasticsearch not being ready yet;
+          # -fS turns any final HTTP error into a non-zero exit so the Job fails
+          # loudly rather than reporting success on a rejected template.
+          args:
+            - -fsS
+            - --retry
+            - "30"
+            - --retry-all-errors
+            - --retry-connrefused
+            - --retry-delay
+            - "2"
+            - -X
+            - PUT
+            - http://elasticsearch:9200/_index_template/radar-traces
+            - -H
+            - "Content-Type: application/json"
+            - --data-binary
+            - "@/etc/traces-template/traces-index-template.json"
+          volumeMounts:
+            - name: template
+              mountPath: /etc/traces-template
+              readOnly: true
+      volumes:
+        - name: template
+          configMap:
+            name: traces-index-template
+            items:
+              - key: traces-index-template.json
+                path: traces-index-template.json

@@ -41,7 +41,7 @@ from radar_feedback_service.interactions import (
     handle_callback,
 )
 from radar_plugin_notifications_slack import ack_and_dispatch
-from radar_telemetry import IncidentMetrics, create_incident_metrics
+from radar_telemetry import FeedbackMetrics, create_feedback_metrics
 from slack_sdk.socket_mode.request import SocketModeRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,11 +51,11 @@ USER_ID = "U0ENGINEER"
 MESSAGE_TS = "1720000000.0001"
 
 
-def _metrics() -> IncidentMetrics:
-    """A throwaway incident-metrics family on its own registry — for the tests that
+def _metrics() -> FeedbackMetrics:
+    """A throwaway feedback-metrics family on its own registry — for the tests that
     exercise handling but do not assert on the counter. The two metric tests build their
     own so they can read radar_feedback_total back off the registry."""
-    return create_incident_metrics(CollectorRegistry())
+    return create_feedback_metrics(CollectorRegistry())
 
 
 async def _seed(
@@ -342,7 +342,7 @@ async def test_feedback_increments_counter_by_sentiment(db: Database) -> None:
     _, up_rec, _ = await _seed(db)
     _, down_rec, _ = await _seed(db)
     registry = CollectorRegistry()
-    metrics = create_incident_metrics(registry)
+    metrics = create_feedback_metrics(registry)
 
     await handle_callback(
         db,
@@ -366,7 +366,7 @@ async def test_resolve_does_not_touch_feedback_counter(db: Database) -> None:
     radar_feedback_total. (Resolve is observable via the incident.resolved audit.)"""
     _, rec_id, _ = await _seed(db, incident_status="open")
     registry = CollectorRegistry()
-    metrics = create_incident_metrics(registry)
+    metrics = create_feedback_metrics(registry)
 
     await handle_callback(
         db,
@@ -394,7 +394,7 @@ async def test_counter_not_incremented_when_the_write_rolls_back(db: Database) -
     """
     _, rec_id, _ = await _seed(db)
     registry = CollectorRegistry()
-    metrics = create_incident_metrics(registry)
+    metrics = create_feedback_metrics(registry)
 
     with patch.object(
         AsyncSession, "commit", AsyncMock(side_effect=RuntimeError("db write failed"))

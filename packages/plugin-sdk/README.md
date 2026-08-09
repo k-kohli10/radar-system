@@ -7,7 +7,7 @@ config-driven loader that instantiate the backend plugins in `plugins/*`.
 
 - **Zero vendor imports.** Depends only on `radar-contracts`, `pydantic`, and
   the standard library. No `anthropic`, `openai`, `slack-sdk`, Elasticsearch,
-  or any other SDK — those live inside individual plugins.
+  or any other SDK: those live inside individual plugins.
 - **`typing.Protocol` conformance**, not ABC inheritance. Plugins are validated
   structurally against the `radar-contracts` backend Protocols.
 - **mypy strict** must pass.

@@ -102,6 +102,10 @@ Observability  structlog JSON logs → Fluent Bit → Elasticsearch. Prometheus 
 Notifications  Slack only, owned entirely by feedback-service.
 ```
 
+The telemetry plane (the three signals, and the split between watching the simulated
+shop versus watching RADAR itself) is drawn in
+[observability.md](observability.md).
+
 ## Deployment Target
 
 A home lab Kubernetes cluster: one ARM64 control plane (UTM VM on a MacBook Air M1) and
