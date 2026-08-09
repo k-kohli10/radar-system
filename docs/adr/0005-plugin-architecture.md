@@ -45,7 +45,8 @@ depend only on the protocol type, never on a concrete vendor import.
   category stance above, not an oversight.
 - OPEN QUESTION (`MetricsBackend`): it has no planned consumer. Services emit metrics
   directly through `radar_telemetry` (typed `RequestMetrics`/`LLMMetrics`/`OutboxMetrics`/
-  `IncidentMetrics` over `prometheus_client`), which does not sit on `MetricsBackend`. A
+  `IngestionMetrics`/`ReasonerMetrics`/`FeedbackMetrics` over `prometheus_client`), which
+  does not sit on `MetricsBackend`. A
   later, deliberate decision should choose whether `radar_telemetry` should be backed by
   `MetricsBackend` (making it the recording seam) or whether `MetricsBackend` stays a
   defined-but-dormant Protocol kept for optionality. Not a blocker; flagged so the dormant

@@ -2582,27 +2582,31 @@ docs(operations): add vault secret rotation runbook
 Done when: single mock alert traceable end to end in Kibana APM by correlation_id alone.
 LLM fallback alert fires when gateway is mocked to fail.
 
-**Prerequisite for step 12 — two incident-lifecycle metrics are defined but never
-observed.** `radar_incident_duration_seconds` and `radar_incidents_total` exist in
-`radar_telemetry.metrics` (on the `IncidentMetrics` family) but nothing ever
-records them: the duration histogram has zero observations and the incidents
-counter is never incremented (it is even registered on feedback-service, not
-ingestion). So the incident-pipeline dashboard's "Ingestion→recommendation
-latency" and "Incidents opened" panels read "No data" — each carries a panel
-description saying so. Step 7 leaves them empty by design (config-only).
+**Prerequisite for step 12 — two incident-lifecycle metrics were defined but never
+observed (DONE).** `radar_incident_duration_seconds` and `radar_incidents_total`
+existed in `radar_telemetry.metrics` but nothing recorded them: the duration
+histogram had zero observations and the incidents counter was never incremented
+(it was even registered on feedback-service, not ingestion). So the
+incident-pipeline dashboard's "Ingestion→recommendation latency" and "Incidents
+opened" panels read "No data". Step 7 left them empty by design (config-only).
 
-Before step 12's measurement, land a **dedicated, labeled instrumentation commit
-with its own test** (not folded into a config step) that wires the observations:
+A dedicated, labeled instrumentation commit (with its own tests, proven
+mutation-style) then wired the observations, moving each metric onto the service
+that PRODUCES it — the bundled `IncidentMetrics` family dissolved into
+`IngestionMetrics`, `ReasonerMetrics`, and `FeedbackMetrics`:
 - ingestion increments `radar_incidents_total{service,severity}` when it opens an
-  incident;
-- the pipeline observes `radar_incident_duration_seconds` at RECOMMENDATION
-  creation, measuring `recommendation.created_at - incident.created_at` — i.e.
+  incident (a dedup attach or a resolve does not move it);
+- the reasoner observes `radar_incident_duration_seconds` at RECOMMENDATION
+  creation, measuring `recommendation.created_at - incident.opened_at` — i.e.
   INGESTION-TO-RECOMMENDATION (pipeline) latency, NOT open-to-resolution (which
-  would fold in human-loop time). The metric's current help text
-  ("open-to-resolution") is misleading and is corrected in that commit.
+  would fold in human-loop time). The metric's misleading "open-to-resolution"
+  help text was corrected in that commit.
 
-Only then does step 12 ("measure real p50/p95 off the dashboards, delete the ~50s
-placeholder") have data to read.
+Step 12 then cleared the panels' "[pending instrumentation]" placeholders — they
+populate from the live metrics now. There was no literal "~50s" figure to delete;
+a REPRESENTATIVE p50/p95 is a load measurement, so the real number is deferred to
+Phase 13's load test (the in-process pipeline would only yield a small-sample,
+best-case, queueing-compressed number).
 
 ---
 
@@ -2711,7 +2715,11 @@ Done when: helm install deploys all services. All readiness probes pass.
 **Milestone: v0.13-hardened | Tag: v0.7.0**
 
 New work:
-- Load test: 100 concurrent mock alerts, p50/p95/p99 from ingestion to recommendation
+- Load test: 100 concurrent mock alerts, p50/p95/p99 from ingestion to recommendation.
+  This is where the incident-pipeline latency panel (`radar_incident_duration_seconds`)
+  gets its REPRESENTATIVE p50/p95 — deferred here from Phase 10 step 12, whose
+  in-process pipeline could only yield a small-sample, best-case (queueing-compressed)
+  number.
 - Threat model document
 - Circuit breaker in LLM Gateway
 - Verify audit_log populated for all key events
@@ -2725,7 +2733,9 @@ docs(security): add threat model
 fix: address gaps from security audit
 ```
 
-Done when: load test results documented. No data loss under load. Threat model written.
+Done when: load test results documented — including the representative p50/p95 read off
+the incident-pipeline latency panel (deferred from Phase 10 step 12). No data loss under
+load. Threat model written.
 
 ---
 
