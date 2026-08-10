@@ -9,6 +9,9 @@ dependencies = [
     "radar-contracts",
     "radar-telemetry",
     "radar-plugin-sdk",
+    "radar-plugin-llm-anthropic",
+    "radar-plugin-llm-openai",
+    "radar-plugin-llm-gemini",
     "fastapi==0.115.0",
     "uvicorn[standard]==0.32.0",
     "pydantic==2.13.4",
@@ -35,6 +38,9 @@ radar-common = { workspace = true }
 radar-contracts = { workspace = true }
 radar-telemetry = { workspace = true }
 radar-plugin-sdk = { workspace = true }
+radar-plugin-llm-anthropic = { workspace = true }
+radar-plugin-llm-openai = { workspace = true }
+radar-plugin-llm-gemini = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

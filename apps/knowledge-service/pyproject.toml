@@ -8,9 +8,14 @@ dependencies = [
     "radar-common",
     "radar-contracts",
     "radar-database",
+    "radar-telemetry",
+    "radar-plugin-knowledge-elastic",
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.32.0",
     "sqlalchemy[asyncio]==2.0.51",
     "httpx==0.28.0",
     "pydantic==2.13.4",
+    "prometheus-client==0.21.0",
     "pyyaml==6.0.2",
 ]
 
@@ -27,6 +32,8 @@ dev = [
 radar-common = { workspace = true }
 radar-contracts = { workspace = true }
 radar-database = { workspace = true }
+radar-telemetry = { workspace = true }
+radar-plugin-knowledge-elastic = { workspace = true }
 radar-testing = { workspace = true }
 
 [build-system]

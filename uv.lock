@@ -2261,13 +2261,18 @@ name = "radar-knowledge-service"
 version = "0.8.0"
 source = { editable = "apps/knowledge-service" }
 dependencies = [
+    { name = "fastapi" },
     { name = "httpx" },
+    { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "radar-common" },
     { name = "radar-contracts" },
     { name = "radar-database" },
+    { name = "radar-plugin-knowledge-elastic" },
+    { name = "radar-telemetry" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.dev-dependencies]
@@ -2281,13 +2286,18 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", specifier = "==0.115.0" },
     { name = "httpx", specifier = "==0.28.0" },
+    { name = "prometheus-client", specifier = "==0.21.0" },
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "radar-common", editable = "packages/common" },
     { name = "radar-contracts", editable = "packages/contracts" },
     { name = "radar-database", editable = "packages/database" },
+    { name = "radar-plugin-knowledge-elastic", editable = "plugins/knowledge/elastic" },
+    { name = "radar-telemetry", editable = "packages/telemetry" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = "==2.0.51" },
+    { name = "uvicorn", extras = ["standard"], specifier = "==0.32.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2315,6 +2325,9 @@ dependencies = [
     { name = "pyyaml" },
     { name = "radar-common" },
     { name = "radar-contracts" },
+    { name = "radar-plugin-llm-anthropic" },
+    { name = "radar-plugin-llm-gemini" },
+    { name = "radar-plugin-llm-openai" },
     { name = "radar-plugin-sdk" },
     { name = "radar-telemetry" },
     { name = "structlog" },
@@ -2342,6 +2355,9 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "radar-common", editable = "packages/common" },
     { name = "radar-contracts", editable = "packages/contracts" },
+    { name = "radar-plugin-llm-anthropic", editable = "plugins/llm/anthropic" },
+    { name = "radar-plugin-llm-gemini", editable = "plugins/llm/gemini" },
+    { name = "radar-plugin-llm-openai", editable = "plugins/llm/openai" },
     { name = "radar-plugin-sdk", editable = "packages/plugin-sdk" },
     { name = "radar-telemetry", editable = "packages/telemetry" },
     { name = "structlog", specifier = "==24.4.0" },
