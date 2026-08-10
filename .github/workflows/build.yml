@@ -1,0 +1,120 @@
+name: build
+
+# Path-gated multi-arch image builds (ADR 0018). The detect job turns the changed
+# files into the exact set of services to build; a deploy/- or docs-only change
+# produces an empty matrix and builds nothing. CD (push to a registry / cluster)
+# is deferred to Phase 12, so this workflow builds and boot-smokes only — it never
+# pushes.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.detect.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the base..head diff can be computed for any event.
+          fetch-depth: 0
+      - name: Detect changed services
+        id: detect
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+          # New branch or an unknown base (first push, force-push): diff against the
+          # empty tree so every file counts and every service is rebuilt.
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git hash-object -t tree /dev/null)"
+          fi
+          changed="$(git diff --name-only "$base" "$head")"
+          echo "changed files:"; echo "$changed"
+          # The script is pure stdlib (tomllib), so no uv/venv is needed here.
+          services="$(printf '%s\n' "$changed" | python3 scripts/detect-changed-services.py)"
+          echo "services to build: $services"
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build ${{ matrix.service }} (amd64 + arm64)
+    needs: detect
+    if: needs.detect.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Prove BOTH architectures compile. A multi-platform build cannot be loaded
+      # into the local daemon, so this exports nothing — no --push (CD deferred,
+      # no registry), no --load. The image is tagged by git SHA so the tag scheme
+      # is the one CD will publish under.
+      - name: Build multi-arch (amd64 + arm64), tagged by SHA, no push
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file "apps/${{ matrix.service }}/Dockerfile" \
+            --tag "radar-${{ matrix.service }}:${{ github.sha }}" \
+            .
+
+      # Boot-smoke needs a runnable image. Rebuild the runner's native arch with
+      # --load (reusing the layers just built); amd64 is native on ubuntu-latest,
+      # so no emulation.
+      - name: Build native image for boot-smoke (loadable)
+        run: |
+          docker buildx build \
+            --platform linux/amd64 --load \
+            --file "apps/${{ matrix.service }}/Dockerfile" \
+            --tag "radar-${{ matrix.service }}:smoke" \
+            .
+
+      # SCOPE: this proves the image STARTS and SERVES /healthz — the check that
+      # would have caught the entrypoint and missing-dependency bugs drained
+      # earlier this phase, which buildx alone (it never runs the image) would
+      # ship green. It does NOT prove that configured backends load: runtime
+      # plugin resolution (metrics/traces backends from config + Vault secrets) is
+      # a Phase 12 real-deployment concern. /readyz is expected to be 503 here (no
+      # secrets); /healthz is the liveness contract.
+      - name: Boot-smoke — container starts and serves /healthz
+        run: |
+          set -euo pipefail
+          svc="${{ matrix.service }}"
+          docker run -d --name "smoke-$svc" -p 18080:8080 "radar-$svc:smoke"
+          code=000
+          for _ in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 \
+              http://127.0.0.1:18080/healthz || true)"
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          if [ "$code" != "200" ]; then
+            echo "BOOT-SMOKE FAILED for $svc: /healthz=$code"
+            docker logs "smoke-$svc" || true
+            exit 1
+          fi
+          echo "BOOT-SMOKE OK for $svc: starts and serves /healthz (not a backend-load check)"
+
+      - name: Clean up smoke container
+        if: always()
+        run: docker rm -f "smoke-${{ matrix.service }}" 2>/dev/null || true
