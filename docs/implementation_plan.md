@@ -2614,7 +2614,7 @@ best-case, queueing-compressed number).
 **Milestone: v0.11-cicd | Tag: v0.5.0**
 
 Before touching workflow files: decide CD approach and write ADR 0012.
-Options: self-hosted runner on a P400 (recommended, simpler) or Tailscale tunnel.
+Options: self-hosted runner on a k8 home cluster (recommended, simpler) or Tailscale tunnel.
 
 CI: path-based, builds only what changed. Multi-arch images. Tagged by git SHA.
 
