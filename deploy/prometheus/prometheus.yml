@@ -34,30 +34,30 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # The eight RADAR services. Each carries a `service` label so dashboards and
-  # (from step 6) RADAR's own alerts can group by it; `job` stays "radar".
+  # The eight RADAR services, each with a `service` label to group by. Two targets
+  # per service: host.docker.internal:809x (native `make dev-apps`) and
+  # <service>:8080 (the dockerised radar-apps stack). The unused one shows DOWN.
   - job_name: radar
     static_configs:
-      - targets: ["host.docker.internal:8081"]
+      - targets: ["host.docker.internal:8081", "llm-gateway:8080"]
         labels: { service: llm-gateway }
-      - targets: ["host.docker.internal:8090"]
+      - targets: ["host.docker.internal:8090", "ingestion:8080"]
         labels: { service: ingestion }
-      - targets: ["host.docker.internal:8091"]
+      - targets: ["host.docker.internal:8091", "watcher-agent:8080"]
         labels: { service: watcher-agent }
-      - targets: ["host.docker.internal:8092"]
+      - targets: ["host.docker.internal:8092", "planner-agent:8080"]
         labels: { service: planner-agent }
-      - targets: ["host.docker.internal:8093"]
+      - targets: ["host.docker.internal:8093", "reasoner-agent:8080"]
         labels: { service: reasoner-agent }
-      - targets: ["host.docker.internal:8094"]
+      - targets: ["host.docker.internal:8094", "outbox-worker:8080"]
         labels: { service: outbox-worker }
-      - targets: ["host.docker.internal:8095"]
+      - targets: ["host.docker.internal:8095", "knowledge-service:8080"]
         labels: { service: knowledge-service }
-      - targets: ["host.docker.internal:8096"]
+      - targets: ["host.docker.internal:8096", "feedback-service:8080"]
         labels: { service: feedback-service }
 
-  # The simulated shop whose metrics the ecommerce-* rules fire on. apps/platform-sim
-  # is NOT a standing dev service; run it on :8099 to make the shop rules live.
-  # Declared here so the target exists the moment it is; DOWN until then.
+  # The simulated shop the ecommerce-* rules fire on. Native run on :8099, or
+  # platform-sim:8080 in the docker stack; the unused one is DOWN.
   - job_name: platform-sim
     static_configs:
-      - targets: ["host.docker.internal:8099"]
+      - targets: ["host.docker.internal:8099", "platform-sim:8080"]

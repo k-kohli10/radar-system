@@ -13,7 +13,7 @@
 # generate incidents, the other describes the real system responding to them.
 #
 # NOT WIRED UP YET. Nothing currently mounts or evaluates this file. There is no
-# scrape config and no alertmanager in deploy/compose/docker-compose.yml. This is
+# scrape config and no alertmanager in deploy/compose/docker-compose-infra.yml. This is
 # a *declaration* — Phase 10 stands up the running Prometheus + alertmanager that
 # consumes it and proves the real scrape -> fire -> webhook path end to end.
 #

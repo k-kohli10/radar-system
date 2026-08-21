@@ -79,7 +79,7 @@ jobs:
         # collector is up. Naming postgres + otel-collector pulls the rest in via
         # depends_on.
         run: >
-          docker compose -f deploy/compose/docker-compose.yml --env-file .env
+          docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env
           up -d --wait postgres otel-collector
 
       # The full non-live suite — the SAME gate as make test — with a JUnit
@@ -106,5 +106,5 @@ jobs:
       - name: Tear down infra
         if: always()
         run: >
-          docker compose -f deploy/compose/docker-compose.yml --env-file .env
+          docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env
           down -v

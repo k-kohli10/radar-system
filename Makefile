@@ -1,11 +1,17 @@
-COMPOSE_FILE := deploy/compose/docker-compose.yml
+COMPOSE_FILE := deploy/compose/docker-compose-infra.yml
 COMPOSE := docker compose --env-file .env -f $(COMPOSE_FILE)
+APPS_COMPOSE_FILE := deploy/compose/docker-compose-apps.yml
+DOCKER_APPS := docker compose --env-file .env -f $(APPS_COMPOSE_FILE)
 SERVICES := postgres elasticsearch kibana prometheus grafana vault
 
 .PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps \
 	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets index \
 	seed tokens rotate agent-secrets \
-	dev-infra stop-infra dev-apps stop-apps apps-check ps-apps logs-apps
+	dev-infra stop-infra dev-apps stop-apps apps-check ps-apps logs-apps \
+	docker-infra-up docker-apps-build docker-apps-up docker-apps-restart \
+	docker-apps-down docker-apps-ps docker-apps-logs docker-up docker-down \
+	docker-infra-stop docker-infra-start docker-apps-stop docker-apps-start \
+	docker-stop docker-start
 
 setup:
 	uv sync --all-packages
@@ -265,3 +271,74 @@ logs: env-check
 
 ps: env-check
 	$(COMPOSE) ps
+
+# --- Dockerised application stack (radar-apps) -------------------------------
+# Containerised counterpart to `dev-apps` — run one OR the other, not both (same
+# host ports). Apps join the infra network as external, so infra comes up first;
+# seed/tokens/migrate stay host steps (infra publishes Vault :8200, Postgres
+# :5432). Full workflow: docs/operations/docker.md.
+#
+# Secrets are read from files at BOOT: the vault-init sidecar pulls them once,
+# then the app starts. `docker-apps-up` REQUIRES Vault already seeded (make seed
+# && make tokens, or just use `docker-up`). After re-seeding or `make rotate`,
+# a plain `up` will NOT refresh a running app — use `docker-apps-restart`.
+
+docker-infra-up: env-check
+	$(COMPOSE) up -d --wait
+
+docker-apps-build: env-check
+	$(DOCKER_APPS) build
+
+docker-apps-up: env-check
+	$(DOCKER_APPS) up -d --build
+
+# Re-run the vault-init sidecars and restart the apps so freshly seeded/rotated
+# secrets are picked up (a plain `up` leaves completed sidecars and running apps
+# untouched).
+docker-apps-restart: env-check
+	$(DOCKER_APPS) up -d --force-recreate
+
+docker-apps-down: env-check
+	$(DOCKER_APPS) down -v
+
+docker-apps-ps:
+	$(DOCKER_APPS) ps
+
+docker-apps-logs:
+	$(DOCKER_APPS) logs -f
+
+# One command, clean machine -> running system. --force-recreate so re-running
+# this after fixing .env (e.g. a missing OPENAI_API_KEY) re-materialises secrets.
+docker-up: env-check
+	$(COMPOSE) up -d --wait
+	$(MAKE) --no-print-directory seed
+	$(MAKE) --no-print-directory tokens
+	$(MAKE) --no-print-directory migrate
+	$(DOCKER_APPS) up -d --build --force-recreate
+	@echo "\nradar-apps up. Host ports: gateway :8081  ingestion :8090  watcher :8091"
+	@echo "  planner :8092  reasoner :8093  outbox :8094  knowledge :8095"
+	@echo "  feedback :8096  platform-sim :8099   (see 'make docker-apps-ps')"
+
+# Tear the whole thing down, volumes included (apps first, then infra).
+docker-down: env-check
+	-$(DOCKER_APPS) down -v
+	$(COMPOSE) down -v
+
+# Stop/start WITHOUT removing volumes — containers pause, all data (Postgres, ES
+# index, Vault, secret volumes) survives. Per stack for individual ops, or both.
+docker-infra-stop: env-check
+	$(COMPOSE) stop
+
+docker-infra-start: env-check
+	$(COMPOSE) start
+
+docker-apps-stop: env-check
+	$(DOCKER_APPS) stop
+
+docker-apps-start: env-check
+	$(DOCKER_APPS) start
+
+# Both stacks (apps first down, infra first up).
+docker-stop: docker-apps-stop docker-infra-stop
+
+docker-start: docker-infra-start docker-apps-start

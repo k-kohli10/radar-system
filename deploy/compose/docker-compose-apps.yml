@@ -1,0 +1,172 @@
+name: radar-apps
+
+# The application stack: 8 deployable services + platform-sim, each built from
+# its own Dockerfile (context = repo root, a uv workspace). Every app reads its
+# secrets from a per-service vault-init sidecar — the k8s init-container pattern
+# (docs/implementation_plan.md). Joins the infra stack's network as external, so
+# radar-infra must be up first. Workflow: docs/operations/docker.md.
+
+x-app: &app
+  env_file: [apps.env]
+  restart: unless-stopped
+
+x-vault-init: &vault-init
+  image: hashicorp/vault:1.18.0
+  restart: "no"
+  environment:
+    VAULT_ADDR: http://vault:8200
+    VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?set in .env - run scripts/bootstrap.sh}
+  entrypoint: ["/bin/sh", "/vault-init/fetch-secrets.sh"]
+
+services:
+  llm-gateway-vault-init:
+    <<: *vault-init
+    command: ["llm-gateway"]
+    volumes:
+      - ./vault-init/fetch-secrets.sh:/vault-init/fetch-secrets.sh:ro
+      - llm-gateway-secrets:/vault/secrets
+  llm-gateway:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/llm-gateway/Dockerfile }
+    depends_on:
+      llm-gateway-vault-init: { condition: service_completed_successfully }
+    # gateway.yaml is non-secret config; the runtime image ships only the venv.
+    environment:
+      RADAR_GATEWAY_CONFIG_PATH: /app/config/gateway.yaml
+    volumes:
+      - llm-gateway-secrets:/vault/secrets
+      - ../../apps/llm-gateway/config/gateway.yaml:/app/config/gateway.yaml:ro
+    ports: ["127.0.0.1:8081:8080"]
+
+  ingestion-vault-init:
+    <<: *vault-init
+    command: ["ingestion"]
+    volumes:
+      - ./vault-init/fetch-secrets.sh:/vault-init/fetch-secrets.sh:ro
+      - ingestion-secrets:/vault/secrets
+  ingestion:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/ingestion/Dockerfile }
+    depends_on:
+      ingestion-vault-init: { condition: service_completed_successfully }
+    volumes:
+      - ingestion-secrets:/vault/secrets
+    ports: ["127.0.0.1:8090:8080"]
+
+  watcher-agent-vault-init:
+    <<: *vault-init
+    command: ["watcher-agent"]
+    volumes:
+      - ./vault-init/fetch-secrets.sh:/vault-init/fetch-secrets.sh:ro
+      - watcher-agent-secrets:/vault/secrets
+  watcher-agent:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/watcher-agent/Dockerfile }
+    depends_on:
+      watcher-agent-vault-init: { condition: service_completed_successfully }
+    # correlation-rules.yaml is non-secret config; the runtime image ships only
+    # the venv, so mount it at the default (repo-relative) path under /app.
+    volumes:
+      - watcher-agent-secrets:/vault/secrets
+      - ../../apps/watcher-agent/config/correlation-rules.yaml:/app/apps/watcher-agent/config/correlation-rules.yaml:ro
+    ports: ["127.0.0.1:8091:8080"]
+
+  planner-agent-vault-init:
+    <<: *vault-init
+    command: ["planner-agent"]
+    volumes:
+      - ./vault-init/fetch-secrets.sh:/vault-init/fetch-secrets.sh:ro
+      - planner-agent-secrets:/vault/secrets
+  planner-agent:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/planner-agent/Dockerfile }
+    depends_on:
+      planner-agent-vault-init: { condition: service_completed_successfully }
+    # plan-templates.yaml is non-secret config; mount at the default path (see watcher).
+    volumes:
+      - planner-agent-secrets:/vault/secrets
+      - ../../apps/planner-agent/config/plan-templates.yaml:/app/apps/planner-agent/config/plan-templates.yaml:ro
+    ports: ["127.0.0.1:8092:8080"]
+
+  reasoner-agent-vault-init:
+    <<: *vault-init
+    command: ["reasoner-agent"]
+    volumes:
+      - ./vault-init/fetch-secrets.sh:/vault-init/fetch-secrets.sh:ro
+      - reasoner-agent-secrets:/vault/secrets
+  reasoner-agent:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/reasoner-agent/Dockerfile }
+    depends_on:
+      reasoner-agent-vault-init: { condition: service_completed_successfully }
+    volumes:
+      - reasoner-agent-secrets:/vault/secrets
+    ports: ["127.0.0.1:8093:8080"]
+
+  outbox-worker-vault-init:
+    <<: *vault-init
+    command: ["outbox-worker"]
+    volumes:
+      - ./vault-init/fetch-secrets.sh:/vault-init/fetch-secrets.sh:ro
+      - outbox-worker-secrets:/vault/secrets
+  outbox-worker:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/outbox-worker/Dockerfile }
+    depends_on:
+      outbox-worker-vault-init: { condition: service_completed_successfully }
+    volumes:
+      - outbox-worker-secrets:/vault/secrets
+    ports: ["127.0.0.1:8094:8080"]
+
+  knowledge-service-vault-init:
+    <<: *vault-init
+    command: ["knowledge-service"]
+    volumes:
+      - ./vault-init/fetch-secrets.sh:/vault-init/fetch-secrets.sh:ro
+      - knowledge-service-secrets:/vault/secrets
+  knowledge-service:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/knowledge-service/Dockerfile }
+    depends_on:
+      knowledge-service-vault-init: { condition: service_completed_successfully }
+    volumes:
+      - knowledge-service-secrets:/vault/secrets
+    ports: ["127.0.0.1:8095:8080"]
+
+  feedback-service-vault-init:
+    <<: *vault-init
+    command: ["feedback-service"]
+    volumes:
+      - ./vault-init/fetch-secrets.sh:/vault-init/fetch-secrets.sh:ro
+      - feedback-service-secrets:/vault/secrets
+  feedback-service:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/feedback-service/Dockerfile }
+    depends_on:
+      feedback-service-vault-init: { condition: service_completed_successfully }
+    volumes:
+      - feedback-service-secrets:/vault/secrets
+    ports: ["127.0.0.1:8096:8080"]
+
+  # Prometheus scrape target (/metrics, /chaos/*): no secrets, no init sidecar.
+  platform-sim:
+    <<: *app
+    build: { context: ../.., dockerfile: apps/platform-sim/Dockerfile }
+    ports: ["127.0.0.1:8099:8080"]
+
+# Disk-backed, not tmpfs: the sidecar writes and exits before the app starts, and
+# a tmpfs local volume drops its contents when no container holds it.
+volumes:
+  llm-gateway-secrets:
+  ingestion-secrets:
+  watcher-agent-secrets:
+  planner-agent-secrets:
+  reasoner-agent-secrets:
+  outbox-worker-secrets:
+  knowledge-service-secrets:
+  feedback-service-secrets:
+
+networks:
+  default:
+    name: radar-infra_default
+    external: true
