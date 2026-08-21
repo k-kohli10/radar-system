@@ -30,7 +30,7 @@ modes:
     timeout_seconds: 30
   extended:
     provider: openai
-    model: gpt-4o
+    model: gpt-5.4
     max_input_tokens: 32768
     max_output_tokens: 8192
     timeout_seconds: 120
