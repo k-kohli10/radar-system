@@ -1,7 +1,15 @@
-# Runbook: LLM gateway failure
+# 🚨 Runbook: LLM gateway failure
 
 **Alert:** `LLMTemplateFallbackActive` (warning) — and `RadarAgentDown{service="llm-gateway"}` (critical) if the gateway is fully down.
 **Dashboards:** `llm-gateway`, `incident-pipeline`.
+
+## Contents
+
+- 🔎 [Symptom](#symptom)
+- 💥 [Impact — read this first](#impact--read-this-first)
+- 🩺 [Diagnose](#diagnose)
+- 🛠️ [Recover](#recover)
+- 🆘 [If recovery doesn't work / known limits / when to escalate](#if-recovery-doesnt-work--known-limits--when-to-escalate)
 
 ## Symptom
 `radar_recommendations_fallback_total` is climbing and the reasoner is producing

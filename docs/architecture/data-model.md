@@ -1,8 +1,15 @@
-# Data Model
+# 🗃️ Data Model
 
 All state lives in Postgres. There is no separate ticketing system and no Redis.
 Postgres is both the system of record and the message backbone, through the outbox
 tables.
+
+## Contents
+
+- 📐 [Schema Conventions](#schema-conventions)
+- 🧱 [Entities](#entities)
+- 🧵 [The correlation_id Thread](#the-correlation_id-thread)
+- 📄 [Full DDL](#full-ddl)
 
 ## Schema Conventions
 

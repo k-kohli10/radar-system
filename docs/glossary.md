@@ -1,4 +1,4 @@
-# Glossary
+# 📖 Glossary
 
 **Agent**: One of the three pipeline services (watcher-agent, planner-agent,
 reasoner-agent) that processes a single stage of incident handling and hands off via

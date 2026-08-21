@@ -1,7 +1,15 @@
-# Runbook: outbox backlog
+# 🚨 Runbook: outbox backlog
 
 **Alert:** `OutboxBacklogHigh` — `radar_outbox_depth > 100` for 5m.
 **Dashboard:** `outbox-health`.
+
+## Contents
+
+- 🔎 [Symptom](#symptom)
+- 🩺 [Diagnose — check in this order](#diagnose--check-in-this-order)
+- 🛠️ [Recover](#recover)
+- ✔️ [Verify](#verify)
+- 🆘 [If recovery doesn't work / known limits / when to escalate](#if-recovery-doesnt-work--known-limits--when-to-escalate)
 
 ## Symptom
 Pending outbox events are piling up (`radar_outbox_depth` climbing) and the

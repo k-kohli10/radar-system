@@ -4,6 +4,21 @@ From a clean machine to nine running services in about **ten minutes**, most of
 that spent pulling Docker images while you grab a coffee. One script does the
 setup, one command starts the stack, and nothing secret ever touches the repo.
 
+## Contents
+
+- [🎯 TL;DR](#-tldr)
+- [🧰 Prerequisites](#-prerequisites)
+- [🚀 Step 1: Bootstrap](#-step-1-bootstrap)
+- [🔑 Step 2: Add your external credentials](#-step-2-add-your-external-credentials)
+- [🟢 Step 3: Start the stack](#-step-3-start-the-stack)
+- [⚡ Everyday commands](#-everyday-commands)
+- [🔐 Tokens and secrets](#-tokens-and-secrets)
+- [🤖 Run the LLM gateway](#-run-the-llm-gateway)
+- [🔥 Run the whole pipeline](#-run-the-whole-pipeline)
+- [🪝 Git hooks](#-git-hooks)
+- [🛟 Troubleshooting](#-troubleshooting)
+- [🧭 Where to go next](#-where-to-go-next)
+
 ---
 
 ## 🎯 TL;DR
@@ -122,7 +137,7 @@ curl -s http://localhost:8200/v1/sys/health      # Vault
 
 ---
 
-## 🎛️ Everyday commands
+## ⚡ Everyday commands
 
 Stack-wide:
 
@@ -182,6 +197,24 @@ mean and when you need them:
 | `make ps-apps` | readiness table |
 | `make logs-apps` | tail all eight logs |
 | `make index` | index `docs/runbooks/` into Elasticsearch (incremental) |
+
+Docker (containerised stack — the alternative to running apps natively; full
+guide in [`operations/docker.md`](operations/docker.md)). Run this **or** the
+native `make dev-apps`, not both — they share host ports:
+
+| Command | What it does |
+|---|---|
+| `make docker-up` | clean machine → running system: infra `--wait`, seed/tokens/migrate, then apps |
+| `make docker-down` | tear down both stacks, **delete** volumes |
+| `make docker-infra-up` | start the infra stack only (`--wait`) |
+| `make docker-apps-up` | build + start the app stack (needs Vault already seeded) |
+| `make docker-apps-restart` | re-run vault-init and restart apps to pick up re-seeded/rotated secrets |
+| `make docker-apps-build` | build the app images without starting them |
+| `make docker-apps-ps` · `make docker-apps-logs` | app stack status / follow logs |
+| `make docker-apps-down` | stop apps, remove their secret volumes |
+| `make docker-stop` · `make docker-start` | pause / resume both stacks, **keep** all data |
+| `make docker-infra-stop` · `make docker-infra-start` | pause / resume the infra stack, keep data |
+| `make docker-apps-stop` · `make docker-apps-start` | pause / resume the app stack, keep data |
 
 ---
 
@@ -416,7 +449,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 **2.** **Recreate** the container — do **not** `make restart s=vault`:
 
 ```bash
-docker compose --env-file .env -f deploy/compose/docker-compose.yml \
+docker compose --env-file .env -f deploy/compose/docker-compose-infra.yml \
   up -d --force-recreate vault
 ```
 
@@ -597,7 +630,7 @@ fire() { curl -s -X POST http://127.0.0.1:8090/alerts/mock \
   -H "X-Radar-Webhook-Token: $TOK" -H "Content-Type: application/json" -d "$1"; echo; }
 
 # how many recommendations exist now, so we can wait for ours to land
-count() { docker exec radar-postgres-1 psql -U radar -d radar -t \
+count() { docker exec radar-infra-postgres-1 psql -U radar -d radar -t \
   -c "SELECT count(*) FROM recommendations;" | tr -d ' '; }
 base=$(count)
 
@@ -732,7 +765,7 @@ It needs ~1 GB free memory to itself. On Docker Desktop, bump the memory limit
 
 Something already occupies 5432, 9200, 5601, 9090, 3000, or 8200. Stop the
 other process, or edit the port mapping in
-`deploy/compose/docker-compose.yml` (change the **left** side of the mapping
+`deploy/compose/docker-compose-infra.yml` (change the **left** side of the mapping
 only).
 </details>
 
@@ -805,4 +838,5 @@ dead-letters (see "Recovering a dead-lettered event" above).
 | [`../README.md`](../README.md) | What RADAR is, the problem it solves, and how it works |
 | [`roadmap.md`](roadmap.md) | The phase-by-phase build plan |
 | [`architecture/`](architecture/) | System overview, agent pipeline, data model, sequence flows |
+| [`operations/docker.md`](operations/docker.md) | Running the whole stack in Docker + the end-to-end test |
 | [`implementation_plan.md`](implementation_plan.md) | The full technical specification |

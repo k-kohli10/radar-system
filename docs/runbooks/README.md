@@ -1,4 +1,4 @@
-# Runbooks
+# 📕 Runbooks
 
 Operational runbooks for the services simulated by `apps/platform-sim`. These are
 the corpus the knowledge-service indexes and the reasoner retrieves against.
@@ -11,6 +11,12 @@ the corpus the knowledge-service indexes and the reasoner retrieves against.
 > portfolio-facing. `status: fixture` is the machine-visible marker for that
 > outstanding work; a runbook that has had the voice pass becomes
 > `status: reviewed`.
+
+## Contents
+
+- 📋 [Frontmatter contract](#frontmatter-contract)
+- ✂️ [Chunking boundary](#chunking-boundary)
+- 🧱 [Section structure](#section-structure)
 
 ## Frontmatter contract
 

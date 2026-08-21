@@ -1,4 +1,14 @@
-# Sequence Flows
+# 🔀 Sequence Flows
+
+## Contents
+
+- ✅ [1. Happy Path: Alert to RCA in Slack](#1-happy-path-alert-to-rca-in-slack)
+- 🔬 [1a. Full Pipeline Detail: outbox-worker, transactions, and fallback](#1a-full-pipeline-detail-outbox-worker-transactions-and-fallback)
+- 🧬 [2. Deduplication](#2-deduplication)
+- 🪂 [3. LLM Fallback](#3-llm-fallback)
+- 🔁 [4. Feedback Loop](#4-feedback-loop)
+- 💬 [5. Slack Bot Query](#5-slack-bot-query)
+- ☠️ [6. Outbox Retry and Dead Lettering](#6-outbox-retry-and-dead-lettering)
 
 ## 1. Happy Path: Alert to RCA in Slack
 

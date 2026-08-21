@@ -1,7 +1,14 @@
-# Runbook: Vault secret rotation
+# 🔐 Runbook: Vault secret rotation
 
 Not an alert — a **procedure**. But a *botched* rotation surfaces minutes later as
 `OutboxBacklogHigh`, `LLMTemplateFallbackActive`, or a stuck `/readyz` 503.
+
+## Contents
+
+- 🎯 [The one principle](#the-one-principle)
+- ♻️ [Restart-set per secret type](#restart-set-per-secret-type)
+- ✔️ [Verify](#verify)
+- 🆘 [If recovery doesn't work / known limits / when to escalate](#if-recovery-doesnt-work--known-limits--when-to-escalate)
 
 ## The one principle
 Secrets are loaded **once, at startup** (in each service's lifespan). There is

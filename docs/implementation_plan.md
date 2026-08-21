@@ -1,7 +1,53 @@
-# RADAR Implementation Plan
+# 📋 RADAR Implementation Plan
 ### Version 5.0 - Final. Feed to Claude Code phase by phase.
 
 ---
+
+## Contents
+
+- [What RADAR Is](#what-radar-is)
+- [Locked Decisions](#locked-decisions)
+- [LLM Provider Strategy](#llm-provider-strategy)
+- [LLM Fallback Chain](#llm-fallback-chain)
+- [E-Commerce Domain](#e-commerce-domain)
+- [Slack Features](#slack-features)
+- [How Detection Works](#how-detection-works)
+- [Watcher Correlation Rules](#watcher-correlation-rules)
+- [Planner Templates](#planner-templates)
+- [Repository](#repository)
+- [Kubernetes Namespaces](#kubernetes-namespaces)
+- [Home Lab Cluster](#home-lab-cluster)
+- [Final Git Structure](#final-git-structure)
+- [Postgres Schema](#postgres-schema)
+- [LLM Gateway: Full Specification](#llm-gateway-full-specification)
+- [Outbox Worker: Full Specification](#outbox-worker-full-specification)
+- [Agent Pipeline](#agent-pipeline)
+- [Feedback Service and Slack Bot](#feedback-service-and-slack-bot)
+- [Platform Simulator Service](#platform-simulator-service)
+- [Knowledge Service](#knowledge-service)
+- [Observability](#observability)
+- [Engineering Standards](#engineering-standards)
+- [Phase 0: Foundation](#phase-0-foundation)
+- [Phase 1: Developer Environment](#phase-1-developer-environment)
+- [Phase 2: Contracts and Plugin SDK](#phase-2-contracts-and-plugin-sdk)
+- [Phase 3: Shared Packages](#phase-3-shared-packages)
+- [Phase 4: LLM Gateway](#phase-4-llm-gateway)
+- [Phase 5: Ingestion and Platform Simulator](#phase-5-ingestion-and-platform-simulator)
+- [Phase 6: Outbox Worker](#phase-6-outbox-worker)
+- [Phase 7: Agent Pipeline and Vertical Slice](#phase-7-agent-pipeline-and-vertical-slice)
+- [Phase 8: Knowledge Service](#phase-8-knowledge-service)
+- [Phase 9: Feedback Service and Slack Bot](#phase-9-feedback-service-and-slack-bot)
+- [Phase 10: Observability](#phase-10-observability)
+- [Phase 11: CI/CD](#phase-11-cicd)
+- [Phase 12: Kubernetes and Helm](#phase-12-kubernetes-and-helm)
+- [Phase 13: Security and Resilience Audit](#phase-13-security-and-resilience-audit)
+- [Phase 14: Open Source Polish](#phase-14-open-source-polish)
+- [Git State Per Phase](#git-state-per-phase)
+- [First Vertical Slice](#first-vertical-slice)
+- [Non-Goals for V1](#non-goals-for-v1)
+- [Claude Code Prompt Template](#claude-code-prompt-template)
+- [Summary](#summary)
+- [Architecture Decision Records](#architecture-decision-records)
 
 ## What RADAR Is
 
@@ -689,7 +735,10 @@ radar-system/
 │   │       ├── grafana/values.yaml
 │   │       └── vault/values.yaml
 │   ├── compose/
-│   │   └── docker-compose.yml
+│   │   ├── docker-compose-infra.yml
+│   │   ├── docker-compose-apps.yml
+│   │   ├── apps.env
+│   │   └── vault-init/fetch-secrets.sh
 │   ├── prometheus/
 │   │   ├── alerting-rules.yml
 │   │   └── prometheus.yml
@@ -1492,7 +1541,7 @@ the window fills, so the window ADDS to `for` rather than overlapping it.
 ### Not wired up yet
 
 Nothing mounts or evaluates the rules file: there is no scrape config and no
-alertmanager in `deploy/compose/docker-compose.yml`, and platform-sim is not a
+alertmanager in `deploy/compose/docker-compose-infra.yml`, and platform-sim is not a
 compose service. Standing up the running Prometheus + alertmanager, wiring them
 into compose, and proving the real front door in the default suite are all
 **deferred to Phase 10 (Observability)**, which already owns that infrastructure.
@@ -1829,7 +1878,7 @@ Makefile
 .env.example
 .pre-commit-config.yaml
 scripts/bootstrap.sh
-deploy/compose/docker-compose.yml
+deploy/compose/docker-compose-infra.yml
 ```
 
 Compose stack:
@@ -2613,61 +2662,82 @@ best-case, queueing-compressed number).
 ## Phase 11: CI/CD
 **Milestone: v0.11-cicd | Tag: v0.5.0**
 
-Before touching workflow files: decide CD approach and write ADR 0012.
-Options: self-hosted runner on a k8 home cluster (recommended, simpler) or Tailscale tunnel.
+Before touching workflow files: decide the CD approach and write ADR 0012.
+Options: self-hosted runner on a k8s home cluster (recommended, simpler) or Tailscale tunnel.
 
-CI: path-based, builds only what changed. Multi-arch images. Tagged by git SHA.
+CI is path-based, builds only what changed, produces multi-arch images, and tags by git SHA.
+
+Landed so far: change detection, the lint/test pipeline, multi-arch buildx, the config
+drift check, and the `deploy/`-only-builds-nothing guard. The local two-stack Docker
+compose (`radar-infra` + `radar-apps`, with per-service Vault init sidecars) also landed;
+see docs/operations/docker.md. The CD half (deploy workflow, cluster connectivity guide)
+remains.
+
+**Local containerized deployment (two-stack).** Alongside the pipeline, the app
+images run as two compose stacks that share one network: `radar-infra`
+(Postgres, Elasticsearch, Vault, Prometheus, Grafana, Alertmanager, otel-collector,
+fluent-bit) and `radar-apps` (the eight services plus platform-sim). Each app has
+a per-service `vault-init` sidecar that materializes its secrets into a shared
+volume, the compose form of the k8s init-container pattern that Phase 12 formalizes
+as a Helm chart. This gives a one-command full-stack run (`make docker-up`) and the
+end-to-end test that Phase 14's quickstart builds on. Guide: docs/operations/docker.md.
 
 Commits:
 ```
 ci: add lint typecheck and test pipeline
 ci: add changed service detection script
 ci: add multi-arch docker buildx
-ci: add helm validation
 ci: assert otel collector config copies are byte-identical
-ci: add cd workflow to home lab
 docs: add adr 0012 cd approach
+feat(compose): add two-stack docker (radar-infra + radar-apps) with vault-init sidecars
+feat(make): add docker-up/down and per-stack lifecycle targets
+docs(ops): add docker two-stack guide and end-to-end test
+docs: add tables of contents and refine the readme
+fix(llm-openai): send max_completion_tokens for gpt-5 compatibility
+feat(feedback): lead the rca card header with the alert name
+```
+
+Still open (the CD half):
+```
+ci: add helm validation            # lands with the Phase 12 chart
+ci: add cd workflow to home lab
 docs: add cluster connectivity setup guide
 ```
 
 **Deferred from Phase 10: `deploy/otel/` config drift check.** Two config files
-under `deploy/otel/` each exist in two places that MUST match, because compose
-needs a mountable file while a static k8s manifest needs the content inline:
+under `deploy/otel/` each live in two places that must stay identical: compose
+mounts a file, and a static k8s manifest embeds the same content inline.
 
-- `collector-config.yaml` ↔ the `otel-collector-config` ConfigMap in
+- `collector-config.yaml` matches the `otel-collector-config` ConfigMap in
   `collector-daemonset.yaml`.
-- `traces-index-template.json` ↔ the `traces-index-template` ConfigMap in
+- `traces-index-template.json` matches the `traces-index-template` ConfigMap in
   `traces-index-template.yaml`.
-- `deploy/fluent-bit/parsers.conf` ↔ the `parsers.conf` key in the
+- `deploy/fluent-bit/parsers.conf` matches the `parsers.conf` key in the
   `fluent-bit-config` ConfigMap in `fluent-bit-daemonset.yaml`. (The two
-  `fluent-bit.conf` files legitimately DIFFER: compose tails `.dev-run`, k8s
-  tails container logs, so only the parser is a byte-identical pair.)
+  `fluent-bit.conf` files legitimately differ: compose tails `.dev-run`, k8s
+  tails container logs, so only the parser forms a byte-identical pair.)
 
-Phase 10 keeps each pair byte-identical by hand; nothing structural prevents them
-drifting silently. Add a CI job that, for each pair, extracts the ConfigMap's
-embedded value and asserts it equals the standalone file verbatim, failing the
-build on any divergence. Same assert-don't-trust discipline as the
-`deploy/`-only-change guard above.
+Phase 10 keeps each pair identical by hand, so drift can creep in silently. Add a
+CI job that, for each pair, extracts the ConfigMap's embedded value and asserts it
+matches the standalone file verbatim, failing the build on any divergence. Same
+assert-first discipline as the `deploy/`-only-change guard above.
 
 **CI prerequisite: kubeconform needs schema-repo egress.** The Phase 10
 kubeconform proof (`make kubeconform` / `tests/e2e/test_kubeconform.py`, in the
 default suite via `-m 'not live'`) runs the pinned `ghcr.io/yannh/kubeconform`
-image, which fetches the Kubernetes JSON schemas from the `kubernetes-json-schema`
-repo (raw.githubusercontent.com) at run time. The CI runner therefore needs Docker
-AND network egress to that host; without it the check reports "CANNOT TRUST:
-ERROR(s): schema-fetch / network egress" (exit 2), deliberately distinct from a
-manifest actually being invalid. If CI must run air-gapped, pre-cache the schemas
-and point kubeconform at them with `-schema-location`.
+image, which fetches the Kubernetes JSON schemas from raw.githubusercontent.com at
+run time. The CI runner needs Docker and network egress to that host. Without it
+the check reports a schema-fetch failure (exit 2), kept distinct from an
+actually-invalid manifest. To run air-gapped, pre-cache the schemas and point
+kubeconform at them with `-schema-location`.
 
 Done when: changing feedback-service builds only feedback-service, and a change
 under `deploy/` triggers no application build. Merge deploys it.
 
-The second clause is not a nice-to-have. ADR 0018 retired the radar-infra
-repository on the argument that path-based CI delivers the same release-cadence
-isolation the split existed for, so `deploy/`-changes-nothing IS that decision's
-justification. Until CI enforces it, the property is asserted and not proven, and
-the single-repo decision ships unverified. Pin it with a test that fails if a
-`deploy/`-only change queues an application build.
+The second clause matters. ADR 0018 retired the radar-infra repository on the
+argument that path-based CI delivers the same release-cadence isolation the split
+provided, so `deploy/`-changes-nothing is that decision's justification. A test
+that fails when a `deploy/`-only change queues an application build pins it.
 
 ---
 
@@ -2685,16 +2755,16 @@ Chart must have: resource limits, probes, Vault init-container, RBAC, HPA for
 ingestion and llm-gateway, correlation rules and plan templates as ConfigMaps,
 configurable backend providers.
 
-**Deferred from Phase 10: authenticated Alertmanager → ingestion.** Ingestion
+**Deferred from Phase 10: authenticated Alertmanager to ingestion.** Ingestion
 authenticates `POST /alerts/prometheus` with the `X-Radar-Webhook-Token` header
-(ADR 0011). Alertmanager v0.27 (the compose pin) can send `Authorization` /
-basic-auth but not an arbitrary custom header, so `deploy/prometheus/alertmanager.yml`
-wires the webhook to ingestion as a dev convenience that 401s (documented at the
-receiver). Real authenticated delivery needs an Alertmanager with
-`http_config.http_headers` (≥ v0.28); bump the image and set the token header from
-the mounted secret when the k8s wiring lands. Phase 10's scrape → fire → webhook
-proof does not depend on it: `tests/e2e/test_real_prometheus_alert.py` asserts
-the alert reaches a webhook receiver with the right labels.
+(ADR 0011). Alertmanager v0.27 (the compose pin) sends `Authorization` / basic-auth
+but lacks arbitrary custom headers, so `deploy/prometheus/alertmanager.yml` wires
+the webhook to ingestion as a dev convenience that returns 401 (documented at the
+receiver). Real authenticated delivery needs Alertmanager `http_config.http_headers`
+(v0.28+); bump the image and set the token header from the mounted secret when the
+k8s wiring lands. Phase 10's scrape-fire-webhook proof holds independently:
+`tests/e2e/test_real_prometheus_alert.py` asserts the alert reaches a webhook
+receiver with the right labels.
 
 Commits:
 ```
@@ -2716,10 +2786,9 @@ Done when: helm install deploys all services. All readiness probes pass.
 
 New work:
 - Load test: 100 concurrent mock alerts, p50/p95/p99 from ingestion to recommendation.
-  This is where the incident-pipeline latency panel (`radar_incident_duration_seconds`)
-  gets its REPRESENTATIVE p50/p95, deferred here from Phase 10 step 12, whose
-  in-process pipeline could only yield a small-sample, best-case (queueing-compressed)
-  number.
+  This gives the incident-pipeline latency panel (`radar_incident_duration_seconds`)
+  its representative p50/p95, deferred here from Phase 10 step 12. Phase 10's in-process
+  pipeline yielded only a small-sample, best-case (queueing-compressed) number.
 - Threat model document
 - Circuit breaker in LLM Gateway
 - Verify audit_log populated for all key events
@@ -2788,6 +2857,8 @@ Phase 9  + apps/feedback-service plugins/notifications
 Phase 10 + deploy/grafana deploy/otel deploy/fluent-bit docs/operations
            TAG: v0.4.0
 Phase 11 + .github/workflows scripts/detect-changed-services.py
+           deploy/compose/docker-compose-{infra,apps}.yml deploy/compose/vault-init
+           docs/operations/docker.md
            TAG: v0.5.0
 Phase 12 + deploy/helm/radar
            TAG: v0.6.0
