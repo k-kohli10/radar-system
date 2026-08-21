@@ -10,14 +10,14 @@ collects feedback on it, and answers status queries through a Slack bot.
 
 ## Contents
 
-- [🧩 The Problem](#-the-problem)
-- [🎯 Scope](#-scope)
-- [🔧 How It Works](#-how-it-works)
-- [🚀 Run It](#-run-it)
-- [🛒 Domain](#-domain)
-- [📍 Status](#-status)
-- [📚 Documentation](#-documentation)
-- [📄 License](#-license)
+- [The Problem](#-the-problem)
+- [Scope](#-scope)
+- [How It Works](#-how-it-works)
+- [Run It](#-run-it)
+- [Domain](#-domain)
+- [Status](#-status)
+- [Documentation](#-documentation)
+- [License](#-license)
 
 ---
 
@@ -84,10 +84,13 @@ worker picks up and dispatches with retries and idempotency guarantees. See
 Two ways to run the full stack locally, both from one bootstrap:
 
 ```bash
-scripts/bootstrap.sh          # checks tools, installs uv, generates .env
+scripts/bootstrap.sh                # checks tools, installs uv, generates .env
 # set OPENAI_API_KEY in .env (and SLACK_* for the Slack bot)
-make docker-up                # the whole stack in Docker
+make docker-up                      # bring up the whole stack in Docker
+make agent-secrets && make index    # index runbooks: knowledge-service ready, grounded RCAs
 ```
+
+Then fire an alert and watch the RCA land in Slack and Postgres. Full walkthrough:
 
 - **Docker (two-stack):** [docs/operations/docker.md](docs/operations/docker.md). One command up, plus the end-to-end test.
 - **Native dev:** [docs/local-development.md](docs/local-development.md). Services on the host for a fast edit loop.
