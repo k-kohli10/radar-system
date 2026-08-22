@@ -24,6 +24,18 @@ image:
 # Referenced by name in each pod spec when set (e.g. a GHCR pull secret).
 imagePullSecrets: []
 
+# Per-workload Vault init-container. Each pod's ServiceAccount authenticates via
+# Vault's kubernetes auth method (role radar-<service>) and the shared
+# fetch-secrets.sh writes that service's secrets into an in-memory /vault/secrets
+# volume before the app container starts. Requires Vault reachable at `addr` with
+# the kubernetes auth roles/policies seeded (platform-deps + bootstrap).
+vault:
+  addr: http://vault.radar-infra.svc.cluster.local:8200
+  image: hashicorp/vault:1.18.0
+  # Rewrites the Postgres DSN host in Vault (native-dev localhost) to the
+  # in-cluster address; passed to fetch-secrets.sh as RADAR_POSTGRES_HOST.
+  postgresHost: postgres.radar-infra.svc.cluster.local
+
 # Non-secret environment shared by every app service. Mirrors
 # deploy/compose/apps.env, with in-cluster DNS in place of compose service names.
 # Cross-namespace dependencies (Elasticsearch, OTel collector) use the fully

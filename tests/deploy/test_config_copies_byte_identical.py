@@ -54,6 +54,16 @@ EXPLICIT_PAIRS: list[tuple[str, str, str]] = [
 GRAFANA_CONFIGMAPS = "deploy/grafana/dashboards-configmaps.yaml"
 GRAFANA_DASHBOARDS = "deploy/grafana/dashboards"
 
+# Plain file <-> file copies. Helm's .Files.Get can only read files inside the
+# chart directory, so the compose vault-init script cannot be shared by reference;
+# the chart keeps a copy that its ConfigMap embeds. This pins the two copies.
+FILE_PAIRS: list[tuple[str, str]] = [
+    (
+        "deploy/compose/vault-init/fetch-secrets.sh",
+        "deploy/helm/radar/files/fetch-secrets.sh",
+    ),
+]
+
 
 def _configmaps(manifest: str) -> list[dict[str, Any]]:
     docs = yaml.safe_load_all((ROOT / manifest).read_text())
@@ -90,6 +100,23 @@ def test_pair_discovery_is_not_vacuous() -> None:
     # welcome but a discovery that silently finds nothing fails loudly.
     assert len(_grafana_pairs()) >= 5, "Grafana dashboard pairs vanished"
     assert len(pairs) >= 8, f"expected >=8 config copy-pairs, found {len(pairs)}"
+    assert len(FILE_PAIRS) >= 1, "file copy-pairs vanished"
+
+
+@pytest.mark.parametrize(
+    ("standalone", "copy"),
+    FILE_PAIRS,
+    ids=lambda v: v.rsplit("/", 2)[-1] if isinstance(v, str) else v,
+)
+def test_file_copy_is_byte_identical(standalone: str, copy: str) -> None:
+    standalone_path = ROOT / standalone
+    copy_path = ROOT / copy
+    assert standalone_path.is_file(), f"standalone file missing: {standalone}"
+    assert copy_path.is_file(), f"copy missing: {copy}"
+    assert copy_path.read_text() == standalone_path.read_text(), (
+        f"DRIFT: {standalone} and {copy} are no longer byte-identical. "
+        f"Re-sync one from the other."
+    )
 
 
 @pytest.mark.parametrize(

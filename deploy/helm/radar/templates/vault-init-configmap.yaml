@@ -1,0 +1,15 @@
+{{- /*
+The Vault init-container's secret-fetch script, embedded byte-identically from
+deploy/helm/radar/files/fetch-secrets.sh (the chart-local copy of the compose
+sidecar script; a drift test pins the two). Mounted into every workload's
+vault-init container.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-init-script
+  labels:
+    {{- include "radar.labels" . | nindent 4 }}
+data:
+  fetch-secrets.sh: |
+{{ .Files.Get "files/fetch-secrets.sh" | indent 4 }}

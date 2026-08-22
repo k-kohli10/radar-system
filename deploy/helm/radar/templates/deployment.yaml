@@ -24,10 +24,26 @@ spec:
       labels:
         {{- include "radar.selectorLabels" (dict "name" $name "root" $) | nindent 8 }}
     spec:
+      serviceAccountName: {{ $name }}
       {{- with $.Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        - name: vault-init
+          image: {{ $.Values.vault.image }}
+          command: ["/bin/sh", "/vault-init/fetch-secrets.sh", {{ $name | quote }}]
+          env:
+            - name: VAULT_ADDR
+              value: {{ $.Values.vault.addr | quote }}
+            - name: RADAR_POSTGRES_HOST
+              value: {{ $.Values.vault.postgresHost | quote }}
+          volumeMounts:
+            - name: vault-init-script
+              mountPath: /vault-init
+              readOnly: true
+            - name: vault-secrets
+              mountPath: /vault/secrets
       containers:
         - name: {{ $name }}
           image: {{ include "radar.image" (dict "name" $name "root" $) }}
@@ -44,4 +60,18 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault/secrets
+              readOnly: true
+      volumes:
+        # In-memory: the sidecar writes secrets here, the app reads them; nothing
+        # touches disk.
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory
+        - name: vault-init-script
+          configMap:
+            name: vault-init-script
+            defaultMode: 0555
 {{- end }}
