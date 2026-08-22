@@ -32,7 +32,7 @@ everything downstream of it.
    the target permanently rejects (e.g. a 422). Retrying will never clear it.
 
 ## Recover
-- **Down target:** bring it back (`make dev-apps`, or restart the pod). The
+- **Down target:** bring it back (`make dev-apps-up`, or restart the pod). The
   backlog drains once dispatch resumes.
 - **401s:** the target's token was rotated without restarting the outbox-worker —
   follow [vault-secret-rotation](vault-secret-rotation.md) and restart the target

@@ -16,7 +16,7 @@
 - [Planner Templates](#planner-templates)
 - [Repository](#repository)
 - [Kubernetes Namespaces](#kubernetes-namespaces)
-- [Home Lab Cluster](#home-lab-cluster)
+- [Deployment Targets](#deployment-targets)
 - [Final Git Structure](#final-git-structure)
 - [Postgres Schema](#postgres-schema)
 - [LLM Gateway: Full Specification](#llm-gateway-full-specification)
@@ -45,7 +45,6 @@
 - [Git State Per Phase](#git-state-per-phase)
 - [First Vertical Slice](#first-vertical-slice)
 - [Non-Goals for V1](#non-goals-for-v1)
-- [Claude Code Prompt Template](#claude-code-prompt-template)
 - [Summary](#summary)
 - [Architecture Decision Records](#architecture-decision-records)
 
@@ -70,29 +69,27 @@ Do not revisit these during implementation.
 ```
 Repos              : radar-system only. Single repository. (Superseded entry, see below.)
 Namespaces         : radar (app workloads), radar-infra (platform deps)
-Agent comms        : Postgres transactional outbox only. No direct HTTP between agents.
+Agent comms        : Postgres transactional outbox only.
 Agent pipeline     : Watcher -> Planner -> Reasoner
-Agent frameworks   : None. No LangChain, LangGraph, LiteLLM. Ever.
+Agent runtime      : Raw Python and vendor SDKs.
 LLM Gateway        : Raw Python. Individual SDKs. anthropic, openai, google-generativeai.
 Default provider   : OpenAI (all modes). Others available via config swap.
 LLM auth           : Static 32-byte hex token per agent. Vault-stored. One token = one mode.
 LLM modes          : fast, reason, extended, embed
 LLM fallback       : Gateway tries secondary provider first. If all fail, Reasoner uses
-                     template fallback with is_fallback=true. Never skips writing a recommendation.
-Detection          : Prometheus alertmanager + Kibana Watcher. Not RADAR.
-Watcher ruleset    : YAML config file. Mounted as ConfigMap. Not hardcoded.
-Planner templates  : YAML config file. Mounted as ConfigMap. Not hardcoded.
-Secrets            : HashiCorp Vault, init-container only. No sidecars. No env vars.
+                     template fallback with is_fallback=true. Always writes a recommendation.
+Detection          : Prometheus alertmanager + Kibana Watcher (upstream of RADAR).
+Watcher ruleset    : YAML config file, mounted as ConfigMap.
+Planner templates  : YAML config file, mounted as ConfigMap.
+Secrets            : HashiCorp Vault, init-container files only.
 Secret rotation    : Rotate in Vault, restart pod.
 Traces             : OTel SDK -> OTel Collector DaemonSet -> Elasticsearch. Kibana APM.
 Metrics            : Prometheus scrapes /metrics. Grafana dashboards.
 Logs               : structlog JSON -> stdout -> Fluent Bit -> Elasticsearch.
 Notifications      : Slack only.
 Slack bot          : Lives in feedback-service. Handles both RCA delivery and chat queries.
-Ticketing          : None. Incident state in Postgres.
+Incident state     : Postgres (system of record).
 Domain             : E-commerce. Target stub is order-service.
-Redis              : Not in this architecture.
-Jaeger             : Not in this architecture.
 Runbooks           : Human-written markdown about TARGET services. RAG-indexed.
 RADAR ops docs     : docs/operations/. Not RAG-indexed.
 ```
@@ -449,20 +446,18 @@ vault
 
 ---
 
-## Home Lab Cluster
+## Deployment Targets
 
-```
-Control plane : MacBook Air M1, Linux ARM64 VM via UTM, bridged networking
-Workers       : Two Lenovo P400 desktops, Ubuntu Server 22.04, x86_64
-CNI           : Flannel
-Load balancer : MetalLB
-Ingress       : nginx ingress controller
-Runtime       : containerd
-Bootstrap     : kubeadm
-```
+RADAR runs two ways, from the same multi-arch images:
 
-Every image must build for linux/amd64 AND linux/arm64 via docker buildx.
-MacBook control plane is a single point of failure. Accept it and move on.
+- **Docker (two-stack), local.** The `radar-infra` and `radar-apps` compose stacks
+  run the full end-to-end pipeline on one machine. See docs/operations/docker.md.
+- **Kubernetes on Civo (K3s).** An ephemeral cluster provisioned for active testing
+  via the Phase 12 Helm chart, then torn down between sessions. Nodes are amd64; Civo
+  supplies metrics-server (needed for HPA) and a load balancer on demand.
+
+Images build for linux/amd64 (Civo and x86 CI) and linux/arm64 (local Docker on
+Apple Silicon) via docker buildx.
 
 ---
 
@@ -475,14 +470,8 @@ radar-system/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml
-│   │   ├── cd-ingestion.yml
-│   │   ├── cd-llm-gateway.yml
-│   │   ├── cd-outbox-worker.yml
-│   │   ├── cd-watcher-agent.yml
-│   │   ├── cd-planner-agent.yml
-│   │   ├── cd-reasoner-agent.yml
-│   │   ├── cd-knowledge-service.yml
-│   │   └── cd-feedback-service.yml
+│   │   ├── build.yml
+│   │   └── cd.yml            # helm upgrade to Civo (Phase 12)
 │   ├── ISSUE_TEMPLATE/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
@@ -1905,8 +1894,8 @@ SLACK_APP_TOKEN=xapp-...
 Makefile:
 ```
 make setup    uv sync, pre-commit install
-make dev      docker compose up -d
-make stop     docker compose down
+make dev-infra-up      docker compose up -d
+make dev-infra-stop     docker compose down
 make lint     ruff check . && mypy .
 make test     pytest
 make clean    docker compose down -v
@@ -1921,7 +1910,7 @@ chore: add docker compose local stack
 docs: add local development setup guide
 ```
 
-Done when: make setup && make dev works on a clean machine and all six services are reachable.
+Done when: make setup && make dev-infra-up works on a clean machine and all six services are reachable.
 
 ---
 
@@ -2662,16 +2651,15 @@ best-case, queueing-compressed number).
 ## Phase 11: CI/CD
 **Milestone: v0.11-cicd | Tag: v0.5.0**
 
-Before touching workflow files: decide the CD approach and write ADR 0012.
-Options: self-hosted runner on a k8s home cluster (recommended, simpler) or Tailscale tunnel.
+Phase 11 scope is CI plus a local containerized deployment. Continuous deployment
+to a cluster moves to Phase 12, where the Helm chart it deploys gets built.
 
-CI is path-based, builds only what changed, produces multi-arch images, and tags by git SHA.
+CI is path-based, builds only what changed, produces multi-arch images (amd64 for a
+Civo cluster, arm64 for local Docker on Apple Silicon), and tags by git SHA.
 
-Landed so far: change detection, the lint/test pipeline, multi-arch buildx, the config
-drift check, and the `deploy/`-only-builds-nothing guard. The local two-stack Docker
-compose (`radar-infra` + `radar-apps`, with per-service Vault init sidecars) also landed;
-see docs/operations/docker.md. The CD half (deploy workflow, cluster connectivity guide)
-remains.
+Delivered: change detection, the lint/test pipeline, multi-arch buildx, the config
+drift check, the `deploy/`-only-builds-nothing guard, and the local two-stack Docker
+deployment (see docs/operations/docker.md).
 
 **Local containerized deployment (two-stack).** Alongside the pipeline, the app
 images run as two compose stacks that share one network: `radar-infra`
@@ -2688,20 +2676,12 @@ ci: add lint typecheck and test pipeline
 ci: add changed service detection script
 ci: add multi-arch docker buildx
 ci: assert otel collector config copies are byte-identical
-docs: add adr 0012 cd approach
 feat(compose): add two-stack docker (radar-infra + radar-apps) with vault-init sidecars
 feat(make): add docker-up/down and per-stack lifecycle targets
 docs(ops): add docker two-stack guide and end-to-end test
 docs: add tables of contents and refine the readme
 fix(llm-openai): send max_completion_tokens for gpt-5 compatibility
 feat(feedback): lead the rca card header with the alert name
-```
-
-Still open (the CD half):
-```
-ci: add helm validation            # lands with the Phase 12 chart
-ci: add cd workflow to home lab
-docs: add cluster connectivity setup guide
 ```
 
 **Deferred from Phase 10: `deploy/otel/` config drift check.** Two config files
@@ -2714,8 +2694,9 @@ mounts a file, and a static k8s manifest embeds the same content inline.
   `traces-index-template.yaml`.
 - `deploy/fluent-bit/parsers.conf` matches the `parsers.conf` key in the
   `fluent-bit-config` ConfigMap in `fluent-bit-daemonset.yaml`. (The two
-  `fluent-bit.conf` files legitimately differ: compose tails `.dev-run`, k8s
-  tails container logs, so only the parser forms a byte-identical pair.)
+  `fluent-bit.conf` files legitimately differ: compose tails both `.dev-run` and
+  Docker's json-file container logs, k8s tails container logs, so only the parser
+  forms a byte-identical pair.)
 
 Phase 10 keeps each pair identical by hand, so drift can creep in silently. Add a
 CI job that, for each pair, extracts the ConfigMap's embedded value and asserts it
@@ -2731,29 +2712,40 @@ the check reports a schema-fetch failure (exit 2), kept distinct from an
 actually-invalid manifest. To run air-gapped, pre-cache the schemas and point
 kubeconform at them with `-schema-location`.
 
-Done when: changing feedback-service builds only feedback-service, and a change
-under `deploy/` triggers no application build. Merge deploys it.
+Done when: changing feedback-service builds only feedback-service, a change under
+`deploy/` triggers no application build, and `make docker-up` brings the full stack
+up for the end-to-end test. Deploying that stack to a cluster is Phase 12.
 
-The second clause matters. ADR 0018 retired the radar-infra repository on the
-argument that path-based CI delivers the same release-cadence isolation the split
-provided, so `deploy/`-changes-nothing is that decision's justification. A test
-that fails when a `deploy/`-only change queues an application build pins it.
+The `deploy/`-changes-nothing clause matters. ADR 0018 retired the radar-infra
+repository on the argument that path-based CI delivers the same release-cadence
+isolation the split provided, so `deploy/`-changes-nothing is that decision's
+justification. A test that fails when a `deploy/`-only change queues an application
+build pins it.
 
 ---
 
 ## Phase 12: Kubernetes and Helm
 **Milestone: v0.12-kubernetes | Tag: v0.6.0**
 
+The k8s target is a Civo Kubernetes (K3s) cluster, provisioned on demand for active
+testing and torn down between sessions. RADAR rebuilds from scratch (the dev Vault
+re-seeds, the runbook index rebuilds), so an ephemeral cluster fits the work. Civo's
+API is publicly reachable, so a GitHub-hosted runner runs `helm upgrade` directly
+against it (ADR 0012). Local end-to-end runs use the Phase 11 two-stack Docker
+deployment; this phase adds the k8s path and the CD that reaches it.
+
 Deliverables:
 ```
 deploy/helm/radar/
 deploy/examples/minimal/
 deploy/examples/bring-your-own-backends/
+.github/workflows/          # helm validation in CI, helm-upgrade CD to Civo
+docs/operations/            # Civo cluster setup + connectivity
 ```
 
 Chart must have: resource limits, probes, Vault init-container, RBAC, HPA for
-ingestion and llm-gateway, correlation rules and plan templates as ConfigMaps,
-configurable backend providers.
+ingestion and llm-gateway (metrics-server required), correlation rules and plan
+templates as ConfigMaps, configurable backend providers.
 
 **Deferred from Phase 10: authenticated Alertmanager to ingestion.** Ingestion
 authenticates `POST /alerts/prometheus` with the `X-Radar-Webhook-Token` header
@@ -2775,9 +2767,13 @@ feat(helm): add hpa for ingestion and llm-gateway
 feat(helm): add correlation rules and plan templates as configmaps
 feat(helm): add configurable backend providers
 feat(deploy): add minimal and bring-your-own-backends examples
+ci: add helm validation                         # moved from Phase 11
+ci: add helm-upgrade cd to civo                 # moved from Phase 11
+docs(ops): add civo cluster setup and connectivity guide   # moved from Phase 11
 ```
 
-Done when: helm install deploys all services. All readiness probes pass.
+Done when: `helm install` (or the CD workflow's `helm upgrade`) deploys all services
+to a Civo cluster and every readiness probe passes. Merge deploys it.
 
 ---
 
@@ -2860,7 +2856,8 @@ Phase 11 + .github/workflows scripts/detect-changed-services.py
            deploy/compose/docker-compose-{infra,apps}.yml deploy/compose/vault-init
            docs/operations/docker.md
            TAG: v0.5.0
-Phase 12 + deploy/helm/radar
+Phase 12 + deploy/helm/radar deploy/examples .github/workflows/cd.yml
+           docs/operations (civo setup)
            TAG: v0.6.0
 Phase 13 + tests/load docs/architecture/threat-model.md
            TAG: v0.7.0
@@ -2926,56 +2923,12 @@ Anomaly detection inside RADAR
 Autonomous remediation
 Agent memory across incidents
 Fine-tuning pipeline
-PagerDuty
-ServiceNow or ticketing
-LangChain / LangGraph / LiteLLM
-Redis
-Jaeger
-JWT or OAuth (static tokens are fine)
 Multi-tenant
 Custom UI
-Kafka / NATS
 ```
 
----
-
-## Claude Code Prompt Template
-
-Paste at the start of every Claude Code session before giving any task.
-
-```
-You are building RADAR, an AI-powered Incident Intelligence Platform.
-
-HARD RULES - never violate these:
-- Python 3.12, FastAPI, Pydantic v2, SQLAlchemy async, uv
-- No LangChain, LangGraph, LiteLLM or any orchestration framework. Ever.
-- No Redis. No Jaeger.
-- LLM calls only from agents to llm-gateway via POST /v1/complete or /v1/embed
-- Inter-agent communication only via Postgres outbox_events table
-- No direct HTTP calls between agents
-- Secrets only from Vault secret files. Never environment variables for secrets.
-- structlog for all logging. JSON to stdout.
-- Every service needs GET /healthz, GET /readyz, GET /metrics, POST /events
-- X-Radar-Agent-Token header required on all non-health non-metrics endpoints
-- All outbox writes must be in the same transaction as the triggering state change
-- Every agent must check processed_events before handling any event
-- All images must build for linux/amd64 AND linux/arm64 via docker buildx
-- pytest-asyncio for all async tests
-- mypy strict must pass
-- Default LLM provider is OpenAI. All modes use OpenAI unless config says otherwise.
-
-CURRENT PHASE: [paste phase name and milestone]
-
-DELIVERABLES:
-[paste exact deliverable list from the phase]
-
-TASK:
-[paste specific task]
-
-Do not build outside the current phase deliverables.
-If a design decision is unclear, ask before implementing.
-Do not add dependencies not in the approved list.
-```
+The stack is deliberately minimal; the affirmative rules live in `.claude/CLAUDE.md`
+and the ADRs in [adr/](adr/).
 
 ---
 
@@ -2991,9 +2944,6 @@ Do not add dependencies not in the approved list.
 1 channel  : Slack (RCA cards + bot queries)
 1 domain   : e-commerce order-service
 1 provider : OpenAI (default, swap via config)
-0 frameworks
-0 Redis
-0 Jaeger
 ```
 ---
 

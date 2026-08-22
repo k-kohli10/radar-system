@@ -1,33 +1,42 @@
-# ADR 0012: Self-Hosted Runner for CD
+# ADR 0012: Deployment Targets (Docker and Ephemeral Civo)
 
 ## Status
-Accepted
+
+Accepted.
 
 ## Context
-RADAR's deployment target is a home lab Kubernetes cluster (one ARM64 control-plane VM,
-two x86_64 P400 workers) with no public ingress by default. GitHub Actions' hosted
-runners can build and push multi-arch images fine, but they cannot reach the cluster's
-internal API server to run `helm upgrade` without exposing that API server to the
-internet, either directly or through a tunnel. The two realistic options, per the
-implementation plan, were a self-hosted GitHub Actions runner deployed on one of the
-P400 worker nodes, or a Tailscale tunnel from GitHub's hosted runners into the home lab
-network.
+
+RADAR ships as multi-arch container images and needs a way to run the whole system for
+development, demos, and testing. Two contexts matter: a single machine for local
+end-to-end runs, and a managed Kubernetes cluster for the k8s path (the Phase 12 Helm
+chart and the Phase 13 load test).
+
+RADAR rebuilds its state from scratch on every start. The dev Vault re-seeds via
+`make seed && make tokens`, the runbook index rebuilds via `make index`, and test data
+is disposable. That makes an on-demand cluster a natural fit for the k8s work.
 
 ## Decision
-A self-hosted GitHub Actions runner, deployed on a P400 worker node, with direct
-in-cluster access to run `helm upgrade` against the local `kubeconfig`. CI (lint,
-typecheck, test, path-based change detection, multi-arch `docker buildx` builds tagged
-by git SHA) still runs on GitHub-hosted runners. Only the CD step that touches the
-cluster runs on the self-hosted runner.
+
+- **Local end-to-end runs use the two-stack Docker deployment** (`make docker-up`):
+  the `radar-infra` and `radar-apps` compose stacks on a shared network. This is the
+  primary way to run and demo the full pipeline on one machine.
+- **The Kubernetes target is a Civo Kubernetes (K3s) cluster, provisioned on demand and
+  torn down between sessions.** Civo bills hourly, so intermittent testing through
+  Phases 12 and 13 stays inexpensive.
+- **CD runs on a GitHub-hosted runner and deploys directly.** Civo exposes a public,
+  authenticated API, so the runner runs `helm upgrade` against a stored kubeconfig. CI
+  (lint, typecheck, test, path-based change detection, multi-arch buildx) stays on
+  hosted runners.
 
 ## Consequences
-- No tunnel to operate, no Tailscale account/ACLs to maintain, no additional network
-  egress path into the home lab from the public internet.
-- The self-hosted runner is a workload on the same P400 worker nodes running RADAR
-  itself. It competes for CPU/memory with application pods and is a maintenance
-  item (OS updates, runner version bumps) outside of Kubernetes.
-- The runner's host has direct cluster-admin-equivalent access via its local
-  kubeconfig. It must be treated as a trusted, secured machine, not just another CI
-  agent, since it's the single node that can push changes into the cluster.
-- If the P400 hosting the runner goes down, CD is blocked until the runner comes back.
-  CI (build/test) is unaffected since it stays on GitHub-hosted infrastructure.
+
+- CD depends on GitHub-hosted runners and the Civo API, keeping the moving parts to the
+  deploy workflow and the cluster credentials.
+- The Civo kubeconfig and API token are deployment credentials held as GitHub secrets,
+  scoped to the deploy workflow, since they carry cluster-admin reach.
+- An ephemeral cluster proves CD during an active session; between sessions the local
+  Docker deployment covers running the product.
+- Teardown removes the cluster's volumes and load balancer along with the cluster, so
+  Civo billing stops cleanly.
+- Images build for linux/amd64 (Civo and x86 CI) and linux/arm64 (local Docker on Apple
+  Silicon), so the multi-arch buildx step stays.

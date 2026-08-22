@@ -31,7 +31,7 @@ Rotate the secret, re-render it (`make rotate SERVICE=<svc>` then
 | **Webhook token** (`webhook_token_<source>`) | `ingestion` **and** reconfigure the **external** source (Prometheus Alertmanager / Kibana) that presents it | external side still sends the old token → `401` at ingestion → that source's alerts silently dropped |
 
 ## Verify
-- Every restarted component reports `/readyz` 200 (`make ps-apps` in dev).
+- Every restarted component reports `/readyz` 200 (`make dev-apps-ps` in dev).
 - Drive one test event end to end and confirm **no `401`s** in the outbox-worker
   dispatch logs or the gateway logs.
 - Any alert the botched state would raise (`OutboxBacklogHigh`,

@@ -32,7 +32,7 @@ this as a fire.
 3. **Is the provider erroring?** On the `llm-gateway` dashboard, `radar_llm_provider_errors_total` — and check the OpenAI status page.
 
 ## Recover
-- **Process down** (`gateway_unavailable`, gateway `/readyz` not 200): restart it — `make dev-apps` restarts stopped host apps; in k8s the pod restarts itself. Confirm `/readyz` 200; watch the fallback rate return to 0.
+- **Process down** (`gateway_unavailable`, gateway `/readyz` not 200): restart it — `make dev-apps-up` restarts stopped host apps; in k8s the pod restarts itself. Confirm `/readyz` 200; watch the fallback rate return to 0.
 - **401 (`rejected`):** the gateway token is stale — follow [vault-secret-rotation](vault-secret-rotation.md), restarting **both** `llm-gateway` and `reasoner-agent`.
 
 ## If recovery doesn't work / known limits / when to escalate

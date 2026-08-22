@@ -9,6 +9,7 @@ RADAR runs as two docker-compose stacks on one shared network.
 - [Host ports](#-host-ports)
 - [End-to-end test](#-end-to-end-test)
 - [Commands](#-commands)
+- [Observability](#-observability)
 - [Limitations](#-limitations)
 
 ## Overview
@@ -19,8 +20,8 @@ RADAR runs as two docker-compose stacks on one shared network.
 | `radar-apps`  | `docker-compose-apps.yml`  | The 8 deployable services + `platform-sim` |
 
 The apps stack joins infra's `radar-infra_default` network as external, so **infra must
-be up first**. This is separate from the native `make dev-apps` workflow — run one
-or the other, not both (they share host ports).
+be up first**. This is separate from the [native dev workflow](../local-development.md)
+(`make dev-apps-up`) — run one or the other, not both (they share host ports).
 
 Each app has a `<name>-vault-init` sidecar that pulls that service's secrets from
 Vault into a shared `/vault/secrets` volume, then the app boots once the sidecar
@@ -41,13 +42,17 @@ migrations are host steps because infra publishes Vault and Postgres on loopback
 
 ## 🔌 Host ports
 
-| Service | Port | Service | Port |
-|---------|------|---------|------|
-| llm-gateway | 8081 | outbox-worker | 8094 |
-| ingestion | 8090 | knowledge-service | 8095 |
-| watcher-agent | 8091 | feedback-service | 8096 |
-| planner-agent | 8092 | platform-sim | 8099 |
-| reasoner-agent | 8093 | | |
+| Service | Port |
+|---------|------|
+| llm-gateway | 8081 |
+| ingestion | 8090 |
+| watcher-agent | 8091 |
+| planner-agent | 8092 |
+| reasoner-agent | 8093 |
+| outbox-worker | 8094 |
+| knowledge-service | 8095 |
+| feedback-service | 8096 |
+| platform-sim | 8099 |
 
 Every image listens internally on 8080; inside the network services address each
 other as `<name>:8080`.
@@ -65,9 +70,10 @@ curl -s localhost:8081/readyz; echo    # llm-gateway ready
 curl -s localhost:8099/healthz; echo   # platform-sim (a scrape target — no /readyz)
 ```
 
-Prometheus targets at http://localhost:9090/targets show the `*:8080` containers UP
-(the `host.docker.internal` ones are DOWN by design here). Grafana is at
-http://localhost:3000 (`admin` / `GRAFANA_ADMIN_PASSWORD` from `.env`).
+Prometheus targets at http://localhost:9090/targets show the eight `radar` services
+UP (metrics), traces flow to the `traces-generic-default` data stream, and app logs
+ship to `radar-logs-*` in Elasticsearch. Grafana is at http://localhost:3000
+(`admin` / `GRAFANA_ADMIN_PASSWORD` from `.env`).
 
 **2. Index runbooks.** knowledge-service reports `not_ready` (503) until the
 runbook index exists — its readiness checks the index's vector dimension. This
@@ -131,11 +137,21 @@ does this; a standalone `make docker-apps-up` assumes `make seed && make tokens`
 already ran). After re-seeding or `make rotate`, a plain `up` won't refresh a
 running app — run `make docker-apps-restart` to re-run the sidecars and restart it.
 
+## 📈 Observability
+
+Full signal set in the Docker stack:
+
+- **Metrics** — Prometheus scrapes each `radar-apps` service on the shared network
+  (one target per service). Grafana dashboards render them.
+- **Traces** — apps export OTLP to `otel-collector`, which writes the
+  `traces-generic-default` data stream in Elasticsearch.
+- **Logs** — the app containers log JSON to stdout; fluent-bit tails Docker's
+  json-file logs, lifts the structured line, and ships it to `radar-logs-*`. That
+  index carries `service`, `event`, `level`, `timestamp`, and `correlation_id` (the
+  logs-to-traces join key), and it is what the reasoner's log enrichment queries.
+
 ## ⚠️ Limitations
 
-- **App logs aren't shipped to Elasticsearch.** fluent-bit tails the native
-  `.dev-run/*.log`; containers log to stdout (`docker logs`). Container-log
-  shipping lands with the Phase 12 Helm chart.
 - **Seeding is a host step**, not yet a containerised one-shot.
 - **Secret volumes are disk-backed**, not tmpfs (the sidecar exits before the app
   starts). `make docker-apps-down` clears them.
