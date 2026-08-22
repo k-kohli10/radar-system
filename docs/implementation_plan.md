@@ -2788,6 +2788,28 @@ New work:
 - Threat model document
 - Circuit breaker in LLM Gateway
 - Verify audit_log populated for all key events
+- Per-service log indices in Elasticsearch. Today Fluent Bit ships every service's
+  logs to one `radar-logs-YYYY.MM.DD` index (`Logstash_Prefix radar-logs` in both
+  `deploy/fluent-bit/fluent-bit.conf` and the `fluent-bit-daemonset.yaml` ConfigMap).
+  Split it per service — `radar-<service>-logs-YYYY.MM.DD` (radar-ingestion-logs-*,
+  radar-watcher-agent-logs-*, radar-llm-gateway-logs-*, …) — routed off the `service`
+  field every RADAR log line already carries, so a new service needs no config change.
+  `Logstash_Prefix_Key` cannot compose `radar-<service>-logs` on its own, so add a
+  small Lua filter (`deploy/fluent-bit/set_log_index.lua`) that derives the field, then
+  `Logstash_Prefix_Key <derived>` with `Logstash_Prefix radar-logs` as the fallback for
+  a line missing `service` (the existing `grep service .+` already drops those). The
+  `.lua` script lives in both the compose mount and the k8s ConfigMap, so it gets a
+  byte-identical drift check like `parsers.conf` (Phase 11). Read side: point the
+  dormant `plugins/logs/elastic` default index at `radar-*-logs-*` (its `service` term
+  filter still narrows; no app wires this backend yet, so no live query path changes) —
+  optionally target `radar-{service}-logs-*` per query for single-index efficiency.
+  This belongs in Phase 13 because splitting daily indices ~8-fold is a shard-economics
+  change: pair it with a logs **index template** (`radar-*-logs-*`, `number_of_shards: 1`)
+  and **ILM rollover** — neither exists today (logs rely on dynamic mapping) — so
+  retention and shard count are controlled rather than left to unbounded daily creation.
+  Verify with teeth: fire logs, assert the per-service indices exist and a service-scoped
+  query returns only that service's lines. Update docs/operations/docker.md and
+  docs/architecture/observability.md (they name `radar-logs-*`).
 
 Commits:
 ```
@@ -2795,12 +2817,15 @@ feat(llm-gateway): add circuit breaker for provider failures
 feat(security): complete audit logging for all key events
 test(load): add 100 concurrent alert load test
 docs(security): add threat model
+feat(observability): route logs to per-service elasticsearch indices
+feat(observability): add logs index template and ilm rollover
 fix: address gaps from security audit
 ```
 
 Done when: load test results documented, including the representative p50/p95 read off
 the incident-pipeline latency panel (deferred from Phase 10 step 12). No data loss under
-load. Threat model written.
+load. Threat model written. Each service's logs land in its own `radar-<service>-logs-*`
+index, governed by an index template and ILM rollover.
 
 ---
 
