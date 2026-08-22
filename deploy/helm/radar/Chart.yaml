@@ -1,0 +1,15 @@
+apiVersion: v2
+name: radar
+description: >-
+  RADAR — AI-powered incident intelligence platform. This chart deploys the eight
+  RADAR application services (ingestion, llm-gateway, outbox-worker, watcher-agent,
+  planner-agent, reasoner-agent, knowledge-service, feedback-service) into the
+  `radar` namespace. Platform dependencies (Postgres, Elasticsearch, Vault,
+  Prometheus, Grafana) run in `radar-infra` and are not part of this chart; the
+  services reach them by in-cluster DNS.
+type: application
+# Chart version — bumped independently of the app release.
+version: 0.1.0
+# The RADAR application release these defaults target (Phase 12 milestone v0.6.0).
+# The per-service image tag defaults to this value.
+appVersion: "0.6.0"

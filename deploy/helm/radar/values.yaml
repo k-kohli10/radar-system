@@ -1,0 +1,57 @@
+# Default values for the RADAR application chart.
+#
+# This chart renders one Deployment + Service per entry in `services` below. All
+# eight RADAR services share one runtime image scheme and one set of non-secret
+# environment variables (mirrored from deploy/compose/apps.env); per-service
+# overrides live under each service key.
+#
+# Secrets are NOT set here. Every credential is materialised into
+# /vault/secrets by the per-service Vault init-container (added in a later commit),
+# never via environment variables.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Per-service image resolves to "<registry>/<owner>/radar-<service>:<tag>".
+  registry: ghcr.io
+  owner: k-kohli10
+  # Image tag. Empty string falls back to .Chart.AppVersion; CD overrides this
+  # with the built git SHA (see .github/workflows build/cd).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Referenced by name in each pod spec when set (e.g. a GHCR pull secret).
+imagePullSecrets: []
+
+# Non-secret environment shared by every app service. Mirrors
+# deploy/compose/apps.env, with in-cluster DNS in place of compose service names.
+# Cross-namespace dependencies (Elasticsearch, OTel collector) use the fully
+# qualified radar-infra address; same-namespace peers use short names.
+env:
+  RADAR_SECRETS_DIR: /vault/secrets
+  RADAR_LOG_LEVEL: INFO
+  RADAR_GATEWAY_URL: http://llm-gateway:8080
+  RADAR_KNOWLEDGE_URL: http://knowledge-service:8080
+  RADAR_ELASTICSEARCH_URL: http://elasticsearch.radar-infra.svc.cluster.local:9200
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.radar-infra.svc.cluster.local:4317
+  RADAR_DISPATCH_URL_OVERRIDES: '{"watcher-agent":"http://watcher-agent:8080/events","planner-agent":"http://planner-agent:8080/events","reasoner-agent":"http://reasoner-agent:8080/events","feedback-service":"http://feedback-service:8080/events"}'
+
+# One entry per deployable service. The key is the canonical service name and
+# drives the object names, labels, and default image (radar-<key>). Per-service
+# keys understood so far:
+#   image    — full image reference override (skips the computed default)
+#   replicas — replica count (default 1)
+#   env      — extra service-specific environment (merged over the shared env)
+services:
+  ingestion: {}
+  llm-gateway:
+    env:
+      # Non-secret mode-routing config, mounted as a ConfigMap in a later commit.
+      RADAR_GATEWAY_CONFIG_PATH: /app/config/gateway.yaml
+  outbox-worker: {}
+  watcher-agent: {}
+  planner-agent: {}
+  reasoner-agent: {}
+  knowledge-service: {}
+  feedback-service: {}
