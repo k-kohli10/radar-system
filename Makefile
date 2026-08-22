@@ -4,10 +4,11 @@ APPS_COMPOSE_FILE := deploy/compose/docker-compose-apps.yml
 DOCKER_APPS := docker compose --env-file .env -f $(APPS_COMPOSE_FILE)
 SERVICES := postgres elasticsearch kibana prometheus grafana vault
 
-.PHONY: setup dev stop lint test clean env-check svc-check start stop-one restart logs ps \
+.PHONY: setup lint test clean env-check svc-check start stop-one restart \
 	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets index \
 	seed tokens rotate agent-secrets \
-	dev-infra stop-infra dev-apps stop-apps apps-check ps-apps logs-apps \
+	dev-infra-up dev-infra-stop dev-infra-ps dev-infra-logs \
+	dev-apps-up dev-apps-stop dev-apps-ps dev-apps-logs apps-check \
 	docker-infra-up docker-apps-build docker-apps-up docker-apps-restart \
 	docker-apps-down docker-apps-ps docker-apps-logs docker-up docker-down \
 	docker-infra-stop docker-infra-start docker-apps-stop docker-apps-start \
@@ -20,18 +21,14 @@ setup:
 env-check:
 	@test -f .env || { echo "ERROR: .env not found. Run scripts/bootstrap.sh first."; exit 1; }
 
-# `dev`/`stop` keep their exact behaviour; `dev-infra`/`stop-infra` are clearer
-# names for the same thing. They deliberately do NOT mean "infra + apps": on a
-# clean machine `make dev` runs before secrets exist.
-dev: env-check
+# Native lifecycle, named to mirror the docker- targets: dev-infra-* runs the
+# backing services, dev-apps-* runs the app processes. Starting infra deliberately
+# excludes apps: on a clean machine dev-infra-up runs before secrets exist.
+dev-infra-up: env-check
 	$(COMPOSE) up -d
 
-dev-infra: dev
-
-stop: env-check
+dev-infra-stop: env-check
 	$(COMPOSE) down
-
-stop-infra: stop
 
 # Mirrors the pre-commit gate exactly. `ruff format --check` is the easy one to
 # omit here, and omitting it means a green `make lint` does not predict a green
@@ -180,7 +177,7 @@ apps-check:
 	@test -d "$(SECRETS_ROOT)" || { echo "ERROR: $(SECRETS_ROOT) missing — run 'make seed && make tokens && make agent-secrets && make gateway-secrets && make ingestion-secrets' first."; exit 1; }
 	@test -f "$(SECRETS_ROOT)/gateway_tokens" || { echo "ERROR: $(SECRETS_ROOT)/gateway_tokens missing — run 'make gateway-secrets'."; exit 1; }
 
-dev-apps: apps-check
+dev-apps-up: apps-check
 	@mkdir -p $(RUN_DIR)
 	@for entry in $(APPS); do \
 		name=$${entry%%:*}; rest=$${entry#*:}; port=$${rest%%:*}; \
@@ -202,11 +199,11 @@ dev-apps: apps-check
 	done
 	@echo "\nwaiting for readiness..."
 	@sleep 4
-	@$(MAKE) --no-print-directory ps-apps
+	@$(MAKE) --no-print-directory dev-apps-ps
 
 # Polled and printed: a backgrounded process that died on a missing secret must
 # say so here, not be discovered when an alert vanishes.
-ps-apps:
+dev-apps-ps:
 	@for entry in $(APPS); do \
 		name=$${entry%%:*}; rest=$${entry#*:}; port=$${rest%%:*}; \
 		code=$$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:$$port/readyz 2>/dev/null); \
@@ -218,10 +215,10 @@ ps-apps:
 		printf "  %-20s :%s  %s\n" "$$name" "$$port" "$$state"; \
 	done
 
-logs-apps:
+dev-apps-logs:
 	@tail -n 40 -f $(RUN_DIR)/*.log
 
-stop-apps:
+dev-apps-stop:
 	@if [ ! -d $(RUN_DIR) ]; then echo "  nothing to stop"; exit 0; fi
 	@for pidfile in $(RUN_DIR)/*.pid; do \
 		[ -e "$$pidfile" ] || continue; \
@@ -266,14 +263,14 @@ stop-one: svc-check
 restart: svc-check
 	$(COMPOSE) restart $(s)
 
-logs: env-check
+dev-infra-logs: env-check
 	$(COMPOSE) logs -f $(s)
 
-ps: env-check
+dev-infra-ps: env-check
 	$(COMPOSE) ps
 
 # --- Dockerised application stack (radar-apps) -------------------------------
-# Containerised counterpart to `dev-apps` — run one OR the other, not both (same
+# Containerised counterpart to `dev-apps-up` — run one OR the other, not both (same
 # host ports). Apps join the infra network as external, so infra comes up first;
 # seed/tokens/migrate stay host steps (infra publishes Vault :8200, Postgres
 # :5432). Full workflow: docs/operations/docker.md.
