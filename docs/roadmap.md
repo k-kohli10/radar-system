@@ -1,4 +1,4 @@
-# Roadmap
+# 🗺️ Roadmap
 
 RADAR is built one phase at a time. Each phase is one PR, one milestone, and lands only
 after its "Done when" criteria are met. No phase starts work reserved for a later phase.
@@ -22,6 +22,13 @@ Full deliverables, commit sequences, and acceptance criteria for every phase liv
 | 12 | v0.12-kubernetes | v0.6.0 | Helm chart, RBAC, HPA, ConfigMaps for rules/templates, deployable examples. |
 | 13 | v0.13-hardened | v0.7.0 | Load test, circuit breaker, threat model, audit log completeness. |
 | 14 | v1.0 | v1.0.0 | Open-source polish: quickstart, plugin guide, benchmark, case study. |
+
+## Contents
+
+- 📏 [Phase 7 Is the Line](#phase-7-is-the-line)
+- 🔒 [What Doesn't Move](#what-doesnt-move)
+- 💳 [Carried Debt](#carried-debt)
+- 🗒️ [Notes for Later Phases](#notes-for-later-phases)
 
 ## Phase 7 Is the Line
 

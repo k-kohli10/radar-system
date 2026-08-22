@@ -54,7 +54,7 @@ class OpenAIChatProvider:
         completion = await self._client.chat.completions.create(
             model=self._model,
             messages=_messages(request),
-            max_tokens=(
+            max_completion_tokens=(
                 self._max_output_tokens
                 if self._max_output_tokens is not None
                 else NOT_GIVEN
@@ -81,7 +81,7 @@ class OpenAIChatProvider:
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=_messages(request),
-            max_tokens=(
+            max_completion_tokens=(
                 self._max_output_tokens
                 if self._max_output_tokens is not None
                 else NOT_GIVEN

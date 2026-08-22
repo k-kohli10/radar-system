@@ -99,4 +99,6 @@ make setup
 info "Bootstrap complete."
 info "Next steps:"
 info "  1. Edit .env with real external credentials (OPENAI_API_KEY, SLACK_*)."
-info "  2. Run 'make dev' to start the local stack."
+info "  2. Start RADAR one of two ways:"
+info "       - Docker (full stack):  make docker-up      (docs/operations/docker.md)"
+info "       - Native dev:           make dev-infra-up, make dev-apps-up  (docs/local-development.md)"

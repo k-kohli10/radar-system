@@ -50,6 +50,6 @@ active, ask before doing any work.** See
 ## Key make commands
 
 - `make setup` — install/prepare the workspace
-- `make dev` — run the local dev environment
+- `make dev-infra-up` — run the local dev environment
 - `make lint` — ruff + mypy strict
 - `make test` — run the test suite

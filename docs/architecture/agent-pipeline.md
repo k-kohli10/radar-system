@@ -1,4 +1,14 @@
-# Agent Pipeline
+# 🔗 Agent Pipeline
+
+## Contents
+
+- 🔲 [Pipeline Shape](#pipeline-shape)
+- 🚦 [Why No Direct HTTP Between Agents](#why-no-direct-http-between-agents)
+- 📨 [POST /events Contract](#post-events-contract)
+- 👁️ [Watcher Agent](#watcher-agent)
+- 🗺️ [Planner Agent](#planner-agent)
+- 🧠 [Reasoner Agent](#reasoner-agent)
+- ♻️ [Idempotency](#idempotency)
 
 ## Pipeline Shape
 

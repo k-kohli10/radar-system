@@ -50,10 +50,24 @@ def test_header_and_fallback_text_for_ai_analysis() -> None:
     fallback_text, blocks = format_rca_card(_data())
     header = blocks[0]
     assert header["type"] == "header"
-    assert "RCA" in header["text"]["text"]  # type: ignore[index]
+    assert "RADAR Alert" in header["text"]["text"]  # type: ignore[index]
     assert "AI Unavailable" not in header["text"]["text"]  # type: ignore[index]
     # The notification/preview string is meaningful, not blank.
     assert "order-service OrderProcessingFailureRate" in fallback_text
+
+
+def test_header_leads_with_alert_name_not_the_service() -> None:
+    # The title is "<service> <alert_name>"; the header shows just the alert (the
+    # service has its own field), so a channel of cards is scannable by alert name.
+    _, blocks = format_rca_card(
+        _data(
+            service_name="order-service",
+            title="order-service OrderServiceHighMemory",
+        )
+    )
+    header = blocks[0]["text"]["text"]  # type: ignore[index]
+    assert "OrderServiceHighMemory" in header
+    assert "order-service" not in header  # the service prefix is stripped, not doubled
 
 
 def test_summary_fields_present() -> None:

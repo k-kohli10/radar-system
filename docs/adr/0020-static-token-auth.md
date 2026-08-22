@@ -90,8 +90,8 @@ For this project:
 
 **Certificate management is a significant operational burden.** You need a CA,
 certificate issuance, rotation, and distribution. Tools like cert-manager help but
-add another moving part. On a home lab with a MacBook as the control plane, this
-is substantial overhead.
+add another moving part. On a small self-hosted deployment, this is substantial
+overhead.
 
 **It provides authenticity, not authorization.** mTLS tells you that the caller
 is who they say they are, but it does not tell you what they are allowed to do.

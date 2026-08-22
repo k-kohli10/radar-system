@@ -1,4 +1,4 @@
-# Observability Architecture
+# 🔭 Observability Architecture
 
 How RADAR's three telemetry signals (metrics, traces, logs) are collected, stored,
 and viewed, and the one structural distinction that the incident-pipeline diagrams do
@@ -16,6 +16,14 @@ Both are scraped by the same Prometheus, but they exist for opposite reasons:
 For the incident data-flow plane (alerts to agents to Slack), see
 [system-overview.md](system-overview.md), [agent-pipeline.md](agent-pipeline.md), and
 [sequence-flows.md](sequence-flows.md). This document is the telemetry plane only.
+
+## Contents
+
+- 🔀 [The pipeline](#the-pipeline)
+- 📈 [Metrics and alerting](#metrics-and-alerting)
+- 🧵 [Traces](#traces)
+- 📜 [Logs](#logs)
+- 🗂️ [Where each signal is configured](#where-each-signal-is-configured)
 
 ## The pipeline
 

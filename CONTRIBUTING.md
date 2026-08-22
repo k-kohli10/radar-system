@@ -22,7 +22,7 @@ a PR.
 ## Development Setup
 
 See [docs/implementation_plan.md](docs/implementation_plan.md), Phase 1, for the full
-local environment spec (`make setup`, `make dev`, Docker Compose stack, `.env.example`).
+local environment spec (`make setup`, `make dev-infra-up`, Docker Compose stack, `.env.example`).
 
 ## Code Standards
 

@@ -158,9 +158,15 @@ def format_rca_card(
 
 
 def _header_text(data: RcaCardData) -> str:
+    # Lead with the alert the incident is about, so a channel of cards is scannable
+    # by name. The incident title is "<service_name> <alert_name>" (ingestion's
+    # radar_ingestion.publisher) and the service already has its own field, so show
+    # just the alert here; if the title is not in that shape, fall back to it whole.
+    # The fallback keeps "AI Unavailable" — that distinction must be unmistakable.
+    alert_name = data.title.removeprefix(f"{data.service_name} ")
     if data.is_fallback:
-        return "⚠️ RADAR Incident — AI Unavailable"
-    return "🚨 RADAR Incident — RCA"
+        return f"⚠️ RADAR Alert : {alert_name} — AI Unavailable"
+    return f"🚨 RADAR Alert : {alert_name}"
 
 
 def _format_actions(actions: Sequence[RecommendedAction]) -> str:

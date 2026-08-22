@@ -1,4 +1,14 @@
-# System Overview
+# 🏗️ System Overview
+
+## Contents
+
+- 🎯 [Purpose](#purpose)
+- 🛒 [Domain](#domain)
+- 🧩 [Services](#services)
+- 🔀 [Data and Control Flow](#data-and-control-flow)
+- 🧵 [Cross-Cutting Concerns](#cross-cutting-concerns)
+- 🚀 [Deployment Target](#deployment-target)
+- 🚫 [Non-Goals](#non-goals)
 
 ## Purpose
 
@@ -108,10 +118,10 @@ shop versus watching RADAR itself) is drawn in
 
 ## Deployment Target
 
-A home lab Kubernetes cluster: one ARM64 control plane (UTM VM on a MacBook Air M1) and
-two x86_64 worker nodes (Lenovo P400, Ubuntu Server 22.04), Flannel CNI, MetalLB,
-nginx ingress. Every image builds for both `linux/amd64` and `linux/arm64` via
-`docker buildx`.
+Two targets, from the same multi-arch images: the two-stack Docker deployment
+(`radar-infra` + `radar-apps`) for local end-to-end runs, and an ephemeral Civo
+Kubernetes (K3s) cluster for the k8s path (Phase 12). Images build for `linux/amd64`
+(Civo, x86 CI) and `linux/arm64` (local Docker on Apple Silicon) via `docker buildx`.
 
 ## Non-Goals
 

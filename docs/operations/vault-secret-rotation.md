@@ -1,7 +1,14 @@
-# Runbook: Vault secret rotation
+# 🔐 Runbook: Vault secret rotation
 
 Not an alert — a **procedure**. But a *botched* rotation surfaces minutes later as
 `OutboxBacklogHigh`, `LLMTemplateFallbackActive`, or a stuck `/readyz` 503.
+
+## Contents
+
+- 🎯 [The one principle](#the-one-principle)
+- ♻️ [Restart-set per secret type](#restart-set-per-secret-type)
+- ✔️ [Verify](#verify)
+- 🆘 [If recovery doesn't work / known limits / when to escalate](#if-recovery-doesnt-work--known-limits--when-to-escalate)
 
 ## The one principle
 Secrets are loaded **once, at startup** (in each service's lifespan). There is
@@ -24,7 +31,7 @@ Rotate the secret, re-render it (`make rotate SERVICE=<svc>` then
 | **Webhook token** (`webhook_token_<source>`) | `ingestion` **and** reconfigure the **external** source (Prometheus Alertmanager / Kibana) that presents it | external side still sends the old token → `401` at ingestion → that source's alerts silently dropped |
 
 ## Verify
-- Every restarted component reports `/readyz` 200 (`make ps-apps` in dev).
+- Every restarted component reports `/readyz` 200 (`make dev-apps-ps` in dev).
 - Drive one test event end to end and confirm **no `401`s** in the outbox-worker
   dispatch logs or the gateway logs.
 - Any alert the botched state would raise (`OutboxBacklogHigh`,

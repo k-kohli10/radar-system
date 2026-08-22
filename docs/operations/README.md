@@ -1,4 +1,4 @@
-# RADAR operations runbooks
+# 🛠️ RADAR operations runbooks
 
 Runbooks for **operating RADAR itself**: what an on-call engineer does when a
 RADAR service-health alert fires or a secret needs rotating.

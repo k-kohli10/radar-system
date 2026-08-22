@@ -1,7 +1,15 @@
-# Runbook: outbox backlog
+# 🚨 Runbook: outbox backlog
 
 **Alert:** `OutboxBacklogHigh` — `radar_outbox_depth > 100` for 5m.
 **Dashboard:** `outbox-health`.
+
+## Contents
+
+- 🔎 [Symptom](#symptom)
+- 🩺 [Diagnose — check in this order](#diagnose--check-in-this-order)
+- 🛠️ [Recover](#recover)
+- ✔️ [Verify](#verify)
+- 🆘 [If recovery doesn't work / known limits / when to escalate](#if-recovery-doesnt-work--known-limits--when-to-escalate)
 
 ## Symptom
 Pending outbox events are piling up (`radar_outbox_depth` climbing) and the
@@ -24,7 +32,7 @@ everything downstream of it.
    the target permanently rejects (e.g. a 422). Retrying will never clear it.
 
 ## Recover
-- **Down target:** bring it back (`make dev-apps`, or restart the pod). The
+- **Down target:** bring it back (`make dev-apps-up`, or restart the pod). The
   backlog drains once dispatch resumes.
 - **401s:** the target's token was rotated without restarting the outbox-worker —
   follow [vault-secret-rotation](vault-secret-rotation.md) and restart the target

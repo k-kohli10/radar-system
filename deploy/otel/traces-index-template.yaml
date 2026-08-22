@@ -1,7 +1,7 @@
 # RADAR OTel traces data-stream template — Kubernetes install Job.
 #
 # The compose equivalent is the `es-traces-init` one-shot in
-# deploy/compose/docker-compose.yml; this is its cluster form. The Job PUTs the
+# deploy/compose/docker-compose-infra.yml; this is its cluster form. The Job PUTs the
 # traces data-stream index template into Elasticsearch so the collector's
 # exporter can create `traces-generic-default`. Ordering is enforced on the
 # consumer side: the otel-collector DaemonSet's `wait-for-traces-template`

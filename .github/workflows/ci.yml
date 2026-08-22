@@ -1,0 +1,110 @@
+name: CI
+
+# Single-repo CI (ADR 0018). Lint/typecheck and the full test suite run on every
+# push and pull request. Image builds live in a separate, path-gated workflow.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin uv to the version the repo's uv.lock was written with (matches the
+  # Dockerfiles' COPY --from=ghcr.io/astral-sh/uv:0.11.26).
+  UV_VERSION: "0.11.26"
+  UV_PYTHON: "3.14"
+
+jobs:
+  lint:
+    name: lint + typecheck (ruff, mypy strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: |
+          curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: uv python install "${UV_PYTHON}"
+      # --frozen: fail if pyproject and uv.lock have drifted, rather than silently
+      # relocking. The same gate make lint runs locally: ruff check, ruff format
+      # --check, mypy strict.
+      - run: uv sync --frozen --all-packages
+      - run: make lint
+
+  test:
+    name: test (full suite + no-silent-skip guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        run: |
+          curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: uv python install "${UV_PYTHON}"
+      - run: uv sync --frozen --all-packages
+
+      # CI infra is the same compose stack as local dev, so the suite runs against
+      # the same services it was written for:
+      #   - Postgres: the real-Postgres guarantees (SKIP LOCKED, atomicity,
+      #     idempotency) — they SKIP without a database, which the guard below
+      #     turns into a red run.
+      #   - Elasticsearch + es-traces-init + otel-collector: the
+      #     trace-by-correlation-id done-condition (spans -> collector -> ES).
+      # The remaining infra tests (kubeconform, real-prometheus, reasoner
+      # fallback) stand up their own containers on the host Docker daemon that
+      # ubuntu-latest provides. The compose file interpolates ${VAR:?} for every
+      # service at load time, so all of them must be defined even though CI only
+      # starts a subset; the non-Postgres values are unused placeholders.
+      - name: Write CI .env for the compose stack
+        run: |
+          cat > .env <<'ENV'
+          POSTGRES_USER=radar
+          POSTGRES_PASSWORD=radar
+          POSTGRES_DB=radar
+          POSTGRES_DSN=postgresql+asyncpg://radar:radar@localhost:5432/radar
+          VAULT_DEV_ROOT_TOKEN=ci-placeholder-unused
+          GRAFANA_ADMIN_USER=ci-placeholder-unused
+          GRAFANA_ADMIN_PASSWORD=ci-placeholder-unused
+          ENV
+
+      - name: Start infra (postgres, elasticsearch, otel-collector)
+        # --wait blocks until postgres is healthy, elasticsearch is healthy,
+        # es-traces-init has completed (installs the traces template), and the
+        # collector is up. Naming postgres + otel-collector pulls the rest in via
+        # depends_on.
+        run: >
+          docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env
+          up -d --wait postgres otel-collector
+
+      # The full non-live suite — the SAME gate as make test — with a JUnit
+      # report. kubeconform fetches k8s schemas from raw.githubusercontent.com at
+      # run time; GitHub-hosted runners have that egress. Docker is required and
+      # present, so the infra tests FAIL (not skip) if it ever isn't.
+      - name: Run tests
+        run: uv run pytest -m 'not live' --junitxml=junit.xml
+
+      # THE NO-SILENT-SKIP GUARD. pytest exits 0 when tests SKIP, so a Postgres/
+      # Elasticsearch/Docker that failed to come up would leave the suite
+      # green-with-skips — a false green. This fails the run if any load-bearing
+      # infra/DB proof skipped or was absent from the report.
+      - name: Assert required infra/DB proofs ran (no silent skip)
+        run: uv run python scripts/assert-required-tests-ran.py junit.xml
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-report
+          path: junit.xml
+
+      - name: Tear down infra
+        if: always()
+        run: >
+          docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env
+          down -v

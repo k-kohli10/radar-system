@@ -68,9 +68,8 @@ What Kafka adds for this use case:
 - Steeper debugging curve: when something goes wrong, you are now debugging
   two systems instead of one
 
-This is a solo project on a home lab with a MacBook as the control plane. Adding
-Kafka would double the operational surface area before a single line of application
-code runs.
+This is a solo project on a small self-hosted cluster. Adding Kafka would double the
+operational surface area before a single line of application code runs.
 
 ---
 

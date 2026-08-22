@@ -8,9 +8,8 @@ Redis is a common default for queues, caches, and rate limiting, and would be a
 plausible fit for several things RADAR needs: a job queue between agents, a cache in
 front of Postgres, or a token bucket for rate limiting. RADAR already has a
 transactional outbox in Postgres for agent handoffs (see
-[ADR 0003](0003-postgres-outbox.md)), and the home lab cluster's operating budget
-(one MacBook Air control plane, two P400 workers) favors fewer stateful systems, not
-more.
+[ADR 0003](0003-postgres-outbox.md)), and a small self-hosted deployment favors
+fewer stateful systems.
 
 ## Decision
 Redis is not part of this architecture, anywhere. No queue, no cache, no rate limiter,
@@ -20,7 +19,7 @@ every read path in the plan (outbox polling, bot queries, retrieval pre-filterin
 
 ## Consequences
 - One fewer stateful system to deploy, back up, monitor, and reason about failure modes
-  for, in an already resource-constrained home lab cluster.
+  for, in a resource-constrained deployment.
 - No cache-invalidation class of bugs, because there is no cache.
 - If a genuine performance bottleneck emerges that Postgres indexing can't solve, this
   ADR is the place to record the decision to revisit, not a silent addition of Redis
