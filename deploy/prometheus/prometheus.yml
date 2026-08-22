@@ -37,27 +37,31 @@ scrape_configs:
   # The eight RADAR services, each with a `service` label to group by. Two targets
   # per service: host.docker.internal:809x (native `make dev-apps`) and
   # <service>:8080 (the dockerised radar-apps stack). The unused one shows DOWN.
+  # Targets are the container names on the shared network (dockerised radar-apps).
+  # For the native `make dev-apps` workflow, replace each with its
+  # host.docker.internal:809x address (llm-gateway 8081, ingestion 8090, watcher
+  # 8091, planner 8092, reasoner 8093, outbox 8094, knowledge 8095, feedback 8096).
   - job_name: radar
     static_configs:
-      - targets: ["host.docker.internal:8081", "llm-gateway:8080"]
+      - targets: ["llm-gateway:8080"]
         labels: { service: llm-gateway }
-      - targets: ["host.docker.internal:8090", "ingestion:8080"]
+      - targets: ["ingestion:8080"]
         labels: { service: ingestion }
-      - targets: ["host.docker.internal:8091", "watcher-agent:8080"]
+      - targets: ["watcher-agent:8080"]
         labels: { service: watcher-agent }
-      - targets: ["host.docker.internal:8092", "planner-agent:8080"]
+      - targets: ["planner-agent:8080"]
         labels: { service: planner-agent }
-      - targets: ["host.docker.internal:8093", "reasoner-agent:8080"]
+      - targets: ["reasoner-agent:8080"]
         labels: { service: reasoner-agent }
-      - targets: ["host.docker.internal:8094", "outbox-worker:8080"]
+      - targets: ["outbox-worker:8080"]
         labels: { service: outbox-worker }
-      - targets: ["host.docker.internal:8095", "knowledge-service:8080"]
+      - targets: ["knowledge-service:8080"]
         labels: { service: knowledge-service }
-      - targets: ["host.docker.internal:8096", "feedback-service:8080"]
+      - targets: ["feedback-service:8080"]
         labels: { service: feedback-service }
 
-  # The simulated shop the ecommerce-* rules fire on. Native run on :8099, or
-  # platform-sim:8080 in the docker stack; the unused one is DOWN.
+  # The simulated shop the ecommerce-* rules fire on (dockerised radar-apps).
+  # Native `make dev-apps` runs it on host.docker.internal:8099.
   - job_name: platform-sim
     static_configs:
-      - targets: ["host.docker.internal:8099", "platform-sim:8080"]
+      - targets: ["platform-sim:8080"]
