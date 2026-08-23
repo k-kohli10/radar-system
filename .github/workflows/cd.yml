@@ -1,0 +1,177 @@
+name: cd
+
+# Continuous deployment to the ephemeral managed Kubernetes (K3s) cluster (ADR 0012).
+# "Merge deploys it": a push to main builds + pushes the eight service images to
+# GHCR, then runs `helm upgrade` against the cluster's stored kubeconfig from a
+# GitHub-hosted runner (the cluster API is publicly reachable, so no self-hosted
+# runner). workflow_dispatch lets you redeploy on demand — the cluster is created
+# per session and torn down after, so CD is usually kicked manually once it's up.
+#
+# One-time setup (see docs/operations/kubernetes-cd.md):
+#   - GHCR packages radar-* are PUBLIC (images carry no secrets; secrets come from
+#     Vault at runtime), so pods and the vault-bootstrap Job pull without a pull
+#     secret. Flip visibility once under each package's settings after the first push.
+#   - Environment `kubernetes` holds the deployment credentials, scoped to this workflow:
+#       CD_KUBECONFIG   (required) base64-encoded kubeconfig, cluster-admin reach
+#       RADAR_OPENAI_API_KEY  (optional) seeds secret/radar/llm so the gateway can call out
+#       RADAR_SLACK_BOT_TOKEN / RADAR_SLACK_APP_TOKEN (optional) so feedback-service
+#                             reaches readiness (it opens a Slack Socket Mode connection)
+#     Without the optional keys the deploy still completes; the gateway 401s upstream
+#     and feedback-service stays not-ready until they are set.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never cancel an in-flight deploy: a half-applied `helm upgrade` is worse than a
+# queued one. (CI/build use cancel-in-progress; CD does not.)
+concurrency:
+  group: cd-${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: k-kohli10
+  # Pin helm to the version the charts are validated with (see helm.yml).
+  HELM_VERSION: "v4.2.4"
+  # Human-facing tag alongside the immutable git-SHA tag. Matches Chart.appVersion,
+  # which platform-deps' vault-bootstrap image defaults to.
+  APP_VERSION: "0.6.0"
+
+jobs:
+  build-push:
+    name: build + push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The eight services that deploy to k8s. platform-sim is a local-only POC
+        # (never goes to Kubernetes), so it is deliberately absent.
+        service:
+          - ingestion
+          - llm-gateway
+          - outbox-worker
+          - watcher-agent
+          - planner-agent
+          - reasoner-agent
+          - knowledge-service
+          - feedback-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Multi-arch (amd64 for the cluster + x86, arm64 for local Apple Silicon), pushed
+      # under two tags: the immutable git SHA that the deploy job pins, and the
+      # human-facing appVersion. Same Dockerfile per-service scheme as build.yml.
+      - name: Build and push (amd64 + arm64), SHA + version tags
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --file "apps/${{ matrix.service }}/Dockerfile" \
+            --tag "${REGISTRY}/${OWNER}/radar-${{ matrix.service }}:${GITHUB_SHA}" \
+            --tag "${REGISTRY}/${OWNER}/radar-${{ matrix.service }}:${APP_VERSION}" \
+            --push \
+            .
+
+  deploy:
+    name: helm upgrade -> k8s
+    needs: build-push
+    runs-on: ubuntu-latest
+    # Deployment credentials live in this environment, scoped to the deploy job
+    # (ADR 0012): the kubeconfig and provider keys carry cluster reach.
+    environment: kubernetes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      # The kubeconfig is stored base64-encoded so it survives as a single-line
+      # secret. Point KUBECONFIG at it for every subsequent step.
+      - name: Write kubeconfig
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.CD_KUBECONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
+
+      - name: Sanity-check cluster reachability
+        run: kubectl version && kubectl get nodes
+
+      # Out-of-band secrets the vault-bootstrap Job reads (radar-infra ns). Created
+      # here from environment secrets when present; skipped otherwise (the bootstrap
+      # tolerates their absence — documented at the top of this file). --dry-run |
+      # apply makes the create idempotent across redeploys.
+      - name: Seed out-of-band secrets (if provided)
+        env:
+          OPENAI_API_KEY: ${{ secrets.RADAR_OPENAI_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.RADAR_SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN: ${{ secrets.RADAR_SLACK_APP_TOKEN }}
+        run: |
+          set -euo pipefail
+          kubectl create namespace radar-infra --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${OPENAI_API_KEY}" ]; then
+            kubectl -n radar-infra create secret generic radar-llm-keys \
+              --from-literal=openai_api_key="${OPENAI_API_KEY}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "seeded radar-llm-keys"
+          else
+            echo "RADAR_OPENAI_API_KEY not set — gateway will 401 upstream until it is"
+          fi
+          if [ -n "${SLACK_BOT_TOKEN}" ] && [ -n "${SLACK_APP_TOKEN}" ]; then
+            kubectl -n radar-infra create secret generic radar-slack-keys \
+              --from-literal=slack_bot_token="${SLACK_BOT_TOKEN}" \
+              --from-literal=slack_app_token="${SLACK_APP_TOKEN}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "seeded radar-slack-keys"
+          else
+            echo "Slack tokens not set — feedback-service will stay not-ready until they are"
+          fi
+
+      # platform-deps first: it stands up Postgres/Vault/ES and seeds Vault (the
+      # kubernetes auth roles + secrets the app init-containers read). --wait blocks
+      # on the bootstrap Job, so the app chart only installs once Vault is ready.
+      - name: helm upgrade platform-deps
+        run: |
+          helm upgrade --install platform-deps deploy/helm/platform-deps \
+            --namespace radar-infra --create-namespace \
+            --wait --timeout 10m
+
+      # The app chart, pinned to the immutable SHA images just pushed. --wait blocks
+      # on the db-migration + knowledge-indexer post-install Jobs and every
+      # Deployment's readiness — which IS the Phase 12 done-when.
+      - name: helm upgrade radar
+        run: |
+          helm upgrade --install radar deploy/helm/radar \
+            --namespace radar --create-namespace \
+            --set image.tag="${GITHUB_SHA}" \
+            --wait --timeout 15m
+
+      # Belt-and-braces over `helm --wait`: print the deployed state and fail loudly
+      # if any app Deployment is not fully rolled out.
+      - name: Verify rollout
+        if: always()
+        run: |
+          set -euo pipefail
+          kubectl -n radar get pods -o wide
+          kubectl -n radar get deploy -o name | while read -r dep; do
+            kubectl -n radar rollout status "$dep" --timeout=60s
+          done
