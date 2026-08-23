@@ -1,0 +1,17 @@
+# Minimal RADAR install — smallest footprint for evaluation.
+#
+# Turns off autoscaling so the cluster needs no metrics-server, and runs a single
+# replica of everything. Pair it with the in-cluster platform-deps chart (its
+# defaults). See docs/operations/kubernetes.md for the full walkthrough.
+#
+#   helm install radar-infra deploy/helm/platform-deps -n radar-infra
+#   helm install radar deploy/helm/radar -n radar --create-namespace \
+#     -f deploy/examples/minimal/values.yaml --timeout 10m
+
+services:
+  ingestion:
+    hpa:
+      enabled: false
+  llm-gateway:
+    hpa:
+      enabled: false
