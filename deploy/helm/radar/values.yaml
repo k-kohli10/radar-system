@@ -102,9 +102,21 @@ containerSecurityContext:
 #   replicas  — replica count (default 1)
 #   env       — extra service-specific environment (merged over the shared env)
 #   resources — replaces resources.default for this service
+#   hpa       — HorizontalPodAutoscaler (enabled, min/max replicas, CPU target).
+#               When enabled, the Deployment omits a static replica count.
 services:
-  ingestion: {}
+  ingestion:
+    hpa:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 75
   llm-gateway:
+    hpa:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 75
     env:
       # Non-secret mode-routing config, mounted as a ConfigMap in a later commit.
       RADAR_GATEWAY_CONFIG_PATH: /app/config/gateway.yaml

@@ -15,7 +15,10 @@ metadata:
     {{- include "radar.labels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ $name }}
 spec:
+  {{- $hpa := $svc.hpa | default dict }}
+  {{- if not $hpa.enabled }}
   replicas: {{ $svc.replicas | default 1 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "radar.selectorLabels" (dict "name" $name "root" $) | nindent 6 }}
