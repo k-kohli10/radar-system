@@ -1,0 +1,49 @@
+# LLM gateway mode-routing config (NON-SECRET — safe to commit).
+#
+# Which provider/model serves each mode, with per-mode limits and timeouts.
+# Change provider/model here, restart the gateway, and it takes effect —
+# zero code changes. Requirements when switching providers:
+#   - the matching API key file must exist in the secrets dir
+#     (openai_api_key | anthropic_api_key | gemini_api_key)
+#   - anthropic modes MUST set max_output_tokens (hard API requirement)
+#   - embed stays on openai: anthropic has no embedding model
+#
+# Secrets NEVER go in this file. Agent tokens live in the Vault secret
+# `gateway_tokens`; API keys in their own Vault-sourced files.
+#
+# In production this file is mounted as a ConfigMap; locally `make gateway`
+# reads it from here (override with GATEWAY_CONFIG=... or
+# RADAR_GATEWAY_CONFIG_PATH=...).
+
+modes:
+  fast:
+    provider: openai
+    model: gpt-4o-mini
+    max_input_tokens: 4096
+    max_output_tokens: 512
+    timeout_seconds: 5
+  reason:
+    provider: openai
+    model: gpt-4o
+    max_input_tokens: 8192
+    max_output_tokens: 2048
+    timeout_seconds: 30
+  extended:
+    provider: openai
+    model: gpt-5.4
+    max_input_tokens: 32768
+    max_output_tokens: 8192
+    timeout_seconds: 120
+  embed:
+    provider: openai
+    model: text-embedding-3-small
+    max_input_tokens: 8191
+    timeout_seconds: 10
+
+fallback:
+  extended:
+    provider: openai
+    model: gpt-4o-mini
+  reason:
+    provider: openai
+    model: gpt-4o-mini

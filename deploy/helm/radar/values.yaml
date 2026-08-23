@@ -36,6 +36,21 @@ vault:
   # in-cluster address; passed to fetch-secrets.sh as RADAR_POSTGRES_HOST.
   postgresHost: postgres.radar-infra.svc.cluster.local
 
+# llm-gateway backend providers. Leave `config` empty to ship the chart's default
+# mode-routing config (byte-identical to apps/llm-gateway/config/gateway.yaml).
+# To switch providers/models, set the full config here — it replaces the default
+# wholesale and is rendered into the llm-gateway ConfigMap. Structure mirrors
+# gateway.yaml: `modes` (fast/reason/extended/embed) and `fallback`. Secrets
+# (API keys, agent tokens) are NEVER set here; they come from Vault.
+# Example (Anthropic for reasoning, OpenAI kept for embeddings):
+#   gateway:
+#     config:
+#       modes:
+#         reason: {provider: anthropic, model: claude-sonnet-4-6, max_output_tokens: 2048}
+#         embed:  {provider: openai, model: text-embedding-3-small}
+gateway:
+  config: {}
+
 # Non-secret environment shared by every app service. Mirrors
 # deploy/compose/apps.env, with in-cluster DNS in place of compose service names.
 # Cross-namespace dependencies (Elasticsearch, OTel collector) use the fully
@@ -120,8 +135,11 @@ services:
       maxReplicas: 3
       targetCPUUtilizationPercentage: 75
     env:
-      # Non-secret mode-routing config, mounted as a ConfigMap in a later commit.
       RADAR_GATEWAY_CONFIG_PATH: /app/config/gateway.yaml
+    configMounts:
+      - configMap: llm-gateway-config
+        key: gateway.yaml
+        mountPath: /app/config/gateway.yaml
   outbox-worker:
     resources:
       requests:

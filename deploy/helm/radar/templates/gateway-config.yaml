@@ -1,0 +1,22 @@
+{{- /*
+The llm-gateway's mode-routing config (which provider/model serves each mode).
+This is the "configurable backend providers" seam: by default it ships the
+byte-identical app config (drift-pinned), but setting `gateway.config` in values
+replaces it wholesale — swap OpenAI for Anthropic/Gemini with no code change, per
+the LLM provider strategy. Secrets (API keys, tokens) never live here; they come
+from Vault. Mounted into llm-gateway at RADAR_GATEWAY_CONFIG_PATH.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-gateway-config
+  labels:
+    {{- include "radar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: llm-gateway
+data:
+  gateway.yaml: |
+{{- if .Values.gateway.config }}
+{{ .Values.gateway.config | toYaml | indent 4 }}
+{{- else }}
+{{ .Files.Get "files/gateway.yaml" | indent 4 }}
+{{- end }}
