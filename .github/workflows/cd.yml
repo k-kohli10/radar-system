@@ -155,23 +155,29 @@ jobs:
             --namespace radar-infra --create-namespace \
             --wait --timeout 10m
 
-      # The app chart, pinned to the immutable SHA images just pushed. --wait blocks
-      # on the db-migration + knowledge-indexer post-install Jobs and every
-      # Deployment's readiness — which IS the Phase 12 done-when.
+      # The app chart, pinned to the immutable SHA images just pushed. NO --wait here,
+      # deliberately (matches docs/operations/kubernetes.md). Helm still runs and
+      # waits for the post-install hook Jobs — db-migration (weight 0) then
+      # knowledge-indexer (weight 10) — which is what builds the runbook index;
+      # --timeout covers them. But --wait on the RELEASE deadlocks: it blocks on every
+      # Deployment's readiness BEFORE running the hooks, while knowledge-service is
+      # not ready until the knowledge-indexer hook builds its index — so the hooks
+      # would never run. The Verify step below is the Deployment-readiness gate.
       - name: helm upgrade radar
         run: |
           helm upgrade --install radar deploy/helm/radar \
             --namespace radar --create-namespace \
             --set image.tag="${GITHUB_SHA}" \
-            --wait --timeout 15m
+            --timeout 15m
 
-      # Belt-and-braces over `helm --wait`: print the deployed state and fail loudly
-      # if any app Deployment is not fully rolled out.
+      # THE readiness gate and the Phase 12 done-when: the hooks above have built the
+      # index, so now wait for every app Deployment to roll out; fail loudly if any
+      # does not become ready.
       - name: Verify rollout
         if: always()
         run: |
           set -euo pipefail
           kubectl -n radar get pods -o wide
           kubectl -n radar get deploy -o name | while read -r dep; do
-            kubectl -n radar rollout status "$dep" --timeout=60s
+            kubectl -n radar rollout status "$dep" --timeout=120s
           done

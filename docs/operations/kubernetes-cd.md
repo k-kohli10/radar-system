@@ -31,9 +31,14 @@ dispatch               ├─ build + push 8 images ──▶ GHCR (public, SHA 
                               2. radar          (radar ns, images pinned to the SHA)
 ```
 
-`helm upgrade --wait` blocks on the post-install Jobs (Vault bootstrap, then DB
-migration, then runbook indexer) and every Deployment's readiness probe — so a
-green `cd` run **is** the Phase 12 done-when.
+platform-deps installs with `--wait` (it blocks on the Vault-bootstrap Job).
+The radar chart installs **without** `--wait`, on purpose: Helm still runs and waits
+for its post-install hook Jobs (db-migration, then the runbook indexer, which builds
+the index), but `--wait` on the release would deadlock — it blocks on every
+Deployment's readiness before running the hooks, yet knowledge-service is not ready
+until the indexer hook builds its index. A separate **Verify rollout** step then
+waits for every app Deployment to become ready — that step is the Phase 12 done-when,
+and a green `cd` run means every readiness probe passed.
 
 ## One-time setup
 
