@@ -22,8 +22,14 @@ Install order matters: **platform-deps first** (it seeds Vault), then **radar**.
 
 - **Docker Desktop** with **≥ 10 GB memory** (Settings → Resources → Memory).
   Elasticsearch + Kibana are the drivers.
-- **Kubernetes enabled**: Docker Desktop → Settings → Kubernetes → *Enable
-  Kubernetes* → Apply. Wait for the status to go green. (Or use `kind`.)
+- **Kubernetes enabled**: Docker Desktop → Kubernetes → *Create Kubernetes
+  Cluster*. When prompted for a cluster type, choose **Kubeadm** (single node):
+  it uses Docker's normal image store, so the images you build in Step 2 are
+  directly visible with **no `kind load` step**, and the whole stack fits on one
+  node. The **kind** option is multi-node but *"Requires the containerd image
+  store"* (a global Docker setting change) — unnecessary for evaluation, so prefer
+  Kubeadm. Any offered Kubernetes version works (the charts pin none). Wait for the
+  node to go `Ready`.
 - `kubectl`, `helm` (v3+), and Docker in your PATH.
 - Confirm your context:
   ```bash
