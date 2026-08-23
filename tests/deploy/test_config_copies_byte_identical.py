@@ -82,7 +82,38 @@ FILE_PAIRS: list[tuple[str, str]] = [
         "deploy/prometheus/radar-service-alerts.yml",
         "deploy/helm/platform-deps/files/radar-service-alerts.yml",
     ),
+    (
+        "deploy/grafana/provisioning/datasources/prometheus.yml",
+        "deploy/helm/platform-deps/files/grafana/datasources/prometheus.yml",
+    ),
+    (
+        "deploy/grafana/provisioning/dashboards/radar.yml",
+        "deploy/helm/platform-deps/files/grafana/dashboards-provider.yml",
+    ),
 ]
+
+
+def _grafana_dashboard_file_pairs() -> list[tuple[str, str]]:
+    """Each Grafana dashboard JSON, paired with its platform-deps chart copy.
+
+    Discovered from disk so a newly added dashboard is covered automatically.
+    """
+    src_dir = ROOT / "deploy/grafana/dashboards"
+    copy_dir = ROOT / "deploy/helm/platform-deps/files/grafana/dashboards"
+    pairs: list[tuple[str, str]] = []
+    for src in sorted(src_dir.glob("*.json")):
+        pairs.append(
+            (
+                f"deploy/grafana/dashboards/{src.name}",
+                f"deploy/helm/platform-deps/files/grafana/dashboards/{src.name}",
+            )
+        )
+    assert copy_dir.is_dir(), "platform-deps grafana dashboards copy dir missing"
+    return pairs
+
+
+def _all_file_pairs() -> list[tuple[str, str]]:
+    return FILE_PAIRS + _grafana_dashboard_file_pairs()
 
 
 def _configmaps(manifest: str) -> list[dict[str, Any]]:
@@ -120,12 +151,13 @@ def test_pair_discovery_is_not_vacuous() -> None:
     # welcome but a discovery that silently finds nothing fails loudly.
     assert len(_grafana_pairs()) >= 5, "Grafana dashboard pairs vanished"
     assert len(pairs) >= 8, f"expected >=8 config copy-pairs, found {len(pairs)}"
-    assert len(FILE_PAIRS) >= 6, "file copy-pairs vanished"
+    assert len(FILE_PAIRS) >= 8, "file copy-pairs vanished"
+    assert len(_grafana_dashboard_file_pairs()) >= 5, "grafana dashboard pairs vanished"
 
 
 @pytest.mark.parametrize(
     ("standalone", "copy"),
-    FILE_PAIRS,
+    _all_file_pairs(),
     ids=lambda v: v.rsplit("/", 2)[-1] if isinstance(v, str) else v,
 )
 def test_file_copy_is_byte_identical(standalone: str, copy: str) -> None:

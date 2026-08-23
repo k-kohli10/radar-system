@@ -1,0 +1,11 @@
+# Grafana datasource provisioning (compose). The dashboards reference this
+# datasource by the fixed uid `radar-prometheus`, so it must match.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: radar-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

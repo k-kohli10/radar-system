@@ -82,6 +82,19 @@ prometheus:
     limits:
       memory: 1Gi
 
+grafana:
+  enabled: true
+  image: grafana/grafana:11.3.0
+  # Dev admin login. Production uses managed Grafana / its own secret.
+  adminUser: admin
+  adminPassword: radar-dev-admin-not-a-secret
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
 alertmanager:
   enabled: true
   # v0.28+ supports http_config.http_headers, needed to send ingestion's
