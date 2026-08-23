@@ -137,6 +137,24 @@ def seed_supplied_secrets(vault: dmt.Vault) -> None:
             "gateway will 401 upstream until you add it (create the llm-keys secret)."
         )
 
+    # Slack credentials for feedback-service (bot + app token for Socket Mode).
+    # User-supplied, like the provider key; feedback-service stays not-ready until
+    # both are present.
+    bot = os.environ.get("RADAR_SLACK_BOT_TOKEN", "").strip()
+    app = os.environ.get("RADAR_SLACK_APP_TOKEN", "").strip()
+    if bot and app:
+        fb = vault.read("secret/data/radar/feedback-service")
+        fb["slack_bot_token"] = bot
+        fb["slack_app_token"] = app
+        vault.write("secret/data/radar/feedback-service", fb)
+        print("seeded slack tokens for feedback-service")
+    else:
+        print(
+            "WARNING: Slack tokens empty — feedback-service stays not-ready until "
+            "seeded (create the slack-keys secret with slack_bot_token + "
+            "slack_app_token)."
+        )
+
 
 def read_reviewer_jwt(path: str) -> str:
     """The token-reviewer SA-token Secret is populated asynchronously; wait for it."""

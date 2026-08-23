@@ -138,6 +138,20 @@ spec:
                   name: radar-alertmanager
                   key: webhook-token
                   optional: true
+            # Slack tokens for feedback-service (user-supplied). Optional: absent
+            # when the Slack secret is not created.
+            - name: RADAR_SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $vb.slackKeysSecret.name }}
+                  key: {{ $vb.slackKeysSecret.botTokenKey }}
+                  optional: true
+            - name: RADAR_SLACK_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $vb.slackKeysSecret.name }}
+                  key: {{ $vb.slackKeysSecret.appTokenKey }}
+                  optional: true
           volumeMounts:
             - name: scripts
               mountPath: /bootstrap

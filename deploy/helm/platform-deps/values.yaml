@@ -59,6 +59,16 @@ vaultBootstrap:
   llmKeysSecret:
     name: radar-llm-keys
     key: openai_api_key
+  # Secret holding the Slack bot + app tokens for feedback-service, created out of
+  # band (never committed). feedback-service opens a Socket Mode connection at
+  # startup, so it needs real tokens to become ready:
+  #   kubectl -n radar-infra create secret generic radar-slack-keys \
+  #     --from-literal=slack_bot_token=xoxb-... \
+  #     --from-literal=slack_app_token=xapp-...
+  slackKeysSecret:
+    name: radar-slack-keys
+    botTokenKey: slack_bot_token
+    appTokenKey: slack_app_token
 
 elasticsearch:
   enabled: true
