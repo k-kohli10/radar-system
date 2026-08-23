@@ -1,4 +1,4 @@
-# ADR 0012: Deployment Targets (Docker and Ephemeral Civo)
+# ADR 0012: Deployment Targets (Docker and Ephemeral Kubernetes)
 
 ## Status
 
@@ -20,23 +20,23 @@ is disposable. That makes an on-demand cluster a natural fit for the k8s work.
 - **Local end-to-end runs use the two-stack Docker deployment** (`make docker-up`):
   the `radar-infra` and `radar-apps` compose stacks on a shared network. This is the
   primary way to run and demo the full pipeline on one machine.
-- **The Kubernetes target is a Civo Kubernetes (K3s) cluster, provisioned on demand and
-  torn down between sessions.** Civo bills hourly, so intermittent testing through
+- **The Kubernetes target is a managed Kubernetes (K3s) cluster, provisioned on demand and
+  torn down between sessions.** The provider bills hourly, so intermittent testing through
   Phases 12 and 13 stays inexpensive.
-- **CD runs on a GitHub-hosted runner and deploys directly.** Civo exposes a public,
+- **CD runs on a GitHub-hosted runner and deploys directly.** The cluster exposes a public,
   authenticated API, so the runner runs `helm upgrade` against a stored kubeconfig. CI
   (lint, typecheck, test, path-based change detection, multi-arch buildx) stays on
   hosted runners.
 
 ## Consequences
 
-- CD depends on GitHub-hosted runners and the Civo API, keeping the moving parts to the
+- CD depends on GitHub-hosted runners and the cluster API, keeping the moving parts to the
   deploy workflow and the cluster credentials.
-- The Civo kubeconfig and API token are deployment credentials held as GitHub secrets,
+- The cluster kubeconfig and API token are deployment credentials held as GitHub secrets,
   scoped to the deploy workflow, since they carry cluster-admin reach.
 - An ephemeral cluster proves CD during an active session; between sessions the local
   Docker deployment covers running the product.
 - Teardown removes the cluster's volumes and load balancer along with the cluster, so
-  Civo billing stops cleanly.
-- Images build for linux/amd64 (Civo and x86 CI) and linux/arm64 (local Docker on Apple
+  billing stops cleanly.
+- Images build for linux/amd64 (the cluster and x86 CI) and linux/arm64 (local Docker on Apple
   Silicon), so the multi-arch buildx step stays.

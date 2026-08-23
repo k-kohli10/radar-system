@@ -452,11 +452,11 @@ RADAR runs two ways, from the same multi-arch images:
 
 - **Docker (two-stack), local.** The `radar-infra` and `radar-apps` compose stacks
   run the full end-to-end pipeline on one machine. See docs/operations/docker.md.
-- **Kubernetes on Civo (K3s).** An ephemeral cluster provisioned for active testing
-  via the Phase 12 Helm chart, then torn down between sessions. Nodes are amd64; Civo
-  supplies metrics-server (needed for HPA) and a load balancer on demand.
+- **Managed Kubernetes (K3s).** An ephemeral cluster provisioned for active testing
+  via the Phase 12 Helm chart, then torn down between sessions. Nodes are amd64; the
+  provider supplies metrics-server (needed for HPA) and a load balancer on demand.
 
-Images build for linux/amd64 (Civo and x86 CI) and linux/arm64 (local Docker on
+Images build for linux/amd64 (the cluster and x86 CI) and linux/arm64 (local Docker on
 Apple Silicon) via docker buildx.
 
 ---
@@ -471,7 +471,7 @@ radar-system/
 │   ├── workflows/
 │   │   ├── ci.yml
 │   │   ├── build.yml
-│   │   └── cd.yml            # helm upgrade to Civo (Phase 12)
+│   │   └── cd.yml            # helm upgrade to Kubernetes (Phase 12)
 │   ├── ISSUE_TEMPLATE/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
@@ -2654,8 +2654,8 @@ best-case, queueing-compressed number).
 Phase 11 scope is CI plus a local containerized deployment. Continuous deployment
 to a cluster moves to Phase 12, where the Helm chart it deploys gets built.
 
-CI is path-based, builds only what changed, produces multi-arch images (amd64 for a
-Civo cluster, arm64 for local Docker on Apple Silicon), and tags by git SHA.
+CI is path-based, builds only what changed, produces multi-arch images (amd64 for the
+Kubernetes cluster, arm64 for local Docker on Apple Silicon), and tags by git SHA.
 
 Delivered: change detection, the lint/test pipeline, multi-arch buildx, the config
 drift check, the `deploy/`-only-builds-nothing guard, and the local two-stack Docker
@@ -2727,10 +2727,10 @@ build pins it.
 ## Phase 12: Kubernetes and Helm
 **Milestone: v0.12-kubernetes | Tag: v0.6.0**
 
-The k8s target is a Civo Kubernetes (K3s) cluster, provisioned on demand for active
+The k8s target is a managed Kubernetes (K3s) cluster, provisioned on demand for active
 testing and torn down between sessions. RADAR rebuilds from scratch (the dev Vault
-re-seeds, the runbook index rebuilds), so an ephemeral cluster fits the work. Civo's
-API is publicly reachable, so a GitHub-hosted runner runs `helm upgrade` directly
+re-seeds, the runbook index rebuilds), so an ephemeral cluster fits the work. The
+cluster API is publicly reachable, so a GitHub-hosted runner runs `helm upgrade` directly
 against it (ADR 0012). Local end-to-end runs use the Phase 11 two-stack Docker
 deployment; this phase adds the k8s path and the CD that reaches it.
 
@@ -2739,8 +2739,8 @@ Deliverables:
 deploy/helm/radar/
 deploy/examples/minimal/
 deploy/examples/bring-your-own-backends/
-.github/workflows/          # helm validation in CI, helm-upgrade CD to Civo
-docs/operations/            # Civo cluster setup + connectivity
+.github/workflows/          # helm validation in CI, helm-upgrade CD to Kubernetes
+docs/operations/            # Kubernetes cluster setup + connectivity
 ```
 
 Chart must have: resource limits, probes, Vault init-container, RBAC, HPA for
@@ -2768,12 +2768,12 @@ feat(helm): add correlation rules and plan templates as configmaps
 feat(helm): add configurable backend providers
 feat(deploy): add minimal and bring-your-own-backends examples
 ci: add helm validation                         # moved from Phase 11
-ci: add helm-upgrade cd to civo                 # moved from Phase 11
-docs(ops): add civo cluster setup and connectivity guide   # moved from Phase 11
+ci: add helm-upgrade cd to kubernetes           # moved from Phase 11
+docs(ops): add kubernetes cluster setup and connectivity guide   # moved from Phase 11
 ```
 
 Done when: `helm install` (or the CD workflow's `helm upgrade`) deploys all services
-to a Civo cluster and every readiness probe passes. Merge deploys it.
+to the Kubernetes cluster and every readiness probe passes. Merge deploys it.
 
 ---
 
@@ -2882,7 +2882,7 @@ Phase 11 + .github/workflows scripts/detect-changed-services.py
            docs/operations/docker.md
            TAG: v0.5.0
 Phase 12 + deploy/helm/radar deploy/examples .github/workflows/cd.yml
-           docs/operations (civo setup)
+           docs/operations (kubernetes setup)
            TAG: v0.6.0
 Phase 13 + tests/load docs/architecture/threat-model.md
            TAG: v0.7.0

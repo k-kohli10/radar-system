@@ -119,9 +119,9 @@ shop versus watching RADAR itself) is drawn in
 ## Deployment Target
 
 Two targets, from the same multi-arch images: the two-stack Docker deployment
-(`radar-infra` + `radar-apps`) for local end-to-end runs, and an ephemeral Civo
+(`radar-infra` + `radar-apps`) for local end-to-end runs, and an ephemeral managed
 Kubernetes (K3s) cluster for the k8s path (Phase 12). Images build for `linux/amd64`
-(Civo, x86 CI) and `linux/arm64` (local Docker on Apple Silicon) via `docker buildx`.
+(the cluster, x86 CI) and `linux/arm64` (local Docker on Apple Silicon) via `docker buildx`.
 
 ## Non-Goals
 
