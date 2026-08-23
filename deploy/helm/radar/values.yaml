@@ -49,21 +49,92 @@ env:
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.radar-infra.svc.cluster.local:4317
   RADAR_DISPATCH_URL_OVERRIDES: '{"watcher-agent":"http://watcher-agent:8080/events","planner-agent":"http://planner-agent:8080/events","reasoner-agent":"http://reasoner-agent:8080/events","feedback-service":"http://feedback-service:8080/events"}'
 
+# Default container resources. A per-service `resources` block replaces this
+# wholesale (see the plan's resource table). No CPU limit by design — CPU is
+# compressible, so requests set the scheduling floor while a limit only risks
+# throttling. Memory has a hard limit because it is not compressible.
+resources:
+  default:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# Health probes, shared by every service (all expose /healthz and /readyz on
+# 8080). readiness is 503 until Postgres is reachable and Vault secrets are
+# loaded, so k8s holds traffic off a pod that cannot serve.
+probes:
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Pod-level security context. uid 1001 matches the `radar` user baked into every
+# image (see the Dockerfile pattern). Applies to the vault-init container too —
+# the Vault CLI runs fine unprivileged.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level hardening applied to every container (init + app). RADAR
+# services need no Linux capabilities and never escalate privileges.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
 # One entry per deployable service. The key is the canonical service name and
 # drives the object names, labels, and default image (radar-<key>). Per-service
 # keys understood so far:
-#   image    — full image reference override (skips the computed default)
-#   replicas — replica count (default 1)
-#   env      — extra service-specific environment (merged over the shared env)
+#   image     — full image reference override (skips the computed default)
+#   replicas  — replica count (default 1)
+#   env       — extra service-specific environment (merged over the shared env)
+#   resources — replaces resources.default for this service
 services:
   ingestion: {}
   llm-gateway:
     env:
       # Non-secret mode-routing config, mounted as a ConfigMap in a later commit.
       RADAR_GATEWAY_CONFIG_PATH: /app/config/gateway.yaml
-  outbox-worker: {}
-  watcher-agent: {}
-  planner-agent: {}
+  outbox-worker:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        memory: 384Mi
+  watcher-agent:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        memory: 384Mi
+  planner-agent:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        memory: 384Mi
   reasoner-agent: {}
-  knowledge-service: {}
+  knowledge-service:
+    resources:
+      requests:
+        cpu: 150m
+        memory: 384Mi
+      limits:
+        memory: 768Mi
   feedback-service: {}

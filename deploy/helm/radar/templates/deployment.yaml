@@ -25,6 +25,8 @@ spec:
         {{- include "radar.selectorLabels" (dict "name" $name "root" $) | nindent 8 }}
     spec:
       serviceAccountName: {{ $name }}
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
       {{- with $.Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -32,6 +34,8 @@ spec:
       initContainers:
         - name: vault-init
           image: {{ $.Values.vault.image }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
           command: ["/bin/sh", "/vault-init/fetch-secrets.sh", {{ $name | quote }}]
           env:
             - name: VAULT_ADDR
@@ -48,6 +52,8 @@ spec:
         - name: {{ $name }}
           image: {{ include "radar.image" (dict "name" $name "root" $) }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
           ports:
             - name: http
               containerPort: 8080
@@ -60,6 +66,24 @@ spec:
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ $.Values.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ $.Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ $.Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ $.Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ $.Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ $.Values.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ $.Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ $.Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ $.Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ $.Values.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml ($svc.resources | default $.Values.resources.default) | nindent 12 }}
           volumeMounts:
             - name: vault-secrets
               mountPath: /vault/secrets
