@@ -64,10 +64,12 @@ spec:
             capabilities:
               drop:
                 - ALL
-              # Vault mlocks memory to keep secrets off swap.
-              add:
-                - IPC_LOCK
           env:
+            # The image entrypoint runs `setcap` (needs CAP_SETFCAP, dropped above)
+            # to let Vault mlock. Dev mode does not mlock, so skip that step and let
+            # Vault start cleanly under drop-ALL.
+            - name: SKIP_SETCAP
+              value: "true"
             - name: VAULT_DEV_ROOT_TOKEN_ID
               valueFrom:
                 secretKeyRef:
