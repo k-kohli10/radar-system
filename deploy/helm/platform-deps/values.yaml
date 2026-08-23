@@ -141,3 +141,36 @@ alertmanager:
       memory: 128Mi
     limits:
       memory: 256Mi
+
+# OpenTelemetry Collector — per-node DaemonSet that receives OTLP from the RADAR
+# pods and exports spans to Elasticsearch (ADR 0008), viewable in Kibana APM. This
+# is the endpoint the app chart points OTEL_EXPORTER_OTLP_ENDPOINT at, so enabling
+# it makes the apps' trace export resolve instead of retrying into the void.
+# Requires elasticsearch enabled (or reachable at elasticsearch:9200).
+otelCollector:
+  enabled: true
+  image: otel/opentelemetry-collector-contrib:0.119.0
+  # curl image for the es-traces-init Job and the collector's wait-for-template init.
+  tracesInitImage: curlimages/curl:8.11.1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Fluent Bit — per-node DaemonSet that tails container stdout and ships the
+# structured RADAR JSON logs to Elasticsearch as radar-logs-*. Completes the
+# telemetry stack (metrics via Prometheus scrape, traces via the collector, logs
+# here). Requires elasticsearch enabled (or reachable at elasticsearch:9200).
+fluentBit:
+  enabled: true
+  image: fluent/fluent-bit:3.2.2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

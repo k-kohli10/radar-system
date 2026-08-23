@@ -1,0 +1,71 @@
+{{- if .Values.otelCollector.enabled }}
+{{- $otel := .Values.otelCollector }}
+# Traces data-stream index template installer. The compose equivalent is the
+# `es-traces-init` one-shot; this is its chart form. It PUTs the traces data-stream
+# index template into Elasticsearch so the collector's exporter can create
+# `traces-generic-default`. A PLAIN Job (not a helm hook) on purpose: `helm --wait`
+# then waits for Elasticsearch, this Job, and the collector concurrently, so the
+# collector's wait-for-traces-template initContainer resolves inside the same wait —
+# a post-install hook would deadlock (--wait blocks on the collector, which blocks
+# on a template the hook only installs after the wait).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traces-index-template
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: es-traces-init
+data:
+  # deploy/otel/traces-index-template.json, embedded byte-identically and
+  # drift-pinned (tests/deploy/test_config_copies_byte_identical.py).
+  traces-index-template.json: |
+{{ .Files.Get "files/otel/traces-index-template.json" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: es-traces-init
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: es-traces-init
+spec:
+  # backoffLimit + OnFailure gives a long retry window while Elasticsearch starts;
+  # -fS makes curl exit non-zero on a rejected template so the Job fails loudly.
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        {{- include "platformdeps.labels" . | nindent 8 }}
+        app.kubernetes.io/component: es-traces-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: es-traces-init
+          image: {{ $otel.tracesInitImage }}
+          args:
+            - -fsS
+            - --retry
+            - "30"
+            - --retry-all-errors
+            - --retry-connrefused
+            - --retry-delay
+            - "2"
+            - -X
+            - PUT
+            - http://elasticsearch:9200/_index_template/radar-traces
+            - -H
+            - "Content-Type: application/json"
+            - --data-binary
+            - "@/etc/traces-template/traces-index-template.json"
+          volumeMounts:
+            - name: template
+              mountPath: /etc/traces-template
+              readOnly: true
+      volumes:
+        - name: template
+          configMap:
+            name: traces-index-template
+            items:
+              - key: traces-index-template.json
+                path: traces-index-template.json
+{{- end }}

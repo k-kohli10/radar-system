@@ -49,6 +49,15 @@ EXPLICIT_PAIRS: list[tuple[str, str, str]] = [
         "parsers.conf",
         "deploy/fluent-bit/parsers.conf",
     ),
+    # The k8s fluent-bit.conf (tails container logs) has no standalone file — it
+    # lives only in the static DaemonSet manifest and the platform-deps chart copy.
+    # Pin the chart copy against the manifest's embedded value so they cannot drift
+    # (the compose fluent-bit.conf legitimately differs and is deliberately absent).
+    (
+        "deploy/fluent-bit/fluent-bit-daemonset.yaml",
+        "fluent-bit.conf",
+        "deploy/helm/platform-deps/files/fluent-bit/fluent-bit.conf",
+    ),
 ]
 
 GRAFANA_CONFIGMAPS = "deploy/grafana/dashboards-configmaps.yaml"
@@ -93,6 +102,18 @@ FILE_PAIRS: list[tuple[str, str]] = [
     (
         "scripts/dev-mint-tokens.py",
         "deploy/helm/platform-deps/files/dev-mint-tokens.py",
+    ),
+    (
+        "deploy/otel/collector-config.yaml",
+        "deploy/helm/platform-deps/files/otel/collector-config.yaml",
+    ),
+    (
+        "deploy/otel/traces-index-template.json",
+        "deploy/helm/platform-deps/files/otel/traces-index-template.json",
+    ),
+    (
+        "deploy/fluent-bit/parsers.conf",
+        "deploy/helm/platform-deps/files/fluent-bit/parsers.conf",
     ),
 ]
 
