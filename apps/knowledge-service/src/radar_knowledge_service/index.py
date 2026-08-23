@@ -12,6 +12,7 @@ failure is an index that quietly stops updating.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -22,8 +23,15 @@ from radar_knowledge_service.config import KnowledgeSettings, load_gateway_token
 from radar_knowledge_service.embeddings import GatewayEmbeddingClient
 from radar_knowledge_service.indexer import IndexRunResult, RunbookIndexer
 
-CORPUS_DIR = Path(__file__).resolve().parents[4] / "docs" / "runbooks"
-"""The repo corpus. In production this is the mounted runbook volume."""
+# The corpus directory. Defaults to the repo path for local `make index`; in a
+# container the corpus travels in the image (or a mounted volume) and the path is
+# supplied via RADAR_RUNBOOKS_DIR.
+CORPUS_DIR = Path(
+    os.environ.get(
+        "RADAR_RUNBOOKS_DIR",
+        str(Path(__file__).resolve().parents[4] / "docs" / "runbooks"),
+    )
+)
 
 
 async def run_once(settings: KnowledgeSettings, corpus_dir: Path) -> IndexRunResult:

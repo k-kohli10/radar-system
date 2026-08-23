@@ -41,6 +41,10 @@ RUN useradd --system --uid 1001 radar
 
 COPY --from=builder /app/.venv /app/.venv
 
+# The runbook corpus travels with the image so the indexer Job can read it at
+# RADAR_RUNBOOKS_DIR (README.md is ignored by the indexer).
+COPY --from=builder /app/docs/runbooks /app/runbooks
+
 ENV PATH="/app/.venv/bin:$PATH"
 
 USER radar
