@@ -1,0 +1,42 @@
+# Dev / evaluation platform dependencies for RADAR (radar-infra namespace).
+#
+# DEV-GRADE ONLY. Single-node, in-cluster copies of the services the compose infra
+# stack runs, so the full system can be evaluated with one install. Do not run this
+# in production — point RADAR at managed Postgres/Elasticsearch/Vault instead
+# (deploy/examples/bring-your-own-backends). The credentials below are throwaway dev
+# defaults, not secrets.
+#
+# Each dependency is independently toggleable so an evaluator can, e.g., disable the
+# in-cluster Postgres and point at an external one.
+
+postgres:
+  enabled: true
+  image: postgres:16
+  # Dev credentials. The Vault bootstrap seeds a matching postgres_dsn so the apps
+  # connect with these. Production uses external Postgres and its own secret.
+  auth:
+    username: radar
+    password: radar-dev-only-not-a-secret
+    database: radar
+  storage:
+    size: 5Gi
+    # storageClassName: ""   # empty = cluster default StorageClass
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+vault:
+  enabled: true
+  image: hashicorp/vault:1.18.0
+  # Dev-mode server: in-memory storage, auto-unsealed, fixed root token. Matches
+  # `vault server -dev` in compose. Never use dev mode in production.
+  devRootToken: radar-dev-root-token
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
