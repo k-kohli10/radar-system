@@ -40,3 +40,29 @@ vault:
       memory: 256Mi
     limits:
       memory: 512Mi
+
+elasticsearch:
+  enabled: true
+  image: docker.elastic.co/elasticsearch/elasticsearch:8.16.0
+  # Single-node, security disabled — dev config from compose. Heap is half the
+  # memory request; the rest is off-heap (Lucene, direct buffers).
+  javaOpts: "-Xms512m -Xmx512m"
+  storage:
+    size: 10Gi
+    # storageClassName: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1536Mi
+    limits:
+      memory: 2Gi
+
+kibana:
+  enabled: true
+  image: docker.elastic.co/kibana/kibana:8.16.0
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 1536Mi
