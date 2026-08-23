@@ -98,6 +98,22 @@ def write_roles_and_policies(client: httpx.Client, radar_ns: str) -> None:
         print(f"role radar-{service} -> SA {service}/{radar_ns} [{', '.join(paths)}]")
 
 
+def pin_alertmanager_webhook_token(vault: dmt.Vault) -> None:
+    """Pin ingestion's prometheus webhook token to the Alertmanager token.
+
+    Alertmanager sends a fixed token (alertmanager.webhookToken); dev_mint_tokens
+    would otherwise mint a RANDOM webhook_token_prometheus, so the authenticated
+    webhook would 401. Written BEFORE mint_webhook_tokens so that run keeps it.
+    """
+    token = os.environ.get("RADAR_ALERTMANAGER_WEBHOOK_TOKEN", "").strip()
+    if not token:
+        return
+    secret = vault.read(dmt.INGESTION_PATH)
+    secret["webhook_token_prometheus"] = token
+    vault.write(dmt.INGESTION_PATH, secret)
+    print("pinned ingestion webhook_token_prometheus to the Alertmanager token")
+
+
 def seed_supplied_secrets(vault: dmt.Vault) -> None:
     """Seed the secrets dev_mint_tokens does not own: provider key + postgres_dsn."""
     dsn = (
@@ -153,6 +169,9 @@ def main() -> None:
         dmt.rebuild_dispatch_map(vault, agent_tokens)
         dmt.write_knowledge_grant(vault, agent_tokens)
         dmt.mint_gateway_tokens(vault, rotate=None)
+        # Pin the prometheus webhook token before minting keeps it, so
+        # Alertmanager's authenticated webhook to ingestion matches.
+        pin_alertmanager_webhook_token(vault)
         dmt.mint_webhook_tokens(vault)
 
         seed_supplied_secrets(vault)

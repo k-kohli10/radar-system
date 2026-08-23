@@ -127,6 +127,15 @@ spec:
                   name: {{ $vb.llmKeysSecret.name }}
                   key: {{ $vb.llmKeysSecret.key }}
                   optional: true
+            # Pins ingestion's prometheus webhook token to the Alertmanager token
+            # so the authenticated webhook matches. Optional: absent when
+            # alertmanager is disabled.
+            - name: RADAR_ALERTMANAGER_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: radar-alertmanager
+                  key: webhook-token
+                  optional: true
           volumeMounts:
             - name: scripts
               mountPath: /bootstrap
