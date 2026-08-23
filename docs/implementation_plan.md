@@ -2775,6 +2775,43 @@ docs(ops): add kubernetes cluster setup and connectivity guide   # moved from Ph
 Done when: `helm install` (or the CD workflow's `helm upgrade`) deploys all services
 to the Kubernetes cluster and every readiness probe passes. Merge deploys it.
 
+**Delivered:** the application chart (`deploy/helm/radar`) with every required
+capability — resource limits, probes, a per-workload Vault init-container,
+least-privilege RBAC, HPAs for ingestion and llm-gateway, correlation-rules and
+plan-templates ConfigMaps, and config-swappable backend providers; both example
+values sets (`deploy/examples/minimal`, `deploy/examples/bring-your-own-backends`);
+the offline helm-validation gate (`helm lint` + `helm template | kubeconform
+-strict`, in CI as `.github/workflows/helm.yml` and locally as `make
+helm-validate`, with a per-render exact-count guard against a silent empty render);
+the `helm upgrade` CD workflow (`.github/workflows/cd.yml`); and the setup and
+connectivity guide (`docs/operations/kubernetes-cd.md`).
+
+**As-built divergence** (recorded, per the same discipline as Phase 8's "Added
+during implementation" and Phase 9's footprint note):
+- The app chart is **DRY and range-based** — one `deployment.yaml` / `service.yaml`
+  / `serviceaccount.yaml` ranging over `.Values.services` — not the per-service
+  template directories the Final Git Structure tree illustrates.
+- A **second chart, `deploy/helm/platform-deps`, was added** (not in the
+  Deliverables list above) to satisfy the mandate that behavior be identical across
+  Local, Docker, and k8s. It is a two-tier decision: **production runs against
+  managed/external backends** (the `bring-your-own-backends` example; the sellable
+  default), while **dev/eval** installs this single-node chart mirroring the compose
+  infra stack (Postgres, Vault, Elasticsearch, Kibana, Prometheus, Alertmanager,
+  Grafana) plus a Vault kubernetes-auth bootstrap Job. The real commit set is
+  correspondingly larger than the idealized list above (the platform-deps
+  components, the bootstrap, and post-install db-migration + runbook-indexer Jobs).
+- The **deferred authenticated-Alertmanager** item above is closed: platform-deps
+  pins Alertmanager v0.28 and sends `X-Radar-Webhook-Token` via `http_headers.files`.
+
+**Verification status:** the charts are offline-validated (lint + `kubeconform
+-strict`, all renders valid) and the **full install chain has been brought up green
+on a local cluster** (Docker Desktop k8s / kind): both charts, the Vault
+kubernetes-auth bootstrap, the DB-migration and runbook-indexer Jobs, and every
+readiness probe. The one confirmation still outstanding is the **CD path end-to-end
+against a remote managed cluster** — build → push to GHCR → `helm upgrade` →
+probes green — together with the amd64 run; it is done on demand on an ephemeral
+cluster and torn down after. **Tag `v0.6.0` after that confirmation run.**
+
 ---
 
 ## Phase 13: Security and Resilience Audit
