@@ -6,6 +6,7 @@ SERVICES := postgres elasticsearch kibana prometheus grafana vault
 
 .PHONY: setup lint test clean env-check svc-check start stop-one restart \
 	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets index \
+	kubeconform helm-validate \
 	seed tokens rotate agent-secrets \
 	dev-infra-up dev-infra-stop dev-infra-ps dev-infra-logs \
 	dev-apps-up dev-apps-stop dev-apps-ps dev-apps-logs apps-check \
@@ -56,6 +57,14 @@ test-quick:
 # entry point.
 kubeconform:
 	@bash scripts/kubeconform-phase10.sh
+
+# Offline Helm-chart validation: helm lint + `helm template | kubeconform -strict`
+# for the radar and platform-deps charts and the deploy/examples/ values files,
+# each with an exact-count guard against kubeconform's silent empty-render pass.
+# Needs helm + kubeconform on PATH and network egress to the schema repo. Runs the
+# same script the helm CI workflow runs; this is the direct local entry point.
+helm-validate:
+	@bash scripts/helm-validate.sh
 
 clean: env-check
 	$(COMPOSE) down -v
