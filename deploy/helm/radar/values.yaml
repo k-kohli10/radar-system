@@ -51,6 +51,14 @@ vault:
 gateway:
   config: {}
 
+# Post-install/upgrade Job that runs the Alembic migrations (creates the Postgres
+# schema) before anything uses it. serviceAccount picks the identity whose Vault
+# role can read secret/radar/postgres, and whose image runs the migration
+# (ingestion depends on radar-database + alembic).
+migration:
+  enabled: true
+  serviceAccount: ingestion
+
 # Post-install/upgrade Job that indexes the runbook corpus (baked into the
 # knowledge-service image at runbooksDir) into Elasticsearch, so
 # knowledge-service reaches readiness. Requires platform-deps + llm-gateway.
