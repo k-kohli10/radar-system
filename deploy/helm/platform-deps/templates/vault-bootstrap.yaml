@@ -1,0 +1,144 @@
+{{- if and .Values.vault.enabled .Values.vaultBootstrap.enabled }}
+{{- $vb := .Values.vaultBootstrap }}
+# Long-lived ServiceAccount JWT used as Vault's token_reviewer_jwt, so Vault can
+# validate pod tokens (TokenReview) without every app SA holding auth-delegator.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-token-reviewer
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vault-bootstrap
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vault-token-reviewer
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vault-bootstrap
+  annotations:
+    kubernetes.io/service-account.name: vault-token-reviewer
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-vault-token-reviewer
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vault-bootstrap
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: vault-token-reviewer
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-bootstrap-scripts
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vault-bootstrap
+data:
+  # dev_mint_tokens.py is a byte-identical copy of scripts/dev-mint-tokens.py
+  # (drift-pinned) so token minting is single-sourced with local/compose.
+  dev_mint_tokens.py: |
+{{ .Files.Get "files/dev-mint-tokens.py" | indent 4 }}
+  k8s_vault_bootstrap.py: |
+{{ .Files.Get "files/k8s-vault-bootstrap.py" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-bootstrap
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vault-bootstrap
+  annotations:
+    # Runs after the chart's resources are applied, on every install and upgrade.
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "platformdeps.labels" . | nindent 8 }}
+        app.kubernetes.io/component: vault-bootstrap
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bootstrap
+          image: {{ $vb.image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          command: ["python", "/bootstrap/k8s_vault_bootstrap.py"]
+          env:
+            - name: PYTHONPATH
+              value: /bootstrap
+            - name: VAULT_ADDR
+              value: http://vault:8200
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: radar-vault
+                  key: root-token
+            - name: RADAR_NAMESPACE
+              value: {{ $vb.radarNamespace }}
+            - name: RADAR_POSTGRES_HOST
+              value: {{ $vb.postgresHost }}
+            - name: REVIEWER_JWT_PATH
+              value: /var/run/reviewer/token
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: radar-postgres
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: radar-postgres
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: radar-postgres
+                  key: POSTGRES_DB
+            # Provider API key (user-supplied). Optional so the Job still completes
+            # without it (gateway 401s upstream until seeded). Create this Secret
+            # out of band; it is never committed.
+            - name: RADAR_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $vb.llmKeysSecret.name }}
+                  key: {{ $vb.llmKeysSecret.key }}
+                  optional: true
+          volumeMounts:
+            - name: scripts
+              mountPath: /bootstrap
+              readOnly: true
+            - name: reviewer
+              mountPath: /var/run/reviewer
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: vault-bootstrap-scripts
+        - name: reviewer
+          secret:
+            secretName: vault-token-reviewer
+{{- end }}

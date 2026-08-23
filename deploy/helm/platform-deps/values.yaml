@@ -41,6 +41,25 @@ vault:
     limits:
       memory: 512Mi
 
+# One-time Vault bootstrap (Helm post-install/upgrade Job): enables the kubernetes
+# auth method, creates a role + policy per service, and seeds all secrets the
+# vault-init containers read. Reuses scripts/dev-mint-tokens.py (drift-pinned copy)
+# for token minting. Because the dev Vault is in-memory, this re-seeds on each
+# (re)deploy.
+vaultBootstrap:
+  enabled: true
+  # Any RADAR app image works — it just needs python + httpx + pyyaml.
+  image: ghcr.io/k-kohli10/radar-llm-gateway:0.6.0
+  radarNamespace: radar
+  postgresHost: postgres.radar-infra.svc.cluster.local
+  # Secret holding the LLM provider API key, created out of band (never committed):
+  #   kubectl -n radar-infra create secret generic radar-llm-keys \
+  #     --from-literal=openai_api_key=sk-...
+  # Optional: the Job completes without it, but the gateway 401s upstream until set.
+  llmKeysSecret:
+    name: radar-llm-keys
+    key: openai_api_key
+
 elasticsearch:
   enabled: true
   image: docker.elastic.co/elasticsearch/elasticsearch:8.16.0

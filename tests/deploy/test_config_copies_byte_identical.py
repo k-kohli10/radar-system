@@ -90,6 +90,10 @@ FILE_PAIRS: list[tuple[str, str]] = [
         "deploy/grafana/provisioning/dashboards/radar.yml",
         "deploy/helm/platform-deps/files/grafana/dashboards-provider.yml",
     ),
+    (
+        "scripts/dev-mint-tokens.py",
+        "deploy/helm/platform-deps/files/dev-mint-tokens.py",
+    ),
 ]
 
 
@@ -151,7 +155,7 @@ def test_pair_discovery_is_not_vacuous() -> None:
     # welcome but a discovery that silently finds nothing fails loudly.
     assert len(_grafana_pairs()) >= 5, "Grafana dashboard pairs vanished"
     assert len(pairs) >= 8, f"expected >=8 config copy-pairs, found {len(pairs)}"
-    assert len(FILE_PAIRS) >= 8, "file copy-pairs vanished"
+    assert len(FILE_PAIRS) >= 9, "file copy-pairs vanished"
     assert len(_grafana_dashboard_file_pairs()) >= 5, "grafana dashboard pairs vanished"
 
 
