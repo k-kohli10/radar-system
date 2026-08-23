@@ -66,3 +66,18 @@ kibana:
       memory: 1Gi
     limits:
       memory: 1536Mi
+
+prometheus:
+  enabled: true
+  image: prom/prometheus:v2.55.0
+  # Namespace the RADAR app pods run in, for kubernetes_sd pod discovery.
+  radarNamespace: radar
+  storage:
+    size: 8Gi
+    # storageClassName: ""
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
