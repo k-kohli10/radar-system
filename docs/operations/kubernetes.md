@@ -31,16 +31,21 @@ Install order matters: **platform-deps first** (it seeds Vault), then **radar**.
   Kubeadm. Any offered Kubernetes version works (the charts pin none). Wait for the
   node to go `Ready`.
 - `kubectl`, `helm` (v3+), and Docker in your PATH.
-- Confirm your context:
-  ```bash
-  kubectl config current-context      # docker-desktop  (or kind-radar)
-  kubectl get nodes                   # one node, Ready
-  ```
 
-## Step 1 — metrics-server (needed by the HPAs)
+Run these in order. Steps 4 and 5 must finish before Step 6 (the bootstrap seeds
+the secrets the app pods read). Commands assume you run them from `radar-system/`.
 
-Neither Docker Desktop nor kind ships metrics-server. Install it (the
-`--kubelet-insecure-tls` patch is required on both):
+## Step 0 — confirm the cluster
+
+```bash
+kubectl config current-context     # docker-desktop
+kubectl get nodes                  # one node, Ready
+```
+
+## Step 1 — metrics-server (for the HPAs)
+
+Docker Desktop does not ship metrics-server. Install it (the
+`--kubelet-insecure-tls` patch is required):
 
 ```bash
 kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
@@ -48,32 +53,28 @@ kubectl -n kube-system patch deployment metrics-server --type=json \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 ```
 
-## Step 2 — build the images
+## Step 2 — build the 8 images
 
-Every service is built from its own Dockerfile at the repo root. Build all eight,
-tagged exactly as the chart expects (`ghcr.io/k-kohli10/radar-<service>:0.6.0`):
+Kubeadm shares the Docker image store, so the cluster uses these directly (the
+chart sets `imagePullPolicy: IfNotPresent`) — **no load step**. Tag them exactly as
+the chart expects (`ghcr.io/k-kohli10/radar-<service>:0.6.0`):
 
 ```bash
-cd radar-system
+cd "/Users/kkohli/Documents/Kashyap Portfolio/RADAR/radar-system"
 for s in ingestion llm-gateway outbox-worker watcher-agent \
          planner-agent reasoner-agent knowledge-service feedback-service; do
-  docker build -f apps/$s/Dockerfile -t ghcr.io/k-kohli10/radar-$s:0.6.0 .
+  docker build -f apps/$s/Dockerfile -t ghcr.io/k-kohli10/radar-$s:0.6.0 . || break
 done
 ```
 
-- **Docker Desktop Kubernetes** shares the Docker image store, so the cluster can
-  use these directly (the chart sets `imagePullPolicy: IfNotPresent`). No load step.
-- **kind** does not — load each image after building:
-  `kind load docker-image ghcr.io/k-kohli10/radar-$s:0.6.0 --name radar`.
-
 Platform-dependency images (Postgres, Vault, Elasticsearch, …) are public and are
-pulled by the cluster automatically.
+pulled by the cluster automatically. (On `kind` instead of Kubeadm, add
+`kind load docker-image ghcr.io/k-kohli10/radar-$s:0.6.0 --name radar` after each build.)
 
-## Step 3 — create the supplied secrets
+## Step 3 — create the namespace + supplied secrets
 
-Two secrets hold credentials RADAR does not mint — your LLM key and (optionally)
-Slack. Create them in `radar-infra` **before** installing platform-deps so the
-Vault bootstrap seeds them:
+The LLM key and (optionally) Slack are credentials RADAR does not mint — create
+them in `radar-infra` **before** platform-deps so the Vault bootstrap seeds them:
 
 ```bash
 kubectl create namespace radar-infra
@@ -88,51 +89,52 @@ kubectl -n radar-infra create secret generic radar-slack-keys \
   --from-literal=slack_app_token=xapp-YOUR-APP-TOKEN
 ```
 
-## Step 4 — install platform-deps
+## Step 4 — install platform-deps, wait for it
 
 ```bash
 helm install radar-infra deploy/helm/platform-deps -n radar-infra
 kubectl -n radar-infra get pods -w        # wait until all are Running/Ready, then Ctrl-C
 ```
 
-The `vault-bootstrap` Job runs automatically once Vault is up. Confirm it finished:
+## Step 5 — confirm the Vault bootstrap finished
+
+The `vault-bootstrap` Job runs automatically once Vault is up:
 
 ```bash
 kubectl -n radar-infra get jobs
 kubectl -n radar-infra logs job/vault-bootstrap        # ends with "bootstrap done"
 ```
 
-## Step 5 — install the RADAR app chart
+## Step 6 — install the app chart (raise the hook timeout)
 
-Give the post-install hooks room — the migration + runbook indexing run as Jobs
-(the indexer embeds 17 runbooks), so raise the hook timeout:
+The post-install hooks run as Jobs (migration, then the indexer embedding 17
+runbooks), so give them room:
 
 ```bash
 helm install radar deploy/helm/radar -n radar --create-namespace --timeout 10m
 ```
 
-Helm blocks while the hooks run, in order:
-1. **db-migration** (weight 0) — creates the Postgres schema.
-2. **knowledge-indexer** (weight 10) — embeds the runbooks into Elasticsearch.
+## Step 7 — watch the hooks (migration first, then indexer)
 
-Watch them:
 ```bash
 kubectl -n radar get jobs
-kubectl -n radar logs job/db-migration
-kubectl -n radar logs job/knowledge-indexer
+kubectl -n radar logs job/db-migration          # creates the Postgres schema (weight 0)
+kubectl -n radar logs job/knowledge-indexer     # embeds the runbooks (weight 10)
 ```
 
-## Step 6 — verify
+## Step 8 — verify
 
 ```bash
-kubectl -n radar get pods        # all 8 services Running, READY 1/1
+kubectl -n radar get pods        # all 8 services Running, READY 1/1 (7/8 if Slack skipped)
 kubectl -n radar get hpa         # ingestion + llm-gateway show CPU metrics
 ```
 
-Open the dashboards (or use the VSCode Kubernetes extension → right-click Service →
-Port Forward):
+## Step 9 — open dashboards (optional)
+
+Or use the VSCode Kubernetes extension → right-click a Service → Port Forward.
+
 ```bash
-kubectl -n radar-infra port-forward svc/grafana 3000:3000    # admin / radar-dev-admin-not-a-secret
+kubectl -n radar-infra port-forward svc/grafana 3000:3000    # http://localhost:3000  (admin / radar-dev-admin-not-a-secret)
 kubectl -n radar-infra port-forward svc/kibana  5601:5601
 ```
 
