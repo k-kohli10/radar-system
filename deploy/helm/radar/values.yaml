@@ -51,6 +51,13 @@ vault:
 gateway:
   config: {}
 
+# Post-install/upgrade Job that indexes the runbook corpus (baked into the
+# knowledge-service image at runbooksDir) into Elasticsearch, so
+# knowledge-service reaches readiness. Requires platform-deps + llm-gateway.
+knowledgeIndexer:
+  enabled: true
+  runbooksDir: /app/runbooks
+
 # Non-secret environment shared by every app service. Mirrors
 # deploy/compose/apps.env, with in-cluster DNS in place of compose service names.
 # Cross-namespace dependencies (Elasticsearch, OTel collector) use the fully

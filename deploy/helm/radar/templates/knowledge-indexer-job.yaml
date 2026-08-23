@@ -1,0 +1,77 @@
+{{- if .Values.knowledgeIndexer.enabled }}
+{{- /*
+Post-install/upgrade Job that indexes the runbook corpus into Elasticsearch, so
+knowledge-service /readyz (which requires the radar-runbooks index to exist at the
+embed dimension) passes. It runs the same `python -m radar_knowledge_service.index`
+pass as `make index`, over the corpus baked into the image at RADAR_RUNBOOKS_DIR,
+authenticating to Vault with the knowledge-service identity for the embed token.
+Requires platform-deps (Elasticsearch + the seeded knowledge-service secrets) and
+llm-gateway; the Job retries (backoffLimit) until those are reachable.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: knowledge-indexer
+  labels:
+    {{- include "radar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: knowledge-indexer
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "radar.labels" . | nindent 8 }}
+        app.kubernetes.io/component: knowledge-indexer
+    spec:
+      serviceAccountName: knowledge-service
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: vault-init
+          image: {{ .Values.vault.image }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command: ["/bin/sh", "/vault-init/fetch-secrets.sh", "knowledge-service"]
+          env:
+            - name: VAULT_ADDR
+              value: {{ .Values.vault.addr | quote }}
+            - name: RADAR_POSTGRES_HOST
+              value: {{ .Values.vault.postgresHost | quote }}
+          volumeMounts:
+            - name: vault-init-script
+              mountPath: /vault-init
+              readOnly: true
+            - name: vault-secrets
+              mountPath: /vault/secrets
+      containers:
+        - name: indexer
+          image: {{ include "radar.image" (dict "name" "knowledge-service" "root" $) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command: ["python", "-m", "radar_knowledge_service.index"]
+          env:
+            {{- range $k, $v := .Values.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            - name: RADAR_RUNBOOKS_DIR
+              value: {{ .Values.knowledgeIndexer.runbooksDir | quote }}
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault/secrets
+              readOnly: true
+      volumes:
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory
+        - name: vault-init-script
+          configMap:
+            name: vault-init-script
+            defaultMode: 0555
+{{- end }}
