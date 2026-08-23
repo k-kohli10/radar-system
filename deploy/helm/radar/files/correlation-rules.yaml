@@ -1,0 +1,94 @@
+# Watcher correlation rules (NON-SECRET — safe to commit).
+#
+# Correlation policy is config, not code: change a window or a suppression
+# cooldown here, restart the watcher, and it takes effect — no deploy, no
+# rebuild. In production this file is mounted as a Kubernetes ConfigMap; locally
+# the watcher reads it from this path (override with RADAR_CORRELATION_RULES_PATH).
+#
+# A typo is a startup failure, not a silent default: every key is validated and
+# unknown keys are rejected, so `suppresion:` keeps the pod at /readyz 503 rather
+# than quietly disabling suppression.
+#
+# ── WHAT IS LIVE, AND WHAT IS NOT ────────────────────────────────────────────
+#
+#   LIVE      suppression   — gates the plan_requested event on a new incident
+#   LIVE      escalation    — raises an incident's severity on a burst of alerts
+#
+#   PARSED, APPLIED BY NOTHING (see docs/adr/0013-watcher-correlation-scope.md):
+#     default_window_minutes / window_overrides
+#     service_groups
+#     fingerprint_fields
+#
+# The deferred three are not aspirational placeholders — they are validated on
+# every startup, and there is a test asserting they do NOT affect correlation.
+# They are inert because ingestion, not the watcher, decides which incident an
+# alert lands on: it dedups on the fingerprint within its own window and has
+# already opened or matched the incident by the time the watcher sees the event.
+# The watcher cannot un-create that incident, so a window it disagreed with would
+# be a lie. Making them live means moving the window decision — see the ADR.
+
+correlation:
+  # DEFERRED. Ingestion owns the correlation window (a hardcoded 5 minutes, which
+  # this value matches). Editing this does not change correlation today.
+  default_window_minutes: 5
+
+  # DEFERRED. Same reason: the window is applied where the incident is decided.
+  window_overrides:
+    - alert_name: OrderServiceCrashLoop
+      window_minutes: 2
+    - alert_name: CheckoutTimeoutRate
+      window_minutes: 10
+
+  # DEFERRED. Folding a stack into ONE incident requires merging incidents that
+  # ingestion has already opened separately — a lifecycle (and a schema column)
+  # the POC does not have. Note order-service is in two groups: that ambiguity is
+  # part of why this needs designing rather than defaulting.
+  service_groups:
+    - name: order-stack
+      services: [order-service, order-db, inventory-service]
+      group_as_single_incident: true
+    - name: checkout-stack
+      services: [checkout-service, payment-gateway, order-service]
+      group_as_single_incident: true
+
+  # LIVE. A NEW incident whose (service_name, alert_name) fired within this many
+  # minutes of the previous one gets no investigation plan: the incident is still
+  # recorded and its alert attached, but the pipeline does not re-investigate a
+  # flapping alert it has just looked at. Measured from the previous incident's
+  # opened_at.
+  #
+  # The cooldown must exceed ingestion's 5-minute dedup window to do anything: an
+  # alert inside that window attaches to the open incident instead of opening a
+  # new one, and never reaches this rule.
+  #
+  # TO DISABLE: delete the alert's entry (or empty the whole `suppression:` list).
+  # An unlisted alert is never suppressed. Do NOT set the cooldown to 0 — that is
+  # rejected at startup, because "0 minutes" is ambiguous between "off" and
+  # "suppress for no time at all", and a config that can be read two ways is a
+  # config that will be.
+  suppression:
+    - alert_name: OrderServiceHighMemory
+      suppress_follow_on_minutes: 10
+    - alert_name: InventoryCheckLatency
+      suppress_follow_on_minutes: 5
+
+  # LIVE. When this many alerts have landed on one incident within the window,
+  # raise its severity — but only ever UPWARDS (rank comes from the Severity
+  # enum's declaration order; a critical incident is never demoted to a rule's
+  # escalate_to). Counted over the alerts actually attached to the incident, by
+  # arrival time — not the incident's untimed running alert_count, which would
+  # make `within_minutes` meaningless.
+  escalation:
+    - alert_count_threshold: 3
+      within_minutes: 2
+      escalate_to: critical
+
+  # DEFERRED — and enforced as a DECLARATION, not a knob. Ingestion computes the
+  # fingerprint (sha256 of these three, in this order) and the watcher trusts it.
+  # Changing this list does not change the fingerprint; the watcher refuses to
+  # start if it no longer matches what ingestion actually hashes, so the two can
+  # never drift apart in silence.
+  fingerprint_fields:
+    - service_name
+    - alert_name
+    - severity

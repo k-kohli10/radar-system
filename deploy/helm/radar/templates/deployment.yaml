@@ -91,6 +91,12 @@ spec:
             - name: vault-secrets
               mountPath: /vault/secrets
               readOnly: true
+            {{- range $cm := ($svc.configMounts | default list) }}
+            - name: config-{{ $cm.key | replace "." "-" }}
+              mountPath: {{ $cm.mountPath }}
+              subPath: {{ $cm.key }}
+              readOnly: true
+            {{- end }}
       volumes:
         # In-memory: the sidecar writes secrets here, the app reads them; nothing
         # touches disk.
@@ -101,4 +107,9 @@ spec:
           configMap:
             name: vault-init-script
             defaultMode: 0555
+        {{- range $cm := ($svc.configMounts | default list) }}
+        - name: config-{{ $cm.key | replace "." "-" }}
+          configMap:
+            name: {{ $cm.configMap }}
+        {{- end }}
 {{- end }}

@@ -104,6 +104,8 @@ containerSecurityContext:
 #   resources — replaces resources.default for this service
 #   hpa       — HorizontalPodAutoscaler (enabled, min/max replicas, CPU target).
 #               When enabled, the Deployment omits a static replica count.
+#   configMounts — list of {configMap, key, mountPath} single-file ConfigMap
+#               mounts (e.g. correlation rules, plan templates).
 services:
   ingestion:
     hpa:
@@ -134,6 +136,12 @@ services:
         memory: 192Mi
       limits:
         memory: 384Mi
+    env:
+      RADAR_CORRELATION_RULES_PATH: /app/config/correlation-rules.yaml
+    configMounts:
+      - configMap: watcher-correlation-rules
+        key: correlation-rules.yaml
+        mountPath: /app/config/correlation-rules.yaml
   planner-agent:
     resources:
       requests:
@@ -141,6 +149,12 @@ services:
         memory: 192Mi
       limits:
         memory: 384Mi
+    env:
+      RADAR_PLAN_TEMPLATES_PATH: /app/config/plan-templates.yaml
+    configMounts:
+      - configMap: planner-plan-templates
+        key: plan-templates.yaml
+        mountPath: /app/config/plan-templates.yaml
   reasoner-agent: {}
   knowledge-service:
     resources:

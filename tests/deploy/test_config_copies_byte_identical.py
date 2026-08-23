@@ -62,6 +62,14 @@ FILE_PAIRS: list[tuple[str, str]] = [
         "deploy/compose/vault-init/fetch-secrets.sh",
         "deploy/helm/radar/files/fetch-secrets.sh",
     ),
+    (
+        "apps/watcher-agent/config/correlation-rules.yaml",
+        "deploy/helm/radar/files/correlation-rules.yaml",
+    ),
+    (
+        "apps/planner-agent/config/plan-templates.yaml",
+        "deploy/helm/radar/files/plan-templates.yaml",
+    ),
 ]
 
 
@@ -100,7 +108,7 @@ def test_pair_discovery_is_not_vacuous() -> None:
     # welcome but a discovery that silently finds nothing fails loudly.
     assert len(_grafana_pairs()) >= 5, "Grafana dashboard pairs vanished"
     assert len(pairs) >= 8, f"expected >=8 config copy-pairs, found {len(pairs)}"
-    assert len(FILE_PAIRS) >= 1, "file copy-pairs vanished"
+    assert len(FILE_PAIRS) >= 3, "file copy-pairs vanished"
 
 
 @pytest.mark.parametrize(

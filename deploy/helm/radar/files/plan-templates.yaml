@@ -1,0 +1,80 @@
+# Planner investigation templates (NON-SECRET — safe to commit).
+#
+# The investigation steps an engineer would run for a given failure. They are
+# config, not code: improve them with a ConfigMap edit and a restart, no deploy.
+# In production this file is mounted as a Kubernetes ConfigMap; locally the
+# planner reads it from this path (override with RADAR_PLAN_TEMPLATES_PATH).
+#
+# ── HOW MATCHING WORKS ───────────────────────────────────────────────────────
+#
+# The key is EXACTLY "<service_name>:<alert_name>", built from the fields the
+# watcher puts on the incident.plan_requested event. The match is exact — no
+# case folding, no prefix matching, no fuzzy fallback. A loose match that served
+# the wrong specific template would be worse than no match at all: the engineer
+# would follow a confident, plausible, irrelevant checklist.
+#
+# Because the match is exact, a MISMATCH IS SILENT: get the casing or the spacing
+# wrong in a key here and that alert quietly falls through to `_default`, which
+# produces a perfectly plausible-looking plan. Nobody would notice. Three things
+# guard against that:
+#
+#   1. Keys are validated at startup — exactly one colon, no surrounding
+#      whitespace, both halves non-empty. A key that could never match anything
+#      is dead config, and the planner refuses to start rather than carry it.
+#   2. Every fallback to `_default` logs the key that missed, at WARNING.
+#   3. A counter (matched vs default) makes "everything is hitting _default"
+#      visible on a dashboard rather than being something you have to notice.
+#
+# `_default` is REQUIRED. An alert nobody wrote a template for still gets a
+# generic investigation — no incident is ever left unplanned merely because the
+# template library has a gap. A missing `_default` is a boot failure, not a
+# surprise at 3am when an unknown alert arrives.
+
+templates:
+  order-service:OrderProcessingFailureRate:
+    steps:
+      - order: 1
+        description: "Check recent deployments: kubectl rollout history deployment/order-service"
+      - order: 2
+        description: "Review order-service error logs in Kibana for the last 30 minutes"
+      - order: 3
+        description: "Check order-db connection pool saturation"
+      - order: 4
+        description: "Check payment-gateway error rate"
+      - order: 5
+        description: "Review recent config changes to order-service"
+
+  checkout-service:CheckoutTimeoutRate:
+    steps:
+      - order: 1
+        description: "Check checkout-service pod resource usage (CPU/memory)"
+      - order: 2
+        description: "Review checkout-service timeout logs"
+      - order: 3
+        description: "Check upstream payment-gateway latency"
+      - order: 4
+        description: "Check inventory-service response times"
+      - order: 5
+        description: "Review recent checkout-service deployments"
+
+  order-service:OrderServiceHighMemory:
+    steps:
+      - order: 1
+        description: "Check order-service memory trend over last hour"
+      - order: 2
+        description: "Review heap dump or memory profile if available"
+      - order: 3
+        description: "Check for memory leak indicators in recent deployments"
+      - order: 4
+        description: "Consider restarting pod if memory is critical"
+
+  _default:
+    steps:
+      - order: 1
+        description: "Check recent deployments for the affected service"
+      - order: 2
+        description: "Review error rate and latency trends in the last 30 minutes"
+      - order: 3
+        description: "Check upstream and downstream service health"
+      - order: 4
+        description: "Review recent configuration changes"

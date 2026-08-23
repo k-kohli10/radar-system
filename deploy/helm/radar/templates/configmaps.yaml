@@ -1,0 +1,27 @@
+{{- /*
+Non-secret agent config, mounted into the owning workload. Each file is embedded
+byte-identically from a chart-local copy of the app's config
+(deploy/helm/radar/files/*), pinned to the app source by the drift test. Editing
+rules/templates in the cluster is: change the ConfigMap, restart the pod.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: watcher-correlation-rules
+  labels:
+    {{- include "radar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: watcher-agent
+data:
+  correlation-rules.yaml: |
+{{ .Files.Get "files/correlation-rules.yaml" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: planner-plan-templates
+  labels:
+    {{- include "radar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: planner-agent
+data:
+  plan-templates.yaml: |
+{{ .Files.Get "files/plan-templates.yaml" | indent 4 }}
