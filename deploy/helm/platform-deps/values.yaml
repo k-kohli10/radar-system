@@ -81,3 +81,21 @@ prometheus:
       memory: 512Mi
     limits:
       memory: 1Gi
+
+alertmanager:
+  enabled: true
+  # v0.28+ supports http_config.http_headers, needed to send ingestion's
+  # X-Radar-Webhook-Token (ADR 0011). This closes the "authenticated Alertmanager
+  # to ingestion" item deferred from Phase 10 — compose's v0.27 could not.
+  image: prom/alertmanager:v0.28.1
+  # Cross-namespace: Alertmanager is in radar-infra, ingestion in radar.
+  ingestionUrl: http://ingestion.radar.svc.cluster.local:8080/alerts/prometheus
+  # Token Alertmanager presents to ingestion. The Vault bootstrap MUST seed
+  # ingestion's webhook token to this same value, or the webhook 401s.
+  webhookToken: radar-dev-webhook-token
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
