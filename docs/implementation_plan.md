@@ -2825,6 +2825,19 @@ New work:
 - Threat model document
 - Circuit breaker in LLM Gateway
 - Verify audit_log populated for all key events
+- **Historical-cause prior + feedback loop (reasoner accuracy).** Today the reasoner
+  reasons each incident in isolation from the runbooks + the current alert (the
+  Phase-12 alert-evidence addition); it does NOT use RADAR's own history, even though
+  it is all captured in Postgres. Feed the context bundle two more signals: (a) a
+  **historical-cause prior** — summarize prior `recommendations` for the same
+  fingerprint / service+alert as a base rate ("last N times this fired: deploy ×k,
+  dependency ×m"), so the model reasons with real frequencies and earns confidence
+  rather than guessing; and (b) a **feedback loop** — surface/weight accepted 👍 root
+  causes and captured 📝 corrections, down-weight 👎 ones. The feedback half is the
+  roadmap's **Correction-gated re-reason** (docs/roadmap.md); this pairs it with the
+  historical prior. Extends the v1 context-bundle contract, the same way lever 2 did.
+  Teeth: seed prior incidents with known causes, assert the summary reaches the bundle
+  and shifts confidence.
 - Per-service log indices in Elasticsearch. Today Fluent Bit ships every service's
   logs to one `radar-logs-YYYY.MM.DD` index (`Logstash_Prefix radar-logs` in both
   `deploy/fluent-bit/fluent-bit.conf` and the `fluent-bit-daemonset.yaml` ConfigMap).
@@ -2847,14 +2860,20 @@ New work:
   Verify with teeth: fire logs, assert the per-service indices exist and a service-scoped
   query returns only that service's lines. Update docs/operations/docker.md and
   docs/architecture/observability.md (they name `radar-logs-*`).
+  **Routing done early (Phase 12, commit 6dd2d4e):** Fluent Bit now writes
+  `radar-<service>-logs-*` via an inline Lua `code` filter (not a separate
+  `set_log_index.lua` — the whole `fluent-bit.conf` is drift-pinned), one write per
+  line (the combined `radar-logs` write was dropped per product decision), and
+  `plugins/logs/elastic` defaults to `radar-*-logs-*`. **Still outstanding here:** the
+  logs **index template** + **ILM rollover** for shard economics, and the docs update.
 
 Commits:
 ```
 feat(llm-gateway): add circuit breaker for provider failures
 feat(security): complete audit logging for all key events
+feat(reasoner): add historical-cause prior and feedback weighting to the context bundle
 test(load): add 100 concurrent alert load test
 docs(security): add threat model
-feat(observability): route logs to per-service elasticsearch indices
 feat(observability): add logs index template and ilm rollover
 fix: address gaps from security audit
 ```
