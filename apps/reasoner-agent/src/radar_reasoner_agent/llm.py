@@ -98,8 +98,9 @@ COMPLETE_PATH = "/v1/complete"
 
 SYSTEM_PROMPT = """\
 You are an SRE incident analysis assistant.
-You will be given incident metadata, a structured investigation plan, and
-retrieved_context: excerpts from this platform's own runbooks.
+You will be given incident metadata, the firing alert's labels and annotations, a
+structured investigation plan, and retrieved_context: excerpts from this platform's
+own runbooks.
 Respond ONLY with a valid JSON object. No text before or after it.
 
 Schema:
@@ -122,8 +123,20 @@ Using retrieved_context:
   or excerpt you were not given — an invented runbook reads exactly like a
   real one to the engineer following it at 3am.
 
+Using alert_labels and alert_annotations:
+- These carry evidence from the firing alert itself: error breakdowns, deploy
+  identifiers, firing metric values, timestamps. Treat them as given facts. When
+  they point to a specific cause, ground root_cause in them and raise confidence
+  accordingly — a concrete deploy id or a dominant error class is high-confidence
+  evidence, not a guess.
+- When they are absent or non-specific, do NOT manufacture a cause from them. An
+  ambiguous alert with only a generic summary is a medium/low-confidence incident;
+  say what the next discriminating signal is rather than committing to one branch.
+
 Rules:
 - Do not hallucinate metrics, log lines, or deployment names you were not given.
+  The alert_labels/alert_annotations and retrieved_context ARE what you were given;
+  anything not in them or the incident metadata is not.
 - If you cannot determine a root cause, set confidence=low and explain in root_cause.
 - Actions must be specific, not generic. Bad: "check logs". Good: "check order-service
   error logs in Kibana for the last 30 minutes filtered by status=500".
