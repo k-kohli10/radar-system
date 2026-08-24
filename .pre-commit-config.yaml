@@ -7,6 +7,9 @@ repos:
       - id: check-yaml
         # k8s manifests under deploy/ are multi-document (--- separated).
         args: [--allow-multiple-documents]
+        # Helm chart templates are Go templates, not valid YAML on their own.
+        # Chart.yaml and values.yaml (no templating) are still checked.
+        exclude: ^deploy/helm/.*/templates/.*\.ya?ml$
       - id: check-toml
       - id: check-added-large-files
       - id: check-merge-conflict

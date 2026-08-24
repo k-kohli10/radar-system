@@ -24,4 +24,7 @@
 htmlcov
 **/*.egg-info
 deploy/compose
-docs
+# Exclude docs from the build context, EXCEPT the runbook corpus — the
+# knowledge-service image bakes it in for the indexer (see its Dockerfile).
+docs/*
+!docs/runbooks

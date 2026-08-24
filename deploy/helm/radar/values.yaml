@@ -1,0 +1,199 @@
+# Default values for the RADAR application chart.
+#
+# This chart renders one Deployment + Service per entry in `services` below. All
+# eight RADAR services share one runtime image scheme and one set of non-secret
+# environment variables (mirrored from deploy/compose/apps.env); per-service
+# overrides live under each service key.
+#
+# Secrets are NOT set here. Every credential is materialised into
+# /vault/secrets by the per-service Vault init-container (added in a later commit),
+# never via environment variables.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  # Per-service image resolves to "<registry>/<owner>/radar-<service>:<tag>".
+  registry: ghcr.io
+  owner: k-kohli10
+  # Image tag. Empty string falls back to .Chart.AppVersion; CD overrides this
+  # with the built git SHA (see .github/workflows build/cd).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Referenced by name in each pod spec when set (e.g. a GHCR pull secret).
+imagePullSecrets: []
+
+# Per-workload Vault init-container. Each pod's ServiceAccount authenticates via
+# Vault's kubernetes auth method (role radar-<service>) and the shared
+# fetch-secrets.sh writes that service's secrets into an in-memory /vault/secrets
+# volume before the app container starts. Requires Vault reachable at `addr` with
+# the kubernetes auth roles/policies seeded (platform-deps + bootstrap).
+vault:
+  addr: http://vault.radar-infra.svc.cluster.local:8200
+  image: hashicorp/vault:1.18.0
+  # Rewrites the Postgres DSN host in Vault (native-dev localhost) to the
+  # in-cluster address; passed to fetch-secrets.sh as RADAR_POSTGRES_HOST.
+  postgresHost: postgres.radar-infra.svc.cluster.local
+
+# llm-gateway backend providers. Leave `config` empty to ship the chart's default
+# mode-routing config (byte-identical to apps/llm-gateway/config/gateway.yaml).
+# To switch providers/models, set the full config here — it replaces the default
+# wholesale and is rendered into the llm-gateway ConfigMap. Structure mirrors
+# gateway.yaml: `modes` (fast/reason/extended/embed) and `fallback`. Secrets
+# (API keys, agent tokens) are NEVER set here; they come from Vault.
+# Example (Anthropic for reasoning, OpenAI kept for embeddings):
+#   gateway:
+#     config:
+#       modes:
+#         reason: {provider: anthropic, model: claude-sonnet-4-6, max_output_tokens: 2048}
+#         embed:  {provider: openai, model: text-embedding-3-small}
+gateway:
+  config: {}
+
+# Post-install/upgrade Job that runs the Alembic migrations (creates the Postgres
+# schema) before anything uses it. serviceAccount picks the identity whose Vault
+# role can read secret/radar/postgres, and whose image runs the migration
+# (ingestion depends on radar-database + alembic).
+migration:
+  enabled: true
+  serviceAccount: ingestion
+
+# Post-install/upgrade Job that indexes the runbook corpus (baked into the
+# knowledge-service image at runbooksDir) into Elasticsearch, so
+# knowledge-service reaches readiness. Requires platform-deps + llm-gateway.
+knowledgeIndexer:
+  enabled: true
+  runbooksDir: /app/runbooks
+
+# Non-secret environment shared by every app service. Mirrors
+# deploy/compose/apps.env, with in-cluster DNS in place of compose service names.
+# Cross-namespace dependencies (Elasticsearch, OTel collector) use the fully
+# qualified radar-infra address; same-namespace peers use short names.
+env:
+  RADAR_SECRETS_DIR: /vault/secrets
+  RADAR_LOG_LEVEL: INFO
+  RADAR_GATEWAY_URL: http://llm-gateway:8080
+  RADAR_KNOWLEDGE_URL: http://knowledge-service:8080
+  RADAR_ELASTICSEARCH_URL: http://elasticsearch.radar-infra.svc.cluster.local:9200
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.radar-infra.svc.cluster.local:4317
+  RADAR_DISPATCH_URL_OVERRIDES: '{"watcher-agent":"http://watcher-agent:8080/events","planner-agent":"http://planner-agent:8080/events","reasoner-agent":"http://reasoner-agent:8080/events","feedback-service":"http://feedback-service:8080/events"}'
+
+# Default container resources. A per-service `resources` block replaces this
+# wholesale (see the plan's resource table). No CPU limit by design — CPU is
+# compressible, so requests set the scheduling floor while a limit only risks
+# throttling. Memory has a hard limit because it is not compressible.
+resources:
+  default:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# Health probes, shared by every service (all expose /healthz and /readyz on
+# 8080). readiness is 503 until Postgres is reachable and Vault secrets are
+# loaded, so k8s holds traffic off a pod that cannot serve.
+probes:
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Pod-level security context. uid 1001 matches the `radar` user baked into every
+# image (see the Dockerfile pattern). Applies to the vault-init container too —
+# the Vault CLI runs fine unprivileged.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level hardening applied to every container (init + app). RADAR
+# services need no Linux capabilities and never escalate privileges.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# One entry per deployable service. The key is the canonical service name and
+# drives the object names, labels, and default image (radar-<key>). Per-service
+# keys understood so far:
+#   image     — full image reference override (skips the computed default)
+#   replicas  — replica count (default 1)
+#   env       — extra service-specific environment (merged over the shared env)
+#   resources — replaces resources.default for this service
+#   hpa       — HorizontalPodAutoscaler (enabled, min/max replicas, CPU target).
+#               When enabled, the Deployment omits a static replica count.
+#   configMounts — list of {configMap, key, mountPath} single-file ConfigMap
+#               mounts (e.g. correlation rules, plan templates).
+services:
+  ingestion:
+    hpa:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 75
+  llm-gateway:
+    hpa:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 75
+    env:
+      RADAR_GATEWAY_CONFIG_PATH: /app/config/gateway.yaml
+    configMounts:
+      - configMap: llm-gateway-config
+        key: gateway.yaml
+        mountPath: /app/config/gateway.yaml
+  outbox-worker:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        memory: 384Mi
+  watcher-agent:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        memory: 384Mi
+    env:
+      RADAR_CORRELATION_RULES_PATH: /app/config/correlation-rules.yaml
+    configMounts:
+      - configMap: watcher-correlation-rules
+        key: correlation-rules.yaml
+        mountPath: /app/config/correlation-rules.yaml
+  planner-agent:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        memory: 384Mi
+    env:
+      RADAR_PLAN_TEMPLATES_PATH: /app/config/plan-templates.yaml
+    configMounts:
+      - configMap: planner-plan-templates
+        key: plan-templates.yaml
+        mountPath: /app/config/plan-templates.yaml
+  reasoner-agent: {}
+  knowledge-service:
+    resources:
+      requests:
+        cpu: 150m
+        memory: 384Mi
+      limits:
+        memory: 768Mi
+  feedback-service: {}

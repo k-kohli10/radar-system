@@ -1,0 +1,141 @@
+{{- if .Values.alertmanager.enabled }}
+{{- $am := .Values.alertmanager }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: radar-alertmanager
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+type: Opaque
+stringData:
+  # Sent as X-Radar-Webhook-Token to ingestion. Generated on first install, reused
+  # across upgrades (never committed). The Vault bootstrap reads THIS Secret to seed
+  # ingestion's matching token (radar-alertmanager/webhook-token), so they stay in sync.
+  webhook-token: {{ include "platformdeps.genCred" (dict "root" $ "name" "radar-alertmanager" "key" "webhook-token" "len" 32) | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+data:
+  alertmanager.yml: |
+    route:
+      receiver: radar
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 1h
+      routes:
+        # RADAR's own service-health alerts (alert_source=radar) are blackholed,
+        # not fed back to ingestion — otherwise RADAR files incidents about itself.
+        - matchers:
+            - alert_source="radar"
+          receiver: blackhole
+    receivers:
+      - name: blackhole
+      - name: radar
+        webhook_configs:
+          - url: {{ $am.ingestionUrl }}
+            send_resolved: false
+            http_config:
+              # Authenticated delivery: the token file is mounted from the Secret.
+              http_headers:
+                X-Radar-Webhook-Token:
+                  files:
+                    - /etc/alertmanager/secrets/webhook-token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: alertmanager
+  template:
+    metadata:
+      labels:
+        {{- include "platformdeps.labels" . | nindent 8 }}
+        app.kubernetes.io/component: alertmanager
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: alertmanager
+          image: {{ $am.image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+          ports:
+            - name: http
+              containerPort: 9093
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml $am.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: secrets
+              mountPath: /etc/alertmanager/secrets
+              readOnly: true
+            - name: data
+              mountPath: /alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+        - name: secrets
+          secret:
+            secretName: radar-alertmanager
+        - name: data
+          emptyDir: {}
+{{- end }}

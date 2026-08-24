@@ -1,0 +1,140 @@
+{{- if .Values.otelCollector.enabled }}
+{{- $otel := .Values.otelCollector }}
+# OpenTelemetry Collector — one per node (DaemonSet), receives OTLP from every RADAR
+# pod and exports spans to Elasticsearch in OTel-native mapping (ADR 0008), viewable
+# in Kibana APM. The Service name `otel-collector` is what the apps' chart sets as
+# OTEL_EXPORTER_OTLP_ENDPOINT (otel-collector.radar-infra.svc.cluster.local:4317), so
+# enabling this closes the trace-export loop.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  # deploy/otel/collector-config.yaml, embedded byte-identically and drift-pinned.
+  collector-config.yaml: |
+{{ .Files.Get "files/otel/collector-config.yaml" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: otel-collector
+  template:
+    metadata:
+      labels:
+        {{- include "platformdeps.labels" . | nindent 8 }}
+        app.kubernetes.io/component: otel-collector
+    spec:
+      serviceAccountName: otel-collector
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Block until the traces index template exists in Elasticsearch (installed by
+        # the es-traces-init Job), so the collector never exports before its data
+        # stream can be created. --retry-all-errors retries the 404 until it is present.
+        - name: wait-for-traces-template
+          image: {{ $otel.tracesInitImage }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - -fsS
+            - --retry
+            - "60"
+            - --retry-all-errors
+            - --retry-connrefused
+            - --retry-delay
+            - "2"
+            - -o
+            - /dev/null
+            - http://elasticsearch:9200/_index_template/radar-traces
+      containers:
+        - name: otel-collector
+          image: {{ $otel.image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          args:
+            - --config=/etc/otel/collector-config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+            - name: health
+              containerPort: 13133
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml $otel.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+            items:
+              - key: collector-config.yaml
+                path: collector-config.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: otel-collector
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+{{- end }}

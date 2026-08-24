@@ -1,0 +1,49 @@
+# Bring-your-own-backends — the production pattern.
+#
+# Do NOT install the platform-deps chart. Instead run RADAR against your own
+# managed Postgres, Elasticsearch, and Vault. Install the app chart alone with
+# this overlay:
+#
+#   helm install radar deploy/helm/radar -n radar --create-namespace \
+#     -f deploy/examples/bring-your-own-backends/values.yaml
+#
+# Replace every <...> below with your own values. See this directory's README for
+# the Vault setup your cluster must have first.
+
+image:
+  # Where your CI pushes the RADAR images.
+  registry: <your-registry>          # e.g. ghcr.io
+  owner: <your-org>
+  tag: ""                            # defaults to the chart appVersion; set to your build
+
+env:
+  # --- external dependencies ---
+  RADAR_ELASTICSEARCH_URL: https://<your-elasticsearch>:9200
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://<your-otel-collector>:4317
+  # --- in-cluster app-to-app calls (leave as-is: these are radar-namespace names) ---
+  RADAR_GATEWAY_URL: http://llm-gateway:8080
+  RADAR_KNOWLEDGE_URL: http://knowledge-service:8080
+  RADAR_DISPATCH_URL_OVERRIDES: '{"watcher-agent":"http://watcher-agent:8080/events","planner-agent":"http://planner-agent:8080/events","reasoner-agent":"http://reasoner-agent:8080/events","feedback-service":"http://feedback-service:8080/events"}'
+  RADAR_SECRETS_DIR: /vault/secrets
+  RADAR_LOG_LEVEL: INFO
+
+vault:
+  # Your Vault, reachable from the cluster, with the kubernetes auth method
+  # enabled: a role radar-<service> per service (bound to ServiceAccount
+  # <service> in the radar namespace) and secret/radar/* populated. The
+  # platform-deps bootstrap (deploy/helm/platform-deps/files/k8s-vault-bootstrap.py)
+  # is the reference for the exact roles, policies, and secret paths.
+  addr: https://<your-vault>:8200
+  # Host written into the Postgres DSN the init-containers fetch.
+  postgresHost: <your-postgres-host>
+
+# The knowledge-service still needs its runbook index built once. Keep the
+# indexer Job (it uses your Vault + Elasticsearch), or run `make index` out of
+# band and set enabled: false.
+knowledgeIndexer:
+  enabled: true
+
+# db-migration runs alembic against your Postgres. Keep it, or run migrations in
+# your own release pipeline and set enabled: false.
+migration:
+  enabled: true

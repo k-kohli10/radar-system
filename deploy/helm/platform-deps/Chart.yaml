@@ -1,0 +1,14 @@
+apiVersion: v2
+name: radar-platform-deps
+description: >-
+  Dev / evaluation platform dependencies for RADAR (Postgres, Vault, Elasticsearch,
+  Kibana, Prometheus, Grafana) in the radar-infra namespace. Single-node, dev-grade —
+  it mirrors the docker-compose infra stack for local development, CI, and the
+  ephemeral evaluation cluster.
+
+  NOT for production. In production, run RADAR against managed/external backends and
+  do not install this chart (see deploy/examples/bring-your-own-backends). This chart
+  exists so the whole system can be stood up with one command for evaluation.
+type: application
+version: 0.1.0
+appVersion: "0.6.0"

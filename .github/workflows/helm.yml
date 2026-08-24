@@ -1,0 +1,65 @@
+name: helm
+
+# Offline validation of the Phase 12 Helm charts (ADR 0018 single-repo CI). Path-
+# gated: it runs only when a chart, an example values file, or the validation
+# script itself changes — a change elsewhere in the repo renders no charts and so
+# needs no chart validation. This is the static gate (lint + render + kubeconform);
+# the Phase 12 done-when — every readiness probe green on a real cluster — is
+# proven by the cd workflow's `helm upgrade`, not here.
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "deploy/helm/**"
+      - "deploy/examples/**"
+      - "scripts/helm-validate.sh"
+      - ".github/workflows/helm.yml"
+  pull_request:
+    paths:
+      - "deploy/helm/**"
+      - "deploy/examples/**"
+      - "scripts/helm-validate.sh"
+      - ".github/workflows/helm.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin to the versions the charts are validated against locally (see
+  # scripts/helm-validate.sh and the phase-12 tooling), so CI and dev agree.
+  HELM_VERSION: "v4.2.4"
+  KUBECONFORM_VERSION: "v0.8.0"
+
+jobs:
+  validate:
+    name: helm lint + template + kubeconform (--strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+          sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
+
+      # Lint both charts, render each chart and every deploy/examples/ values file,
+      # and validate the rendered manifests against the k8s schemas. kubeconform
+      # fetches schemas from raw.githubusercontent.com at run time; GitHub-hosted
+      # runners have that egress. The script distinguishes a schema-fetch failure
+      # (infra, exit 2) from an invalid chart (exit 1), and its per-render exact-
+      # count guard fails a silent empty render that kubeconform alone passes green.
+      - name: Validate charts
+        run: make helm-validate

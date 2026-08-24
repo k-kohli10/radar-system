@@ -452,11 +452,11 @@ RADAR runs two ways, from the same multi-arch images:
 
 - **Docker (two-stack), local.** The `radar-infra` and `radar-apps` compose stacks
   run the full end-to-end pipeline on one machine. See docs/operations/docker.md.
-- **Kubernetes on Civo (K3s).** An ephemeral cluster provisioned for active testing
-  via the Phase 12 Helm chart, then torn down between sessions. Nodes are amd64; Civo
-  supplies metrics-server (needed for HPA) and a load balancer on demand.
+- **Managed Kubernetes (K3s).** An ephemeral cluster provisioned for active testing
+  via the Phase 12 Helm chart, then torn down between sessions. Nodes are amd64; the
+  provider supplies metrics-server (needed for HPA) and a load balancer on demand.
 
-Images build for linux/amd64 (Civo and x86 CI) and linux/arm64 (local Docker on
+Images build for linux/amd64 (the cluster and x86 CI) and linux/arm64 (local Docker on
 Apple Silicon) via docker buildx.
 
 ---
@@ -471,7 +471,7 @@ radar-system/
 │   ├── workflows/
 │   │   ├── ci.yml
 │   │   ├── build.yml
-│   │   └── cd.yml            # helm upgrade to Civo (Phase 12)
+│   │   └── cd.yml            # helm upgrade to Kubernetes (Phase 12)
 │   ├── ISSUE_TEMPLATE/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
@@ -2654,8 +2654,8 @@ best-case, queueing-compressed number).
 Phase 11 scope is CI plus a local containerized deployment. Continuous deployment
 to a cluster moves to Phase 12, where the Helm chart it deploys gets built.
 
-CI is path-based, builds only what changed, produces multi-arch images (amd64 for a
-Civo cluster, arm64 for local Docker on Apple Silicon), and tags by git SHA.
+CI is path-based, builds only what changed, produces multi-arch images (amd64 for the
+Kubernetes cluster, arm64 for local Docker on Apple Silicon), and tags by git SHA.
 
 Delivered: change detection, the lint/test pipeline, multi-arch buildx, the config
 drift check, the `deploy/`-only-builds-nothing guard, and the local two-stack Docker
@@ -2727,10 +2727,10 @@ build pins it.
 ## Phase 12: Kubernetes and Helm
 **Milestone: v0.12-kubernetes | Tag: v0.6.0**
 
-The k8s target is a Civo Kubernetes (K3s) cluster, provisioned on demand for active
+The k8s target is a managed Kubernetes (K3s) cluster, provisioned on demand for active
 testing and torn down between sessions. RADAR rebuilds from scratch (the dev Vault
-re-seeds, the runbook index rebuilds), so an ephemeral cluster fits the work. Civo's
-API is publicly reachable, so a GitHub-hosted runner runs `helm upgrade` directly
+re-seeds, the runbook index rebuilds), so an ephemeral cluster fits the work. The
+cluster API is publicly reachable, so a GitHub-hosted runner runs `helm upgrade` directly
 against it (ADR 0012). Local end-to-end runs use the Phase 11 two-stack Docker
 deployment; this phase adds the k8s path and the CD that reaches it.
 
@@ -2739,8 +2739,8 @@ Deliverables:
 deploy/helm/radar/
 deploy/examples/minimal/
 deploy/examples/bring-your-own-backends/
-.github/workflows/          # helm validation in CI, helm-upgrade CD to Civo
-docs/operations/            # Civo cluster setup + connectivity
+.github/workflows/          # helm validation in CI, helm-upgrade CD to Kubernetes
+docs/operations/            # Kubernetes cluster setup + connectivity
 ```
 
 Chart must have: resource limits, probes, Vault init-container, RBAC, HPA for
@@ -2768,12 +2768,49 @@ feat(helm): add correlation rules and plan templates as configmaps
 feat(helm): add configurable backend providers
 feat(deploy): add minimal and bring-your-own-backends examples
 ci: add helm validation                         # moved from Phase 11
-ci: add helm-upgrade cd to civo                 # moved from Phase 11
-docs(ops): add civo cluster setup and connectivity guide   # moved from Phase 11
+ci: add helm-upgrade cd to kubernetes           # moved from Phase 11
+docs(ops): add kubernetes cluster setup and connectivity guide   # moved from Phase 11
 ```
 
 Done when: `helm install` (or the CD workflow's `helm upgrade`) deploys all services
-to a Civo cluster and every readiness probe passes. Merge deploys it.
+to the Kubernetes cluster and every readiness probe passes. Merge deploys it.
+
+**Delivered:** the application chart (`deploy/helm/radar`) with every required
+capability — resource limits, probes, a per-workload Vault init-container,
+least-privilege RBAC, HPAs for ingestion and llm-gateway, correlation-rules and
+plan-templates ConfigMaps, and config-swappable backend providers; both example
+values sets (`deploy/examples/minimal`, `deploy/examples/bring-your-own-backends`);
+the offline helm-validation gate (`helm lint` + `helm template | kubeconform
+-strict`, in CI as `.github/workflows/helm.yml` and locally as `make
+helm-validate`, with a per-render exact-count guard against a silent empty render);
+the `helm upgrade` CD workflow (`.github/workflows/cd.yml`); and the setup and
+connectivity guide (`docs/operations/kubernetes-cd.md`).
+
+**As-built divergence** (recorded, per the same discipline as Phase 8's "Added
+during implementation" and Phase 9's footprint note):
+- The app chart is **DRY and range-based** — one `deployment.yaml` / `service.yaml`
+  / `serviceaccount.yaml` ranging over `.Values.services` — not the per-service
+  template directories the Final Git Structure tree illustrates.
+- A **second chart, `deploy/helm/platform-deps`, was added** (not in the
+  Deliverables list above) to satisfy the mandate that behavior be identical across
+  Local, Docker, and k8s. It is a two-tier decision: **production runs against
+  managed/external backends** (the `bring-your-own-backends` example; the sellable
+  default), while **dev/eval** installs this single-node chart mirroring the compose
+  infra stack (Postgres, Vault, Elasticsearch, Kibana, Prometheus, Alertmanager,
+  Grafana) plus a Vault kubernetes-auth bootstrap Job. The real commit set is
+  correspondingly larger than the idealized list above (the platform-deps
+  components, the bootstrap, and post-install db-migration + runbook-indexer Jobs).
+- The **deferred authenticated-Alertmanager** item above is closed: platform-deps
+  pins Alertmanager v0.28 and sends `X-Radar-Webhook-Token` via `http_headers.files`.
+
+**Verification status:** the charts are offline-validated (lint + `kubeconform
+-strict`, all renders valid) and the **full install chain has been brought up green
+on a local cluster** (Docker Desktop k8s / kind): both charts, the Vault
+kubernetes-auth bootstrap, the DB-migration and runbook-indexer Jobs, and every
+readiness probe. The one confirmation still outstanding is the **CD path end-to-end
+against a remote managed cluster** — build → push to GHCR → `helm upgrade` →
+probes green — together with the amd64 run; it is done on demand on an ephemeral
+cluster and torn down after. **Tag `v0.6.0` after that confirmation run.**
 
 ---
 
@@ -2788,6 +2825,19 @@ New work:
 - Threat model document
 - Circuit breaker in LLM Gateway
 - Verify audit_log populated for all key events
+- **Historical-cause prior + feedback loop (reasoner accuracy).** Today the reasoner
+  reasons each incident in isolation from the runbooks + the current alert (the
+  Phase-12 alert-evidence addition); it does NOT use RADAR's own history, even though
+  it is all captured in Postgres. Feed the context bundle two more signals: (a) a
+  **historical-cause prior** — summarize prior `recommendations` for the same
+  fingerprint / service+alert as a base rate ("last N times this fired: deploy ×k,
+  dependency ×m"), so the model reasons with real frequencies and earns confidence
+  rather than guessing; and (b) a **feedback loop** — surface/weight accepted 👍 root
+  causes and captured 📝 corrections, down-weight 👎 ones. The feedback half is the
+  roadmap's **Correction-gated re-reason** (docs/roadmap.md); this pairs it with the
+  historical prior. Extends the v1 context-bundle contract, the same way lever 2 did.
+  Teeth: seed prior incidents with known causes, assert the summary reaches the bundle
+  and shifts confidence.
 - Per-service log indices in Elasticsearch. Today Fluent Bit ships every service's
   logs to one `radar-logs-YYYY.MM.DD` index (`Logstash_Prefix radar-logs` in both
   `deploy/fluent-bit/fluent-bit.conf` and the `fluent-bit-daemonset.yaml` ConfigMap).
@@ -2810,14 +2860,20 @@ New work:
   Verify with teeth: fire logs, assert the per-service indices exist and a service-scoped
   query returns only that service's lines. Update docs/operations/docker.md and
   docs/architecture/observability.md (they name `radar-logs-*`).
+  **Routing done early (Phase 12, commit 6dd2d4e):** Fluent Bit now writes
+  `radar-<service>-logs-*` via an inline Lua `code` filter (not a separate
+  `set_log_index.lua` — the whole `fluent-bit.conf` is drift-pinned), one write per
+  line (the combined `radar-logs` write was dropped per product decision), and
+  `plugins/logs/elastic` defaults to `radar-*-logs-*`. **Still outstanding here:** the
+  logs **index template** + **ILM rollover** for shard economics, and the docs update.
 
 Commits:
 ```
 feat(llm-gateway): add circuit breaker for provider failures
 feat(security): complete audit logging for all key events
+feat(reasoner): add historical-cause prior and feedback weighting to the context bundle
 test(load): add 100 concurrent alert load test
 docs(security): add threat model
-feat(observability): route logs to per-service elasticsearch indices
 feat(observability): add logs index template and ilm rollover
 fix: address gaps from security audit
 ```
@@ -2882,7 +2938,7 @@ Phase 11 + .github/workflows scripts/detect-changed-services.py
            docs/operations/docker.md
            TAG: v0.5.0
 Phase 12 + deploy/helm/radar deploy/examples .github/workflows/cd.yml
-           docs/operations (civo setup)
+           docs/operations (kubernetes setup)
            TAG: v0.6.0
 Phase 13 + tests/load docs/architecture/threat-model.md
            TAG: v0.7.0

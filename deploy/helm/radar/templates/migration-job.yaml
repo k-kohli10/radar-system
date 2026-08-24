@@ -1,0 +1,72 @@
+{{- if .Values.migration.enabled }}
+{{- /*
+Post-install/upgrade Job that creates/updates the Postgres schema before anything
+uses it. Runs `python -m radar_database.migrate` (alembic upgrade head from the
+installed package) with the DSN fetched from Vault via a vault-init sidecar using
+the ingestion identity (which is granted read on secret/radar/postgres). Runs at
+hook-weight 0 so it completes before the knowledge-indexer (weight 10), which
+needs the runbook_documents table.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migration
+  labels:
+    {{- include "radar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-migration
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "radar.labels" . | nindent 8 }}
+        app.kubernetes.io/component: db-migration
+    spec:
+      serviceAccountName: {{ .Values.migration.serviceAccount }}
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: vault-init
+          image: {{ .Values.vault.image }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command: ["/bin/sh", "/vault-init/fetch-secrets.sh", {{ .Values.migration.serviceAccount | quote }}]
+          env:
+            - name: VAULT_ADDR
+              value: {{ .Values.vault.addr | quote }}
+            - name: RADAR_POSTGRES_HOST
+              value: {{ .Values.vault.postgresHost | quote }}
+          volumeMounts:
+            - name: vault-init-script
+              mountPath: /vault-init
+              readOnly: true
+            - name: vault-secrets
+              mountPath: /vault/secrets
+      containers:
+        - name: migrate
+          image: {{ include "radar.image" (dict "name" .Values.migration.serviceAccount "root" $) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command:
+            - /bin/sh
+            - -c
+            - 'POSTGRES_DSN="$(cat /vault/secrets/postgres_dsn)" python -m radar_database.migrate'
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /vault/secrets
+              readOnly: true
+      volumes:
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory
+        - name: vault-init-script
+          configMap:
+            name: vault-init-script
+            defaultMode: 0555
+{{- end }}

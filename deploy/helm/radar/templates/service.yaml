@@ -1,0 +1,26 @@
+{{- /*
+One ClusterIP Service per entry in .Values.services. Every RADAR service listens
+on 8080 and is reached by its service name from peers in the radar namespace
+(e.g. http://llm-gateway:8080). External exposure (ingestion webhook, Slack) is
+handled by Ingress in a later commit, not here.
+*/ -}}
+{{- range $name, $svc := .Values.services }}
+{{- $svc = $svc | default dict }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "radar.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "radar.selectorLabels" (dict "name" $name "root" $) | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+{{- end }}

@@ -67,8 +67,15 @@ async def _seed_incident(
     severity: Severity,
     alert_count: int,
     alerts: int = 1,
+    labels: dict[str, str] | None = None,
+    annotations: dict[str, str] | None = None,
 ) -> UUID:
-    """An incident as ingestion leaves it, with ``alerts`` alert rows attached."""
+    """An incident as ingestion leaves it, with ``alerts`` alert rows attached.
+
+    ``labels``/``annotations`` are applied to the FIRST (earliest) alert — the row the
+    bundle reads its alert-derived facts from — so a test can seed the evidence the
+    reasoner should surface.
+    """
     incident = Incident(
         id=uuid4(),
         correlation_id=uuid4(),
@@ -97,6 +104,8 @@ async def _seed_incident(
                     severity=severity.value,
                     status="firing",
                     raw_payload={},
+                    labels=(labels or {}) if i == 0 else {},
+                    annotations=(annotations or {}) if i == 0 else {},
                     fired_at=T0 + timedelta(seconds=i),
                     received_at=T0 + timedelta(seconds=i),
                     incident_id=incident.id,
@@ -259,8 +268,9 @@ async def test_the_steps_come_from_the_plan_row(db: Database) -> None:
     assert bundle.investigation_steps[0].description == "Check recent deployments"
 
 
-async def test_the_bundle_has_the_v1_shape(db: Database) -> None:
-    """The exact v1 shape from the plan, including the empty Phase 8 slot."""
+async def test_the_bundle_shape_including_alert_evidence(db: Database) -> None:
+    """The full bundle shape: the v1 fields, the empty Phase 8 slot, and the alert
+    evidence fields (empty dicts when the alert carried none)."""
     incident_id = await _seed_incident(db, severity=Severity.HIGH, alert_count=1)
     plan_id = await _seed_plan(db, incident_id)
 
@@ -277,15 +287,78 @@ async def test_the_bundle_has_the_v1_shape(db: Database) -> None:
         "opened_at",
         "alert_count",
         "investigation_steps",
+        "alert_labels",
+        "alert_annotations",
         "retrieved_context",
     }
     assert bundle.retrieved_context == [], "Phase 8's slot, empty and in shape"
+    assert bundle.alert_labels == {}, "no labels on the alert -> empty, not absent"
+    assert bundle.alert_annotations == {}, "no annotations -> empty dict, in shape"
     assert bundle.service_name == SERVICE
     assert bundle.alert_name == ALERT, "not on the incidents row — read from alerts"
     assert bundle.opened_at == T0
     # It serializes: this is stored verbatim on the recommendation, so a future reader
     # can see exactly what the model was shown when it said what it said.
     assert ContextBundle.model_validate(bundle.model_dump()) == bundle
+
+
+async def test_alert_evidence_comes_from_the_earliest_alert(db: Database) -> None:
+    """labels/annotations are read from the SAME earliest alert as ``alert_name``.
+
+    The triggering (earliest) alert carries the evidence — a dominant error class and a
+    deploy id. A LATER duplicate lands with *different* annotations. The bundle must
+    surface the earliest alert's evidence, not the latest, matching the deterministic
+    rule ``alert_name`` already follows. Proven by making the two rows DIFFER: a builder
+    that read the latest row, or none at all, returns the wrong dict.
+    """
+    labels = {"env": "prod", "team": "payments"}
+    annotations = {
+        "summary": "Order failure rate 8% since 10:32",
+        "error_breakdown": "500 on 94% of failures",
+        "deploy": "order-service v2.4.1 at 10:30",
+    }
+    incident_id = await _seed_incident(
+        db,
+        severity=Severity.CRITICAL,
+        alert_count=1,
+        labels=labels,
+        annotations=annotations,
+    )
+    plan_id = await _seed_plan(db, incident_id)
+
+    # A later duplicate with DIFFERENT evidence — the divergence that gives the test
+    # teeth. received_at is one hour after the first alert.
+    async with db.session() as session:
+        session.add(
+            Alert(
+                id=uuid4(),
+                source="mock",
+                fingerprint=FINGERPRINT,
+                service_name=SERVICE,
+                alert_name=ALERT,
+                severity=Severity.CRITICAL.value,
+                status="firing",
+                raw_payload={},
+                labels={"env": "prod", "team": "later"},
+                annotations={"summary": "a different, later message"},
+                fired_at=T0 + timedelta(hours=1),
+                received_at=T0 + timedelta(hours=1),
+                incident_id=incident_id,
+                correlation_id=uuid4(),
+            )
+        )
+        await session.commit()
+
+    async with db.session() as session:
+        bundle = await build_context_bundle(
+            session, incident_id=incident_id, plan_id=plan_id
+        )
+
+    assert bundle.alert_annotations == annotations, (
+        "the bundle must carry the EARLIEST alert's annotations (the triggering "
+        "evidence), not the later duplicate's — and not an empty dict"
+    )
+    assert bundle.alert_labels == labels, "labels come from the same earliest alert"
 
 
 # --- refusing to reason about something that is not there ---------------------------

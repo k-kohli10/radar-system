@@ -1,0 +1,176 @@
+# Dev / evaluation platform dependencies for RADAR (radar-infra namespace).
+#
+# DEV-GRADE ONLY. Single-node, in-cluster copies of the services the compose infra
+# stack runs, so the full system can be evaluated with one install. Do not run this
+# in production — point RADAR at managed Postgres/Elasticsearch/Vault instead
+# (deploy/examples/bring-your-own-backends). The credentials below are throwaway dev
+# defaults, not secrets.
+#
+# Each dependency is independently toggleable so an evaluator can, e.g., disable the
+# in-cluster Postgres and point at an external one.
+
+postgres:
+  enabled: true
+  image: postgres:16
+  # Dev credentials. The password is GENERATED into the radar-postgres Secret on
+  # first install (never committed); the Vault bootstrap reads it and seeds a
+  # matching postgres_dsn so the apps connect. Production uses external Postgres.
+  auth:
+    username: radar
+    database: radar
+  storage:
+    size: 5Gi
+    # storageClassName: ""   # empty = cluster default StorageClass
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+vault:
+  enabled: true
+  image: hashicorp/vault:1.18.0
+  # Dev-mode server: in-memory storage, auto-unsealed. The root token is GENERATED
+  # into the radar-vault Secret on first install (never committed) and the dev Vault
+  # starts with it. Never use dev mode in production.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# One-time Vault bootstrap (Helm post-install/upgrade Job): enables the kubernetes
+# auth method, creates a role + policy per service, and seeds all secrets the
+# vault-init containers read. Reuses scripts/dev-mint-tokens.py (drift-pinned copy)
+# for token minting. Because the dev Vault is in-memory, this re-seeds on each
+# (re)deploy.
+vaultBootstrap:
+  enabled: true
+  # Any RADAR app image works — it just needs python + httpx + pyyaml.
+  image: ghcr.io/k-kohli10/radar-llm-gateway:0.6.0
+  radarNamespace: radar
+  postgresHost: postgres.radar-infra.svc.cluster.local
+  # Secret holding the LLM provider API key, created out of band (never committed):
+  #   kubectl -n radar-infra create secret generic radar-llm-keys \
+  #     --from-literal=openai_api_key=sk-...
+  # Optional: the Job completes without it, but the gateway 401s upstream until set.
+  llmKeysSecret:
+    name: radar-llm-keys
+    key: openai_api_key
+  # Secret holding the Slack bot + app tokens for feedback-service, created out of
+  # band (never committed). feedback-service opens a Socket Mode connection at
+  # startup, so it needs real tokens to become ready:
+  #   kubectl -n radar-infra create secret generic radar-slack-keys \
+  #     --from-literal=slack_bot_token=xoxb-... \
+  #     --from-literal=slack_app_token=xapp-...
+  slackKeysSecret:
+    name: radar-slack-keys
+    botTokenKey: slack_bot_token
+    appTokenKey: slack_app_token
+
+elasticsearch:
+  enabled: true
+  image: docker.elastic.co/elasticsearch/elasticsearch:8.16.0
+  # Single-node, security disabled — dev config from compose. Heap is half the
+  # memory request; the rest is off-heap (Lucene, direct buffers).
+  javaOpts: "-Xms512m -Xmx512m"
+  storage:
+    size: 10Gi
+    # storageClassName: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1536Mi
+    limits:
+      memory: 2Gi
+
+kibana:
+  enabled: true
+  image: docker.elastic.co/kibana/kibana:8.16.0
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 1536Mi
+
+prometheus:
+  enabled: true
+  image: prom/prometheus:v2.55.0
+  # Namespace the RADAR app pods run in, for kubernetes_sd pod discovery.
+  radarNamespace: radar
+  storage:
+    size: 8Gi
+    # storageClassName: ""
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+grafana:
+  enabled: true
+  image: grafana/grafana:11.3.0
+  # Dev admin login. The password is GENERATED into the radar-grafana Secret on
+  # first install (never committed). Production uses managed Grafana / its own secret.
+  adminUser: admin
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+alertmanager:
+  enabled: true
+  # v0.28+ supports http_config.http_headers, needed to send ingestion's
+  # X-Radar-Webhook-Token (ADR 0011). This closes the "authenticated Alertmanager
+  # to ingestion" item deferred from Phase 10 — compose's v0.27 could not.
+  image: prom/alertmanager:v0.28.1
+  # Cross-namespace: Alertmanager is in radar-infra, ingestion in radar.
+  ingestionUrl: http://ingestion.radar.svc.cluster.local:8080/alerts/prometheus
+  # Token Alertmanager presents to ingestion. GENERATED into the radar-alertmanager
+  # Secret on first install (never committed); the Vault bootstrap reads that same
+  # Secret to seed ingestion's matching token, so the authenticated webhook works.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+# OpenTelemetry Collector — per-node DaemonSet that receives OTLP from the RADAR
+# pods and exports spans to Elasticsearch (ADR 0008), viewable in Kibana APM. This
+# is the endpoint the app chart points OTEL_EXPORTER_OTLP_ENDPOINT at, so enabling
+# it makes the apps' trace export resolve instead of retrying into the void.
+# Requires elasticsearch enabled (or reachable at elasticsearch:9200).
+otelCollector:
+  enabled: true
+  image: otel/opentelemetry-collector-contrib:0.119.0
+  # curl image for the es-traces-init Job and the collector's wait-for-template init.
+  tracesInitImage: curlimages/curl:8.11.1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Fluent Bit — per-node DaemonSet that tails container stdout and ships the
+# structured RADAR JSON logs to Elasticsearch as radar-logs-*. Completes the
+# telemetry stack (metrics via Prometheus scrape, traces via the collector, logs
+# here). Requires elasticsearch enabled (or reachable at elasticsearch:9200).
+fluentBit:
+  enabled: true
+  image: fluent/fluent-bit:3.2.2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

@@ -73,11 +73,27 @@ jobs:
           GRAFANA_ADMIN_PASSWORD=ci-placeholder-unused
           ENV
 
+      # Pre-pull the infra images with retries FIRST. Docker Hub rate-limits/times
+      # out anonymous pulls by runner IP on shared GitHub runners (e.g. library/
+      # postgres), which otherwise fails `up --wait` on an image pull rather than a
+      # real infra problem. Isolating the pull lets us retry just that flaky step;
+      # `up` below then uses the cached images.
+      - name: Pre-pull infra images (retry on Docker Hub throttling)
+        run: |
+          set -uo pipefail
+          for i in 1 2 3; do
+            docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env \
+              pull postgres elasticsearch otel-collector && exit 0
+            echo "infra image pull attempt $i failed (likely Docker Hub throttling); retrying in $((i*20))s"
+            sleep $((i*20))
+          done
+          echo "infra image pull failed after 3 attempts"; exit 1
+
       - name: Start infra (postgres, elasticsearch, otel-collector)
         # --wait blocks until postgres is healthy, elasticsearch is healthy,
         # es-traces-init has completed (installs the traces template), and the
         # collector is up. Naming postgres + otel-collector pulls the rest in via
-        # depends_on.
+        # depends_on. Images are already cached by the pre-pull step above.
         run: >
           docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env
           up -d --wait postgres otel-collector

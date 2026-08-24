@@ -85,6 +85,15 @@ class ContextBundle(BaseModel):
     alert_count: int
     #: From the PLAN row: a decision that was made, not a value that drifts.
     investigation_steps: list[PlanStep]
+    #: From the ALERTS row (the same earliest alert ``alert_name`` is read from): the
+    #: labels and annotations the alert itself carried — error breakdowns, deploy
+    #: identifiers, firing metric values, timestamps. This is the discriminating
+    #: EVIDENCE (as opposed to the runbook's procedure): when it points to a specific
+    #: cause the model can ground a higher-confidence root_cause in it, and when it is
+    #: empty or non-specific the model must stay cautious. Empty dicts, not absent, so
+    #: the prompt and stored bundle keep one shape whether or not the alert carried any.
+    alert_labels: dict[str, str] = Field(default_factory=dict)
+    alert_annotations: dict[str, str] = Field(default_factory=dict)
     #: Phase 8's retrieval slot. Empty in v1, and in the shape now so the prompt does
     #: not change when it fills.
     retrieved_context: list[dict[str, Any]] = Field(default_factory=list)
@@ -120,7 +129,9 @@ async def build_context_bundle(
             f"{incident_id}; refusing to reason over a mismatched pair"
         )
 
-    alert_name = await _alert_name_for(session, incident.id)
+    alert_name, alert_labels, alert_annotations = await _alert_facts_for(
+        session, incident.id
+    )
 
     return ContextBundle(
         incident_id=incident.id,
@@ -132,32 +143,51 @@ async def build_context_bundle(
         opened_at=incident.opened_at,
         # ---- The plan's output. Decided, not drifting. ----
         investigation_steps=[PlanStep.model_validate(s) for s in plan.steps],
+        # ---- Evidence from the firing alert. ----
+        alert_labels=alert_labels,
+        alert_annotations=alert_annotations,
         # ---- Phase 8. ----
         retrieved_context=[],
     )
 
 
-async def _alert_name_for(session: AsyncSession, incident_id: UUID) -> str:
-    """The alert name for this incident, from its alerts.
+async def _alert_facts_for(
+    session: AsyncSession, incident_id: UUID
+) -> tuple[str, dict[str, str], dict[str, str]]:
+    """The alert-derived facts for this incident: ``(alert_name, labels, annotations)``.
 
     ``incidents`` has no ``alert_name`` column — the watcher is the last stage that
     holds it, and it passes it to the planner on the event. By the reasoner's turn the
-    only durable copy is on the ``alerts`` rows.
+    only durable copy is on the ``alerts`` rows. The alert's ``labels`` and
+    ``annotations`` live only there too, and they are the evidence the reasoner grounds
+    a specific root cause in.
 
-    Every alert on an incident deduplicated onto it by fingerprint, and the fingerprint
-    embeds the alert name, so they all agree; the earliest is taken for determinism.
+    All three come from the SAME row — the earliest alert — read in one query. Every
+    alert on an incident deduplicated onto it by fingerprint, and the fingerprint
+    embeds the alert name, so the names all agree; the earliest is taken for
+    determinism, and its labels/annotations are the triggering alert's own evidence.
     Note this reads ``alert_name`` and NOT ``severity`` — the alert's severity is what
     that alert fired at, which is exactly the stale value escalation makes wrong.
     """
-    name = await session.scalar(
-        select(Alert.alert_name)
-        .where(Alert.incident_id == incident_id)
-        .order_by(Alert.received_at.asc())
-        .limit(1)
-    )
-    if name is None:
+    row = (
+        await session.execute(
+            select(Alert.alert_name, Alert.labels, Alert.annotations)
+            .where(Alert.incident_id == incident_id)
+            .order_by(Alert.received_at.asc())
+            .limit(1)
+        )
+    ).first()
+    if row is None:
         raise ContextNotAvailableError(
             f"incident {incident_id} has no alerts; ingestion writes the incident and "
             "its first alert in one transaction, so this row was deleted"
         )
-    return str(name)
+    name, labels, annotations = row
+    # labels/annotations are NOT NULL DEFAULT '{}' and ingestion string-maps them, so
+    # they are already str->str; coerce defensively so a hand-inserted row cannot put a
+    # non-string value into the model-facing bundle.
+    return (
+        str(name),
+        {str(k): str(v) for k, v in (labels or {}).items()},
+        {str(k): str(v) for k, v in (annotations or {}).items()},
+    )

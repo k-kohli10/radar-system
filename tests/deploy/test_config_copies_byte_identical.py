@@ -49,10 +49,96 @@ EXPLICIT_PAIRS: list[tuple[str, str, str]] = [
         "parsers.conf",
         "deploy/fluent-bit/parsers.conf",
     ),
+    # The k8s fluent-bit.conf (tails container logs) has no standalone file — it
+    # lives only in the static DaemonSet manifest and the platform-deps chart copy.
+    # Pin the chart copy against the manifest's embedded value so they cannot drift
+    # (the compose fluent-bit.conf legitimately differs and is deliberately absent).
+    (
+        "deploy/fluent-bit/fluent-bit-daemonset.yaml",
+        "fluent-bit.conf",
+        "deploy/helm/platform-deps/files/fluent-bit/fluent-bit.conf",
+    ),
 ]
 
 GRAFANA_CONFIGMAPS = "deploy/grafana/dashboards-configmaps.yaml"
 GRAFANA_DASHBOARDS = "deploy/grafana/dashboards"
+
+# Plain file <-> file copies. Helm's .Files.Get can only read files inside the
+# chart directory, so the compose vault-init script cannot be shared by reference;
+# the chart keeps a copy that its ConfigMap embeds. This pins the two copies.
+FILE_PAIRS: list[tuple[str, str]] = [
+    (
+        "deploy/compose/vault-init/fetch-secrets.sh",
+        "deploy/helm/radar/files/fetch-secrets.sh",
+    ),
+    (
+        "apps/watcher-agent/config/correlation-rules.yaml",
+        "deploy/helm/radar/files/correlation-rules.yaml",
+    ),
+    (
+        "apps/planner-agent/config/plan-templates.yaml",
+        "deploy/helm/radar/files/plan-templates.yaml",
+    ),
+    (
+        "apps/llm-gateway/config/gateway.yaml",
+        "deploy/helm/radar/files/gateway.yaml",
+    ),
+    (
+        "deploy/prometheus/alerting-rules.yml",
+        "deploy/helm/platform-deps/files/alerting-rules.yml",
+    ),
+    (
+        "deploy/prometheus/radar-service-alerts.yml",
+        "deploy/helm/platform-deps/files/radar-service-alerts.yml",
+    ),
+    (
+        "deploy/grafana/provisioning/datasources/prometheus.yml",
+        "deploy/helm/platform-deps/files/grafana/datasources/prometheus.yml",
+    ),
+    (
+        "deploy/grafana/provisioning/dashboards/radar.yml",
+        "deploy/helm/platform-deps/files/grafana/dashboards-provider.yml",
+    ),
+    (
+        "scripts/dev-mint-tokens.py",
+        "deploy/helm/platform-deps/files/dev-mint-tokens.py",
+    ),
+    (
+        "deploy/otel/collector-config.yaml",
+        "deploy/helm/platform-deps/files/otel/collector-config.yaml",
+    ),
+    (
+        "deploy/otel/traces-index-template.json",
+        "deploy/helm/platform-deps/files/otel/traces-index-template.json",
+    ),
+    (
+        "deploy/fluent-bit/parsers.conf",
+        "deploy/helm/platform-deps/files/fluent-bit/parsers.conf",
+    ),
+]
+
+
+def _grafana_dashboard_file_pairs() -> list[tuple[str, str]]:
+    """Each Grafana dashboard JSON, paired with its platform-deps chart copy.
+
+    Discovered from disk so a newly added dashboard is covered automatically.
+    """
+    src_dir = ROOT / "deploy/grafana/dashboards"
+    copy_dir = ROOT / "deploy/helm/platform-deps/files/grafana/dashboards"
+    pairs: list[tuple[str, str]] = []
+    for src in sorted(src_dir.glob("*.json")):
+        pairs.append(
+            (
+                f"deploy/grafana/dashboards/{src.name}",
+                f"deploy/helm/platform-deps/files/grafana/dashboards/{src.name}",
+            )
+        )
+    assert copy_dir.is_dir(), "platform-deps grafana dashboards copy dir missing"
+    return pairs
+
+
+def _all_file_pairs() -> list[tuple[str, str]]:
+    return FILE_PAIRS + _grafana_dashboard_file_pairs()
 
 
 def _configmaps(manifest: str) -> list[dict[str, Any]]:
@@ -90,6 +176,24 @@ def test_pair_discovery_is_not_vacuous() -> None:
     # welcome but a discovery that silently finds nothing fails loudly.
     assert len(_grafana_pairs()) >= 5, "Grafana dashboard pairs vanished"
     assert len(pairs) >= 8, f"expected >=8 config copy-pairs, found {len(pairs)}"
+    assert len(FILE_PAIRS) >= 9, "file copy-pairs vanished"
+    assert len(_grafana_dashboard_file_pairs()) >= 5, "grafana dashboard pairs vanished"
+
+
+@pytest.mark.parametrize(
+    ("standalone", "copy"),
+    _all_file_pairs(),
+    ids=lambda v: v.rsplit("/", 2)[-1] if isinstance(v, str) else v,
+)
+def test_file_copy_is_byte_identical(standalone: str, copy: str) -> None:
+    standalone_path = ROOT / standalone
+    copy_path = ROOT / copy
+    assert standalone_path.is_file(), f"standalone file missing: {standalone}"
+    assert copy_path.is_file(), f"copy missing: {copy}"
+    assert copy_path.read_text() == standalone_path.read_text(), (
+        f"DRIFT: {standalone} and {copy} are no longer byte-identical. "
+        f"Re-sync one from the other."
+    )
 
 
 @pytest.mark.parametrize(

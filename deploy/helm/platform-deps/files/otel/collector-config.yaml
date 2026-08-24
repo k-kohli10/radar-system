@@ -1,0 +1,53 @@
+# RADAR OpenTelemetry Collector configuration.
+#
+# Edit only this file. deploy/otel/collector-daemonset.yaml embeds a copy in its
+# ConfigMap; a Phase 11 CI job asserts the two are byte-identical (see
+# docs/implementation_plan.md), so any change here must be mirrored there.
+#
+# Receives OTLP from every RADAR service and exports spans to Elasticsearch in
+# OTel-native mapping (ADR 0008), viewed in Kibana APM. correlation_id rides as a
+# span attribute and lands at attributes.correlation_id in the stored document —
+# the sole join key the traces plugin (plugins/traces/elastic) queries a whole
+# incident's trace by. Traces pipeline only: metrics stay on Prometheus scrape
+# and logs on Fluent Bit, neither flowing through this collector.
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Refuses new data before the container hits its memory limit rather than being
+  # OOM-killed under a span burst.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  # One bulk request to Elasticsearch per batch instead of one per span.
+  batch:
+    timeout: 5s
+
+exporters:
+  elasticsearch:
+    endpoints:
+      - http://elasticsearch:9200
+    # OTel-native mapping: writes the traces-generic-default data stream, which
+    # Kibana 8.16 APM reads directly, and preserves span attributes under
+    # attributes.* so correlation_id is queryable at attributes.correlation_id.
+    mapping:
+      mode: otel
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [elasticsearch]

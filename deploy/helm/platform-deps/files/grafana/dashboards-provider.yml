@@ -1,0 +1,16 @@
+# Grafana dashboard provider (compose). Loads every dashboard JSON under
+# /etc/grafana/dashboards (the mounted deploy/grafana/dashboards dir) into a
+# "RADAR" folder. The k8s equivalent is the sidecar loading the ConfigMaps in
+# dashboards-configmaps.yaml.
+apiVersion: 1
+providers:
+  - name: radar
+    orgId: 1
+    folder: RADAR
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

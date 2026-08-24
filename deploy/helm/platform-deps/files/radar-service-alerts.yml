@@ -1,0 +1,67 @@
+# RADAR's OWN service-health alerts — distinct from the simulated-shop rules in
+# alerting-rules.yml. These fire on the RADAR service metrics Prometheus scrapes
+# (see prometheus.yml), and are loaded alongside the shop rules, not merged into
+# them.
+#
+# Every rule here carries `alert_source: radar`. The compose Alertmanager routes
+# on that label to a blackhole receiver (see alertmanager.yml), so a RADAR
+# self-alert does NOT get POSTed to ingestion as an incident — which would be a
+# self-monitoring loop (e.g. RadarAgentDown for the reasoner filing an incident
+# the reasoner must then process). Wiring these to a real ops receiver is a later
+# concern; step 6 only guarantees they do not become incidents.
+
+groups:
+  - name: radar-service-health
+    rules:
+      # STEP-11 PAIRED. Keys on the REASONER's template-fallback counter, not any
+      # gateway-side metric: step 11 proves this by mocking the gateway to fail,
+      # which replaces the gateway with a failing mock that emits no gateway
+      # metrics — the reasoner is what counts the fallback
+      # (radar_recommendations_fallback_total{reason="gateway_unavailable"}). A
+      # gateway-side metric would be unprovable by that mock. `by (service,
+      # reason)` keeps both labels on the alert.
+      - alert: LLMTemplateFallbackActive
+        expr: sum by (service, reason) (rate(radar_recommendations_fallback_total[5m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+          alert_source: radar
+        annotations:
+          summary: "RADAR reasoner is falling back to template RCAs ({{ $labels.reason }})"
+          description: >
+            {{ $labels.service }} produced template-fallback recommendations
+            (reason={{ $labels.reason }}) over the last 5m — the LLM path is
+            degraded and incidents are getting template RCAs instead of model
+            analysis. reason=gateway_unavailable points at the llm-gateway.
+
+      # THRESHOLD IS PROVISIONAL: 100 pending events is a placeholder pending real
+      # throughput data. The dev outbox sits at 0; tune this once sustained load
+      # has been observed (Phase 12/13) so it flags a worker falling behind
+      # without flapping on a normal burst.
+      - alert: OutboxBacklogHigh
+        expr: radar_outbox_depth > 100
+        for: 5m
+        labels:
+          severity: warning
+          alert_source: radar
+        annotations:
+          summary: "RADAR outbox backlog is high ({{ $value }} pending)"
+          description: >
+            {{ $value }} events have been pending in the transactional outbox for
+            over 5m — the outbox worker is not keeping up with dispatch. Threshold
+            is provisional pending real throughput data.
+
+      # Per-service via the `up` the scrape synthesizes; `service` comes from the
+      # target labels set in prometheus.yml.
+      - alert: RadarAgentDown
+        expr: up{job="radar"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          alert_source: radar
+        annotations:
+          summary: "RADAR service {{ $labels.service }} is down"
+          description: >
+            Prometheus has been unable to scrape {{ $labels.service }}
+            ({{ $labels.instance }}) for over 2m — the service is down or
+            unreachable.
