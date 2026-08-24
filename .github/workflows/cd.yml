@@ -19,8 +19,10 @@ name: cd
 #     Without the optional keys the deploy still completes; the gateway 401s upstream
 #     and feedback-service stays not-ready until they are set.
 on:
-  push:
-    branches: [main]
+  # Manual only. RADAR's target cluster is EPHEMERAL — spun up on demand and
+  # deleted after — so "push to main = deploy" would fail on every merge when no
+  # cluster exists (and burn a full image build each time). Trigger CD by hand
+  # once a cluster is up: Actions -> cd -> Run workflow.
   workflow_dispatch:
 
 # Never cancel an in-flight deploy: a half-applied `helm upgrade` is worse than a
@@ -72,13 +74,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Multi-arch (amd64 for the cluster + x86, arm64 for local Apple Silicon), pushed
-      # under two tags: the immutable git SHA that the deploy job pins, and the
-      # human-facing appVersion. Same Dockerfile per-service scheme as build.yml.
-      - name: Build and push (amd64 + arm64), SHA + version tags
+      # amd64 ONLY: the deploy target is an amd64 cluster, so building arm64 here
+      # is wasted work — and under QEMU emulation it is the slow step that made CD
+      # take ~15m and time out. (Local Apple-Silicon arm64 images come from a local
+      # `docker build`, and build.yml still proves both arches compile on PRs.)
+      # Pushed under two tags: the immutable git SHA the deploy job pins, and the
+      # human-facing appVersion.
+      - name: Build and push (amd64), SHA + version tags
         run: |
           docker buildx build \
-            --platform linux/amd64,linux/arm64 \
+            --platform linux/amd64 \
             --file "apps/${{ matrix.service }}/Dockerfile" \
             --tag "${REGISTRY}/${OWNER}/radar-${{ matrix.service }}:${GITHUB_SHA}" \
             --tag "${REGISTRY}/${OWNER}/radar-${{ matrix.service }}:${APP_VERSION}" \
