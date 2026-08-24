@@ -12,11 +12,11 @@
 postgres:
   enabled: true
   image: postgres:16
-  # Dev credentials. The Vault bootstrap seeds a matching postgres_dsn so the apps
-  # connect with these. Production uses external Postgres and its own secret.
+  # Dev credentials. The password is GENERATED into the radar-postgres Secret on
+  # first install (never committed); the Vault bootstrap reads it and seeds a
+  # matching postgres_dsn so the apps connect. Production uses external Postgres.
   auth:
     username: radar
-    password: radar-dev-only-not-a-secret
     database: radar
   storage:
     size: 5Gi
@@ -31,9 +31,9 @@ postgres:
 vault:
   enabled: true
   image: hashicorp/vault:1.18.0
-  # Dev-mode server: in-memory storage, auto-unsealed, fixed root token. Matches
-  # `vault server -dev` in compose. Never use dev mode in production.
-  devRootToken: radar-dev-root-token
+  # Dev-mode server: in-memory storage, auto-unsealed. The root token is GENERATED
+  # into the radar-vault Secret on first install (never committed) and the dev Vault
+  # starts with it. Never use dev mode in production.
   resources:
     requests:
       cpu: 100m
@@ -114,9 +114,9 @@ prometheus:
 grafana:
   enabled: true
   image: grafana/grafana:11.3.0
-  # Dev admin login. Production uses managed Grafana / its own secret.
+  # Dev admin login. The password is GENERATED into the radar-grafana Secret on
+  # first install (never committed). Production uses managed Grafana / its own secret.
   adminUser: admin
-  adminPassword: radar-dev-admin-not-a-secret
   resources:
     requests:
       cpu: 100m
@@ -132,9 +132,9 @@ alertmanager:
   image: prom/alertmanager:v0.28.1
   # Cross-namespace: Alertmanager is in radar-infra, ingestion in radar.
   ingestionUrl: http://ingestion.radar.svc.cluster.local:8080/alerts/prometheus
-  # Token Alertmanager presents to ingestion. The Vault bootstrap MUST seed
-  # ingestion's webhook token to this same value, or the webhook 401s.
-  webhookToken: radar-dev-webhook-token
+  # Token Alertmanager presents to ingestion. GENERATED into the radar-alertmanager
+  # Secret on first install (never committed); the Vault bootstrap reads that same
+  # Secret to seed ingestion's matching token, so the authenticated webhook works.
   resources:
     requests:
       cpu: 50m

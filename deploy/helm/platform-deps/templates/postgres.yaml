@@ -10,7 +10,8 @@ metadata:
 type: Opaque
 stringData:
   POSTGRES_USER: {{ $pg.auth.username | quote }}
-  POSTGRES_PASSWORD: {{ $pg.auth.password | quote }}
+  # Generated on first install, reused across upgrades (never committed).
+  POSTGRES_PASSWORD: {{ include "platformdeps.genCred" (dict "root" $ "name" "radar-postgres" "key" "POSTGRES_PASSWORD" "len" 24) | quote }}
   POSTGRES_DB: {{ $pg.auth.database | quote }}
 ---
 # Headless Service: resolves postgres.radar-infra.svc.cluster.local to the pod,

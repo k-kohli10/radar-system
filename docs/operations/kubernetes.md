@@ -134,8 +134,10 @@ kubectl -n radar get hpa         # ingestion + llm-gateway show CPU metrics
 Or use the VSCode Kubernetes extension → right-click a Service → Port Forward.
 
 ```bash
-kubectl -n radar-infra port-forward svc/grafana 3000:3000    # http://localhost:3000  (admin / radar-dev-admin-not-a-secret)
+kubectl -n radar-infra port-forward svc/grafana 3000:3000    # http://localhost:3000  (user admin)
 kubectl -n radar-infra port-forward svc/kibana  5601:5601
+# Grafana's admin password is generated per cluster — read it from the Secret:
+kubectl -n radar-infra get secret radar-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
 ```
 
 ## Teardown

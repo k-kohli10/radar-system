@@ -19,11 +19,11 @@ set -uo pipefail
 INFRA=(
   "radar-infra elasticsearch 9200:9200   Elasticsearch|http://localhost:9200"
   "radar-infra kibana        5601:5601   Kibana|http://localhost:5601"
-  "radar-infra grafana       3000:3000   Grafana|http://localhost:3000 (admin / radar-dev-admin-not-a-secret)"
+  "radar-infra grafana       3000:3000   Grafana|http://localhost:3000 (user admin — password below)"
   "radar-infra prometheus    9090:9090   Prometheus|http://localhost:9090"
   "radar-infra alertmanager  9093:9093   Alertmanager|http://localhost:9093"
-  "radar-infra vault         8200:8200   Vault|http://localhost:8200 (token radar-dev-root-token)"
-  "radar-infra postgres      55432:5432  Postgres|localhost:55432 (radar / radar-dev-only-not-a-secret, db radar)"
+  "radar-infra vault         8200:8200   Vault|http://localhost:8200 (root token below)"
+  "radar-infra postgres      55432:5432  Postgres|localhost:55432 (user radar, db radar — password below)"
 )
 APPS=(
   "radar ingestion         8080:8080  ingestion|http://localhost:8080"
@@ -72,5 +72,9 @@ for row in "${FORWARDS[@]}"; do
   fi
   printf '    \033[36m%-18s\033[0m %s\n' "${label%%|*}" "${label#*|}"
 done
-printf '\n  \033[2mPostgres:\033[0m psql -h localhost -p 55432 -U radar -d radar  (pw: radar-dev-only-not-a-secret)\n\n'
+printf '\n  \033[2mCredentials are generated per cluster — read them from the Secrets:\033[0m\n'
+printf "    grafana : kubectl -n radar-infra get secret radar-grafana -o jsonpath='{.data.admin-password}' | base64 -d\n"
+printf "    vault   : kubectl -n radar-infra get secret radar-vault -o jsonpath='{.data.root-token}' | base64 -d\n"
+printf "    postgres: kubectl -n radar-infra get secret radar-postgres -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d\n"
+printf '  \033[2mThen:\033[0m PGPASSWORD=\$(…postgres cmd…) psql -h localhost -p 55432 -U radar -d radar\n\n'
 wait

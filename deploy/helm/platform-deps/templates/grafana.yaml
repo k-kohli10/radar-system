@@ -10,7 +10,8 @@ metadata:
 type: Opaque
 stringData:
   admin-user: {{ $gf.adminUser | quote }}
-  admin-password: {{ $gf.adminPassword | quote }}
+  # Generated on first install, reused across upgrades (never committed).
+  admin-password: {{ include "platformdeps.genCred" (dict "root" $ "name" "radar-grafana" "key" "admin-password" "len" 20) | quote }}
 ---
 apiVersion: v1
 kind: ConfigMap

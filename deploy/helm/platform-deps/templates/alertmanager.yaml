@@ -9,9 +9,10 @@ metadata:
     app.kubernetes.io/component: alertmanager
 type: Opaque
 stringData:
-  # Sent as X-Radar-Webhook-Token to ingestion. Dev value; must match the token
-  # the Vault bootstrap seeds for ingestion.
-  webhook-token: {{ $am.webhookToken | quote }}
+  # Sent as X-Radar-Webhook-Token to ingestion. Generated on first install, reused
+  # across upgrades (never committed). The Vault bootstrap reads THIS Secret to seed
+  # ingestion's matching token (radar-alertmanager/webhook-token), so they stay in sync.
+  webhook-token: {{ include "platformdeps.genCred" (dict "root" $ "name" "radar-alertmanager" "key" "webhook-token" "len" 32) | quote }}
 ---
 apiVersion: v1
 kind: ConfigMap

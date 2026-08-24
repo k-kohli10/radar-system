@@ -9,8 +9,9 @@ metadata:
     app.kubernetes.io/component: vault
 type: Opaque
 stringData:
-  # Dev-mode root token. Dev Vault only — never a production credential.
-  root-token: {{ $v.devRootToken | quote }}
+  # Dev-mode root token, generated on first install and reused across upgrades
+  # (never committed). Dev Vault only — never a production credential.
+  root-token: {{ include "platformdeps.genCred" (dict "root" $ "name" "radar-vault" "key" "root-token" "len" 32) | quote }}
 ---
 apiVersion: v1
 kind: Service
