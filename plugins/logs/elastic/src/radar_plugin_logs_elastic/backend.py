@@ -36,7 +36,7 @@ class ElasticLogsBackend:
         self,
         *,
         hosts: str | list[str],
-        index: str = "radar-logs-*",
+        index: str = "radar-*-logs-*",
         api_key: str | None = None,
         service_field: str = "service.keyword",
         message_field: str = "event",

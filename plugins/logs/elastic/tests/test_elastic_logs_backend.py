@@ -38,14 +38,14 @@ async def test_query_builds_full_query_and_returns_sources_newest_first() -> Non
     with patch(CLIENT_PATH) as es_cls:
         client = es_cls.return_value
         client.search = AsyncMock(return_value=_response(docs))
-        backend = ElasticLogsBackend(hosts="http://es:9200", index="radar-logs-*")
+        backend = ElasticLogsBackend(hosts="http://es:9200", index="radar-*-logs-*")
         result = await backend.query(
             "order-service", query="timeout", start=start, end=end, limit=50
         )
 
     client.search.assert_awaited_once()
     kwargs = client.search.call_args.kwargs
-    assert kwargs["index"] == "radar-logs-*"
+    assert kwargs["index"] == "radar-*-logs-*"
     assert kwargs["size"] == 50
     assert kwargs["sort"] == [{"timestamp": {"order": "desc"}}]
 
