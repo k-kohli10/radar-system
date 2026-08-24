@@ -24,8 +24,15 @@ spec:
       {{- include "radar.selectorLabels" (dict "name" $name "root" $) | nindent 6 }}
   template:
     metadata:
+      # Full labels on the POD (a superset of the selector), NOT just selectorLabels —
+      # Prometheus' kubernetes_sd scrape keys on the pod's app.kubernetes.io/part-of
+      # label (see platform-deps prometheus.yaml), which lives in radar.labels. Applying
+      # only selectorLabels here left the pods without part-of, so the scrape's keep
+      # relabel dropped every app pod and Grafana showed no data. The selector above
+      # stays selectorLabels-only (immutable, minimal), and these are a superset of it.
       labels:
-        {{- include "radar.selectorLabels" (dict "name" $name "root" $) | nindent 8 }}
+        {{- include "radar.labels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}
     spec:
       serviceAccountName: {{ $name }}
       securityContext:
