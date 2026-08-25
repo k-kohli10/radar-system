@@ -1,0 +1,76 @@
+{{- if .Values.fluentBit.enabled }}
+{{- $fb := .Values.fluentBit }}
+# Per-service logs ILM policy + index template installer. The compose equivalent is
+# the `es-logs-init` one-shot; this is its chart form. It PUTs the radar-logs ILM
+# policy and then the radar-*-logs-* index template into Elasticsearch, so every
+# radar-<service>-logs-* daily index the Fluent Bit DaemonSet creates gets 1 shard,
+# 0 replicas, and 7-day retention (Phase 13 shard economics) instead of uncontrolled
+# defaults. A PLAIN Job (not a helm hook), for the same reason es-traces-init is:
+# `helm --wait` then waits for Elasticsearch and this Job concurrently rather than
+# a post-install hook deadlocking behind the wait.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logs-index-config
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: es-logs-init
+data:
+  # deploy/fluent-bit/logs-*.json, embedded byte-identically and drift-pinned
+  # (tests/deploy/test_config_copies_byte_identical.py).
+  logs-ilm-policy.json: |
+{{ .Files.Get "files/fluent-bit/logs-ilm-policy.json" | indent 4 }}
+  logs-index-template.json: |
+{{ .Files.Get "files/fluent-bit/logs-index-template.json" | indent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: es-logs-init
+  labels:
+    {{- include "platformdeps.labels" . | nindent 4 }}
+    app.kubernetes.io/component: es-logs-init
+spec:
+  # backoffLimit + OnFailure gives a long retry window while Elasticsearch starts.
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        {{- include "platformdeps.labels" . | nindent 8 }}
+        app.kubernetes.io/component: es-logs-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: es-logs-init
+          image: {{ $fb.logsInitImage }}
+          # Policy FIRST, then the template that references it by name (a template
+          # naming an absent ILM policy is rejected). curl --retry rides out
+          # Elasticsearch startup; -fsS fails the Job loudly on a rejected PUT.
+          command:
+            - sh
+            - -c
+            - >
+              curl -fsS --retry 30 --retry-all-errors --retry-connrefused
+              --retry-delay 2 -X PUT
+              http://elasticsearch:9200/_ilm/policy/radar-logs
+              -H 'Content-Type: application/json'
+              --data-binary @/etc/logs-template/logs-ilm-policy.json &&
+              curl -fsS --retry 30 --retry-all-errors --retry-connrefused
+              --retry-delay 2 -X PUT
+              http://elasticsearch:9200/_index_template/radar-logs
+              -H 'Content-Type: application/json'
+              --data-binary @/etc/logs-template/logs-index-template.json
+          volumeMounts:
+            - name: template
+              mountPath: /etc/logs-template
+              readOnly: true
+      volumes:
+        - name: template
+          configMap:
+            name: logs-index-config
+            items:
+              - key: logs-ilm-policy.json
+                path: logs-ilm-policy.json
+              - key: logs-index-template.json
+                path: logs-index-template.json
+{{- end }}

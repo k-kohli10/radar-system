@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "description": "RADAR per-service logs index template",
+    "managed_by": "radar"
+  },
+  "index_patterns": ["radar-*-logs-*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.lifecycle.name": "radar-logs"
+    },
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings_as_keyword": {
+            "match_mapping_type": "string",
+            "mapping": { "type": "keyword", "ignore_above": 2048 }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "service": { "type": "keyword" },
+        "level": { "type": "keyword" },
+        "event": { "type": "keyword" },
+        "correlation_id": { "type": "keyword" }
+      }
+    }
+  }
+}

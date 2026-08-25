@@ -76,6 +76,37 @@ services:
       - --data-binary
       - "@/tmp/traces-index-template.json"
 
+  es-logs-init:
+    # One-shot: installs the per-service logs ILM policy and index template into
+    # Elasticsearch, so every radar-<service>-logs-* daily index gets 1 shard, 0
+    # replicas and a 7-day retention instead of uncontrolled dynamic-mapping defaults
+    # (Phase 13 shard economics). Policy FIRST, then the template that references it
+    # by name — the order matters, an index template naming an absent ILM policy is
+    # rejected. curl -fsS fails this service on any HTTP error, and
+    # service_completed_successfully on fluent-bit below blocks log shipping until the
+    # template exists, so the first daily index is created UNDER it rather than with
+    # defaults it could never pick up retroactively.
+    image: curlimages/curl:8.11.1
+    restart: "no"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ../fluent-bit/logs-ilm-policy.json:/tmp/logs-ilm-policy.json:ro
+      - ../fluent-bit/logs-index-template.json:/tmp/logs-index-template.json:ro
+    entrypoint:
+      - sh
+      - -c
+      - >
+        curl -fsS -X PUT
+        http://elasticsearch:9200/_ilm/policy/radar-logs
+        -H 'Content-Type: application/json'
+        --data-binary @/tmp/logs-ilm-policy.json &&
+        curl -fsS -X PUT
+        http://elasticsearch:9200/_index_template/radar-logs
+        -H 'Content-Type: application/json'
+        --data-binary @/tmp/logs-index-template.json
+
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.119.0
     command: ["--config=/etc/otel/collector-config.yaml"]
@@ -178,6 +209,9 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+      # Wait for the logs template/ILM so the first daily index is created under it.
+      es-logs-init:
+        condition: service_completed_successfully
 
   vault:
     image: hashicorp/vault:1.18.0

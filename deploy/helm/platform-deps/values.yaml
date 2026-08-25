@@ -167,6 +167,8 @@ otelCollector:
 fluentBit:
   enabled: true
   image: fluent/fluent-bit:3.2.2
+  # curl image for the es-logs-init Job that installs the logs ILM policy + template.
+  logsInitImage: curlimages/curl:8.11.1
   resources:
     requests:
       cpu: 50m
