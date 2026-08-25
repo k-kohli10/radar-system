@@ -35,6 +35,7 @@ from radar_common import get_logger
 from radar_contracts import GatewayStreamEvent, LLMMode, LLMRequest
 
 from radar_llm_gateway.core.errors import ProviderError
+from radar_llm_gateway.gateway.circuit_breaker import CircuitBreaker
 from radar_llm_gateway.gateway.fallback import run_with_fallback
 from radar_llm_gateway.gateway.model_router import ModelRouter
 from radar_llm_gateway.gateway.retry import RETRY_DELAYS_SECONDS
@@ -63,12 +64,14 @@ async def prime_stream(
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_fallback: Callable[[ProviderBinding, ProviderBinding], None] | None = None,
     on_error: Callable[[ProviderError], None] | None = None,
+    breaker_for: Callable[[ProviderBinding], CircuitBreaker] | None = None,
 ) -> PrimedStream:
     """Start streaming under the full retry/fallback policy.
 
     Returns once the first event arrives; failures up to that point are
     retried and failed over exactly like a completion, and exhaustion raises
-    ``AllProvidersFailedError`` (the caller has not sent anything yet).
+    ``AllProvidersFailedError`` (the caller has not sent anything yet). The
+    circuit breaker gates stream priming exactly as it gates a completion.
     """
 
     async def start(binding: ProviderBinding) -> PrimedStream:
@@ -94,6 +97,7 @@ async def prime_stream(
         sleep=sleep,
         on_fallback=on_fallback,
         on_error=on_error,
+        breaker_for=breaker_for,
     )
 
 

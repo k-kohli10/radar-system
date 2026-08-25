@@ -74,6 +74,19 @@ class ProviderError(UpstreamServiceError):
         self.reason = reason
 
 
+class CircuitOpenError(ProviderError):
+    """The binding's circuit breaker is open; the call was not attempted.
+
+    A :class:`ProviderError` subclass (never retryable) so it flows through the
+    same retry/fallback pipeline: the retry loop stops immediately and
+    ``run_with_fallback`` moves to the fallback binding — the whole point of
+    the breaker is to skip the network call and its backoff, not to retry it.
+    """
+
+    def __init__(self, provider: str, model: str) -> None:
+        super().__init__(provider, model, retryable=False, reason="circuit_open")
+
+
 class ProviderTimeoutError(ProviderError):
     """A provider call exceeded the mode's hard timeout or timed out connecting.
 

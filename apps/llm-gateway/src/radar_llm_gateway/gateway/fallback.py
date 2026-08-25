@@ -23,6 +23,7 @@ from radar_common import get_logger
 from radar_contracts import LLMMode
 
 from radar_llm_gateway.core.errors import AllProvidersFailedError, ProviderError
+from radar_llm_gateway.gateway.circuit_breaker import CircuitBreaker
 from radar_llm_gateway.gateway.model_router import ModelRouter
 from radar_llm_gateway.gateway.retry import RETRY_DELAYS_SECONDS, call_with_retries
 from radar_llm_gateway.providers.base import ProviderBinding
@@ -39,6 +40,7 @@ async def run_with_fallback[T](
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_fallback: Callable[[ProviderBinding, ProviderBinding], None] | None = None,
     on_error: Callable[[ProviderError], None] | None = None,
+    breaker_for: Callable[[ProviderBinding], CircuitBreaker] | None = None,
 ) -> T:
     """Run ``operation`` for ``mode``: primary with retries, then fallback.
 
@@ -46,12 +48,24 @@ async def run_with_fallback[T](
     b.complete(request)``) so the same policy serves completions and
     embeddings. ``delays``/``sleep`` are injectable for tests; ``on_error``
     fires once per failing provider call across both retry cycles.
+
+    ``breaker_for`` maps a binding to its circuit breaker; when given, an open
+    primary fails fast (no network call, no backoff) straight to the fallback,
+    and an open fallback fails fast to the terminal 503.
     """
     primary = router.primary_for(mode)
     tried = [f"{primary.provider_name}/{primary.model}"]
+
+    def breaker(binding: ProviderBinding) -> CircuitBreaker | None:
+        return breaker_for(binding) if breaker_for is not None else None
+
     try:
         return await call_with_retries(
-            lambda: operation(primary), delays=delays, sleep=sleep, on_error=on_error
+            lambda: operation(primary),
+            delays=delays,
+            sleep=sleep,
+            on_error=on_error,
+            breaker=breaker(primary),
         )
     except ProviderError as primary_exc:
         fallback = router.fallback_for(mode)
@@ -76,6 +90,7 @@ async def run_with_fallback[T](
                 delays=delays,
                 sleep=sleep,
                 on_error=on_error,
+                breaker=breaker(fallback),
             )
         except ProviderError as fallback_exc:
             raise AllProvidersFailedError(mode.value, tried) from fallback_exc

@@ -79,6 +79,7 @@ class LLMMetrics:
     provider_errors_total: Counter
     fallback_total: Counter
     template_fallback_total: Counter
+    circuit_breaker_state: Gauge
 
 
 def create_llm_metrics(registry: CollectorRegistry = REGISTRY) -> LLMMetrics:
@@ -122,6 +123,12 @@ def create_llm_metrics(registry: CollectorRegistry = REGISTRY) -> LLMMetrics:
         template_fallback_total=Counter(
             "radar_llm_template_fallback_total",
             "Total fallbacks to a templated (non-LLM) response.",
+            registry=registry,
+        ),
+        circuit_breaker_state=Gauge(
+            "radar_llm_circuit_breaker_state",
+            "Provider circuit-breaker state (0=closed, 1=open, 2=half_open).",
+            ["provider", "model"],
             registry=registry,
         ),
     )
