@@ -48,6 +48,12 @@ from radar_database import Alert, Incident, InvestigationPlan
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from radar_reasoner_agent.history import (
+    HistoricalPrior,
+    PastFeedback,
+    build_history,
+)
+
 log = get_logger("reasoner.context")
 
 
@@ -97,6 +103,12 @@ class ContextBundle(BaseModel):
     #: Phase 8's retrieval slot. Empty in v1, and in the shape now so the prompt does
     #: not change when it fills.
     retrieved_context: list[dict[str, Any]] = Field(default_factory=list)
+    #: Phase 13, lever 3. RADAR's own history for this fingerprint: the base rate of
+    #: prior root causes (:class:`HistoricalPrior`) and the feedback engineers left on
+    #: them (:class:`PastFeedback`). Always present — ``total=0`` / empty when this
+    #: alert has no history — so the model can tell "novel" from "seen this before".
+    historical_prior: HistoricalPrior = Field(default_factory=HistoricalPrior)
+    past_feedback: PastFeedback = Field(default_factory=PastFeedback)
 
 
 async def build_context_bundle(
@@ -133,6 +145,12 @@ async def build_context_bundle(
         session, incident.id
     )
 
+    # Lever 3: RADAR's own history for this exact alert (fingerprint), excluding the
+    # incident being reasoned about. A read on the same first-transaction session.
+    historical_prior, past_feedback = await build_history(
+        session, fingerprint=incident.fingerprint, exclude_incident_id=incident.id
+    )
+
     return ContextBundle(
         incident_id=incident.id,
         service_name=incident.service_name,
@@ -148,6 +166,9 @@ async def build_context_bundle(
         alert_annotations=alert_annotations,
         # ---- Phase 8. ----
         retrieved_context=[],
+        # ---- Phase 13, lever 3: RADAR's own history. ----
+        historical_prior=historical_prior,
+        past_feedback=past_feedback,
     )
 
 
