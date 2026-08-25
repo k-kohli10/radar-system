@@ -96,6 +96,12 @@ WATCHER_TARGET = "watcher-agent"
 RESOLVE_IGNORED_AUDIT_EVENT = "ingestion.resolve_ignored"
 """Audit event recorded when a resolved alert matches no open incident."""
 
+INCIDENT_OPENED_AUDIT_EVENT = "ingestion.incident_opened"
+"""Audit event recorded when a firing alert opens a new incident."""
+
+ALERT_ATTACHED_AUDIT_EVENT = "ingestion.alert_attached"
+"""Audit event recorded when a firing alert deduplicates onto an open incident."""
+
 
 @dataclass(frozen=True)
 class PublishResult:
@@ -159,12 +165,14 @@ async def persist_alert(
         existing.alert_count += 1
         existing.updated_at = utcnow()
         session.add(_alert_row(alert, existing.id))
+        session.add(_alert_attached_audit(alert, existing.id, existing.alert_count))
         await _publish(session, alert, existing.id, deduplicated=True)
         return PublishResult(incident_id=existing.id, deduplicated=True)
 
     incident_id = new_id()
     session.add(_new_incident(alert, incident_id))
     session.add(_alert_row(alert, incident_id))
+    session.add(_incident_opened_audit(alert, incident_id))
     await _publish(session, alert, incident_id, deduplicated=False)
     return PublishResult(incident_id=incident_id, deduplicated=False)
 
@@ -245,6 +253,54 @@ async def _publish(
         target_service=WATCHER_TARGET,
         payload=payload.model_dump(mode="json"),
         correlation_id=alert.correlation_id,
+    )
+
+
+def _alert_facts(alert: NormalizedAlert) -> dict[str, object | None]:
+    """The identifying facts every ingestion audit row carries for an alert."""
+    return {
+        "source": alert.source,
+        "source_alert_id": alert.source_alert_id,
+        "alert_id": str(alert.id),
+        "fingerprint": alert.fingerprint,
+        "service_name": alert.service_name,
+        "alert_name": alert.alert_name,
+        "severity": alert.severity.value,
+    }
+
+
+def _incident_opened_audit(alert: NormalizedAlert, incident_id: UUID) -> AuditLog:
+    """Build the audit record for a firing alert that opened a new incident.
+
+    Ingestion owns incident creation, so this is the birth record of the incident
+    in the audit trail — the transition helper only logs *later* status changes.
+    """
+    return AuditLog(
+        event_type=INCIDENT_OPENED_AUDIT_EVENT,
+        entity_type="incident",
+        entity_id=incident_id,
+        correlation_id=alert.correlation_id,
+        actor=INGESTION_ACTOR,
+        payload=_alert_facts(alert),
+    )
+
+
+def _alert_attached_audit(
+    alert: NormalizedAlert, incident_id: UUID, alert_count: int
+) -> AuditLog:
+    """Build the audit record for a firing alert deduplicated onto an open incident.
+
+    Records the attach that bumped ``alert_count`` — the event escalation is driven
+    off — so the audit trail shows every alert that joined an incident, not only the
+    one that opened it.
+    """
+    return AuditLog(
+        event_type=ALERT_ATTACHED_AUDIT_EVENT,
+        entity_type="incident",
+        entity_id=incident_id,
+        correlation_id=alert.correlation_id,
+        actor=INGESTION_ACTOR,
+        payload={**_alert_facts(alert), "alert_count": alert_count},
     )
 
 

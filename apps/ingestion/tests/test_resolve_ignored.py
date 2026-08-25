@@ -31,6 +31,7 @@ from radar_contracts import NormalizedAlert
 from radar_database import Alert, AuditLog, Database, Incident, OutboxEvent
 from radar_ingestion.normalizer import AlertSource, compute_fingerprint, normalize
 from radar_ingestion.publisher import (
+    INCIDENT_OPENED_AUDIT_EVENT,
     RESOLVE_IGNORED_AUDIT_EVENT,
     persist_alert,
 )
@@ -72,8 +73,9 @@ async def test_resolved_alert_no_open_incident_opens_nothing(db: Database) -> No
 
     Delete the ``status == resolved and existing is None`` branch in
     ``persist_alert`` and this goes red: the resolve falls through to the create
-    path, producing ``(1, 1, 1, 0)`` — a phantom incident, its alert, and the
-    ``alert.normalized`` event that wakes the watcher — instead of ``(0, 0, 0, 1)``.
+    path, producing ``(1, 1, 1, 1)`` — a phantom incident, its alert, the
+    ``alert.normalized`` event that wakes the watcher, and an ``incident_opened``
+    audit row — instead of ``(0, 0, 0, 1)``.
     """
     resolve = _alert(status="resolved")
 
@@ -135,8 +137,9 @@ async def test_firing_alert_with_no_match_still_opens_an_incident(db: Database) 
     """Control: the guard is scoped to ``resolved``, not to "no open match".
 
     A firing alert with nothing to dedup onto must still take the create path —
-    one incident, one alert, one event, and no ignore audit. If this regresses,
-    the guard has over-reached and started swallowing real incidents.
+    one incident, one alert, one event, and one ``incident_opened`` audit row (the
+    birth record ingestion writes for an incident it opens). If this regresses, the
+    guard has over-reached and started swallowing real incidents.
     """
     firing = _alert(status="firing")
 
@@ -146,4 +149,9 @@ async def test_firing_alert_with_no_match_still_opens_an_incident(db: Database) 
 
     assert result.ignored is False
     assert result.incident_id is not None
-    assert await _counts(db) == (1, 1, 1, 0)
+    assert await _counts(db) == (1, 1, 1, 1)
+    # The single audit row is the incident-opened birth record, NOT a resolve-ignore
+    # receipt — the create path fired, the guard did not.
+    async with db.session() as session:
+        event_type = await session.scalar(select(AuditLog.event_type))
+    assert event_type == INCIDENT_OPENED_AUDIT_EVENT
