@@ -81,6 +81,9 @@ worker picks up and dispatches with retries and idempotency guarantees. See
 
 ## 🚀 Run It
 
+**New here? → [15-minute quickstart](docs/quickstart.md)** takes a clean machine
+from clone to a live RCA, step by step.
+
 Two ways to run the full stack locally, both from one bootstrap:
 
 ```bash
@@ -119,6 +122,7 @@ specification.
 
 | Path | Purpose |
 |---|---|
+| [`docs/quickstart.md`](docs/quickstart.md) | 15-minute clone-to-RCA walkthrough |
 | [`docs/local-development.md`](docs/local-development.md) | Run the stack locally, native or Docker |
 | [`docs/operations/docker.md`](docs/operations/docker.md) | The two-stack Docker workflow and end-to-end test |
 | [`docs/adr/`](docs/adr/) | Architectural decision records: the why behind each choice |
