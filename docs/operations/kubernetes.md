@@ -74,7 +74,10 @@ pulled by the cluster automatically. (On `kind` instead of Kubeadm, add
 ## Step 3 — create the namespace + supplied secrets
 
 The LLM key and (optionally) Slack are credentials RADAR does not mint — create
-them in `radar-infra` **before** platform-deps so the Vault bootstrap seeds them:
+them in `radar-infra` **before** platform-deps so the Vault bootstrap seeds them.
+This is the bundled dev-Vault path, re-supplied per cluster; for a persistent /
+HCP Vault where these are entered once and survive cluster rebuilds (and CD carries
+nothing sensitive), see [secrets.md](secrets.md).
 
 ```bash
 kubectl create namespace radar-infra
