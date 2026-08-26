@@ -31,7 +31,7 @@ The dev Vault is the fifteen-minute-quickstart path: everything is in one chart 
 a fresh cluster is fully seeded by the bootstrap Job. Its cost is that app secrets
 have to be re-supplied every time the cluster is rebuilt, and — if you deploy via
 CD — they ride in as GitHub Actions secrets (`RADAR_OPENAI_API_KEY`,
-`RADAR_SLACK_*`; see [cd.yml](../../.github/workflows/cd.yml)).
+`RADAR_SLACK_*`; see [deploy.yml](../../.github/workflows/deploy.yml)).
 
 ## The persistent / HCP model
 

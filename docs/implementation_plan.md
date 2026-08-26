@@ -468,9 +468,9 @@ Apple Silicon) via docker buildx.
 radar-system/
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml
-│   │   ├── build.yml
-│   │   └── cd.yml            # helm upgrade to Kubernetes (Phase 12)
+│   │   ├── ci.yml            # lint + test + helm chart validation
+│   │   ├── build.yml         # path-gated image build + boot-smoke (no push)
+│   │   └── deploy.yml        # manual, approval-gated build+push + helm upgrade (Phase 12)
 │   ├── ISSUE_TEMPLATE/
 │   │   ├── bug_report.md
 │   │   └── feature_request.md
@@ -2782,8 +2782,10 @@ docs(ops): add kubernetes cluster setup and connectivity guide
     -> moved from Phase 11
 ```
 
-Done when: `helm install` (or the CD workflow's `helm upgrade`) deploys all services
-to the Kubernetes cluster and every readiness probe passes. Merge deploys it.
+Done when: `helm install` (or the deploy workflow's `helm upgrade`) deploys all
+services to the Kubernetes cluster and every readiness probe passes. A manual,
+approval-gated `deploy` dispatch deploys it (the cluster is ephemeral, so deploys
+are on-demand, not on merge).
 
 **Delivered:** the application chart (`deploy/helm/radar`), with every required
 capability: resource limits, probes, a per-workload Vault init-container,
@@ -2794,8 +2796,16 @@ delivered: both example values sets (`deploy/examples/minimal`,
 (`helm lint` + `helm template | kubeconform -strict`, in CI as
 `.github/workflows/helm.yml` and locally as `make helm-validate`, with a
 per-render exact-count guard against a silent empty render); the `helm upgrade`
-CD workflow (`.github/workflows/cd.yml`); and the setup and connectivity guide
+CD workflow; and the setup and connectivity guide
 (`docs/operations/kubernetes-cd.md`).
+
+> **Post-Phase-12 workflow consolidation.** The four workflows were later collapsed
+> to three: `helm.yml` (validation) folded into `ci.yml` as its `helm` job, and
+> `cd.yml` was renamed to `deploy.yml` — now manual-only, approval-gated (the
+> `kubernetes` environment's required reviewers), with a `service` input for
+> single-component deploys. Intra-app startup ordering (`llm-gateway` →
+> `knowledge-service` → consumers) is enforced by per-service `dependsOn` wait-for
+> init-containers in the radar chart. See ADR 0012's "CI/CD workflow topology".
 
 **As-built divergence** (recorded, per the same discipline as Phase 8's "Added
 during implementation" and Phase 9's footprint note):
@@ -2953,7 +2963,7 @@ Phase 11 + .github/workflows scripts/detect-changed-services.py
            deploy/compose/docker-compose-{infra,apps}.yml deploy/compose/vault-init
            docs/operations/docker.md
            TAG: v0.5.0
-Phase 12 + deploy/helm/radar deploy/examples .github/workflows/cd.yml
+Phase 12 + deploy/helm/radar deploy/examples .github/workflows/deploy.yml
            docs/operations (kubernetes setup)
            TAG: v0.6.0
 Phase 13 + tests/load docs/architecture/threat-model.md
