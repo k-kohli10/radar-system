@@ -66,6 +66,18 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
+      # Every service Dockerfile's FROM python:3.14-slim is a Docker Hub pull, and
+      # this job runs it for every changed service on every PR (twice: multi-arch,
+      # then the native reload for boot-smoke) — the same anonymous per-IP rate
+      # limit that flaked CI's infra-image pulls (see ci.yml). Authenticate to
+      # raise the limit; skip gracefully when the secrets are absent (forks).
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       # Prove BOTH architectures compile. A multi-platform build cannot be loaded
       # into the local daemon, so this exports nothing — no --push (CD deferred,
       # no registry), no --load. The image is tagged by git SHA so the tag scheme
