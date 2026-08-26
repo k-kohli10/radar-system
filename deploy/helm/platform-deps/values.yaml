@@ -11,7 +11,7 @@
 
 postgres:
   enabled: true
-  image: postgres:16
+  image: postgres:16@sha256:c1b3783309b6499c795eed7c20135a1a4d25cae1b575c3d52c6f536129a1b109
   # Dev credentials. The password is GENERATED into the radar-postgres Secret on
   # first install (never committed); the Vault bootstrap reads it and seeds a
   # matching postgres_dsn so the apps connect. Production uses external Postgres.
@@ -30,7 +30,7 @@ postgres:
 
 vault:
   enabled: true
-  image: hashicorp/vault:1.18.0
+  image: hashicorp/vault:1.18.0@sha256:e2da7099950443e234ed699940fabcdc44b5babe33adfb459e189a63b7bb50d7
   # Dev-mode server: in-memory storage, auto-unsealed. The root token is GENERATED
   # into the radar-vault Secret on first install (never committed) and the dev Vault
   # starts with it. Never use dev mode in production.
@@ -72,7 +72,7 @@ vaultBootstrap:
 
 elasticsearch:
   enabled: true
-  image: docker.elastic.co/elasticsearch/elasticsearch:8.16.0
+  image: docker.elastic.co/elasticsearch/elasticsearch:8.16.0@sha256:93a9a7e1908f0c59ffce42ff494791bd785c36de40189759fc2a0ed7d6006c9d
   # Single-node, security disabled — dev config from compose. Heap is half the
   # memory request; the rest is off-heap (Lucene, direct buffers).
   javaOpts: "-Xms512m -Xmx512m"
@@ -88,7 +88,7 @@ elasticsearch:
 
 kibana:
   enabled: true
-  image: docker.elastic.co/kibana/kibana:8.16.0
+  image: docker.elastic.co/kibana/kibana:8.16.0@sha256:a1d0a0b439970d74b0a7678dbaaf245d3617865c4e4ec87f1da7673f9658a626
   resources:
     requests:
       cpu: 250m
@@ -98,7 +98,7 @@ kibana:
 
 prometheus:
   enabled: true
-  image: prom/prometheus:v2.55.0
+  image: prom/prometheus:v2.55.0@sha256:378f4e03703557d1c6419e6caccf922f96e6d88a530f7431d66a4c4f4b1000fe
   # Namespace the RADAR app pods run in, for kubernetes_sd pod discovery.
   radarNamespace: radar
   storage:
@@ -113,7 +113,7 @@ prometheus:
 
 grafana:
   enabled: true
-  image: grafana/grafana:11.3.0
+  image: grafana/grafana:11.3.0@sha256:a0f881232a6fb71a0554a47d0fe2203b6888fe77f4cefb7ea62bed7eb54e13c3
   # Dev admin login. The password is GENERATED into the radar-grafana Secret on
   # first install (never committed). Production uses managed Grafana / its own secret.
   adminUser: admin
@@ -129,7 +129,7 @@ alertmanager:
   # v0.28+ supports http_config.http_headers, needed to send ingestion's
   # X-Radar-Webhook-Token (ADR 0011). This closes the "authenticated Alertmanager
   # to ingestion" item deferred from Phase 10 — compose's v0.27 could not.
-  image: prom/alertmanager:v0.28.1
+  image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
   # Cross-namespace: Alertmanager is in radar-infra, ingestion in radar.
   ingestionUrl: http://ingestion.radar.svc.cluster.local:8080/alerts/prometheus
   # Token Alertmanager presents to ingestion. GENERATED into the radar-alertmanager
@@ -149,9 +149,9 @@ alertmanager:
 # Requires elasticsearch enabled (or reachable at elasticsearch:9200).
 otelCollector:
   enabled: true
-  image: otel/opentelemetry-collector-contrib:0.119.0
+  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.119.0@sha256:36c35cc213c0f3b64d6e8a3e844dc90822f00725e0e518eaed5b08bcc2231e72
   # curl image for the es-traces-init Job and the collector's wait-for-template init.
-  tracesInitImage: curlimages/curl:8.11.1
+  tracesInitImage: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
   resources:
     requests:
       cpu: 100m
@@ -166,9 +166,9 @@ otelCollector:
 # here). Requires elasticsearch enabled (or reachable at elasticsearch:9200).
 fluentBit:
   enabled: true
-  image: fluent/fluent-bit:3.2.2
+  image: fluent/fluent-bit:3.2.2@sha256:b7a2b9ee1958607da9a16b0efeb24a70a43c5b7e91dbabca4dc02e916aadb914
   # curl image for the es-logs-init Job that installs the logs ILM policy + template.
-  logsInitImage: curlimages/curl:8.11.1
+  logsInitImage: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
   resources:
     requests:
       cpu: 50m

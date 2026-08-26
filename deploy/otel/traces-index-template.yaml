@@ -66,7 +66,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: es-traces-init
-          image: curlimages/curl:8.11.1
+          image: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
           # curl is the image entrypoint; these are its args. --retry-all-errors
           # (+ --retry-connrefused) tolerates Elasticsearch not being ready yet;
           # -fS turns any final HTTP error into a non-zero exit so the Job fails
