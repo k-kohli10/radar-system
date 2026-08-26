@@ -43,6 +43,13 @@ this as a fire.
   and rising `radar_llm_provider_errors_total`, then **wait**: the fallback rate
   clears itself when the provider recovers. Escalate to whoever owns the provider
   account (quota, rate limits, billing) — this is not a RADAR restart.
+- **Circuit breaker (expected, not a fault).** After a provider binding fails
+  repeatedly the gateway opens its circuit and fails that binding fast — skipping the
+  retry backoff — so requests fall to the fallback provider (or the template RCA)
+  without each one waiting out the full retry budget. `radar_llm_circuit_breaker_state{provider,model}`
+  reads 1 (open) or 2 (half-open) while this is happening; it returns to 0 (closed) on
+  its own once a trial call to the recovered provider succeeds. An open circuit during a
+  known provider outage is the breaker doing its job, not a separate incident to chase.
 - **Known limit:** fallback RCAs are `confidence=low` / `is_fallback=true`. Treat
   them as leads, not conclusions, until the LLM path is back.
 - **Gateway up, token valid, provider healthy, but fallbacks persist**

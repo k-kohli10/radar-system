@@ -11,7 +11,7 @@ x-app: &app
   restart: unless-stopped
 
 x-vault-init: &vault-init
-  image: hashicorp/vault:1.18.0
+  image: hashicorp/vault:1.18.0@sha256:e2da7099950443e234ed699940fabcdc44b5babe33adfb459e189a63b7bb50d7
   restart: "no"
   environment:
     VAULT_ADDR: http://vault:8200

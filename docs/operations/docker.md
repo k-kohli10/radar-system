@@ -72,7 +72,8 @@ curl -s localhost:8099/healthz; echo   # platform-sim (a scrape target — no /r
 
 Prometheus targets at http://localhost:9090/targets show the eight `radar` services
 UP (metrics), traces flow to the `traces-generic-default` data stream, and app logs
-ship to `radar-logs-*` in Elasticsearch. Grafana is at http://localhost:3000
+ship to per-service `radar-<service>-logs-*` indices in Elasticsearch (viewed
+together as `radar-*-logs-*`). Grafana is at http://localhost:3000
 (`admin` / `GRAFANA_ADMIN_PASSWORD` from `.env`).
 
 **2. Index runbooks.** knowledge-service reports `not_ready` (503) until the
@@ -146,9 +147,12 @@ Full signal set in the Docker stack:
 - **Traces** — apps export OTLP to `otel-collector`, which writes the
   `traces-generic-default` data stream in Elasticsearch.
 - **Logs** — the app containers log JSON to stdout; fluent-bit tails Docker's
-  json-file logs, lifts the structured line, and ships it to `radar-logs-*`. That
-  index carries `service`, `event`, `level`, `timestamp`, and `correlation_id` (the
-  logs-to-traces join key), and it is what the reasoner's log enrichment queries.
+  json-file logs, lifts the structured line, and ships it to a per-service
+  `radar-<service>-logs-*` index (routed off the line's `service` field). Those
+  indices carry `service`, `event`, `level`, `timestamp`, and `correlation_id` (the
+  logs-to-traces join key), are governed by the `radar-*-logs-*` index template
+  (1 shard, 0 replicas) and a 7-day ILM policy, and are what the reasoner's log
+  enrichment queries via the `radar-*-logs-*` pattern.
 
 ## ⚠️ Limitations
 

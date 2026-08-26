@@ -73,11 +73,23 @@ jobs:
           GRAFANA_ADMIN_PASSWORD=ci-placeholder-unused
           ENV
 
-      # Pre-pull the infra images with retries FIRST. Docker Hub rate-limits/times
-      # out anonymous pulls by runner IP on shared GitHub runners (e.g. library/
-      # postgres), which otherwise fails `up --wait` on an image pull rather than a
-      # real infra problem. Isolating the pull lets us retry just that flaky step;
-      # `up` below then uses the cached images.
+      # Authenticate to Docker Hub so infra image pulls use the higher AUTHENTICATED
+      # rate limit instead of the per-IP anonymous one that throttles shared GitHub
+      # runners — the durable fix for the Phase-12 pull flake (the pre-pull retry
+      # below stays as a fallback). Skipped when the secrets are absent (forks, or
+      # PRs from forks, where secrets are not injected), so those fall back to the
+      # anonymous pull + retry rather than failing on a missing credential.
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Pre-pull the infra images with retries. Authenticated pulls (above) raise the
+      # rate limit, but shared runners can still see a transient Docker Hub timeout;
+      # isolating the pull lets us retry just that flaky step, and `up` below then
+      # uses the cached images. Belt (auth) and suspenders (retry).
       - name: Pre-pull infra images (retry on Docker Hub throttling)
         run: |
           set -uo pipefail

@@ -158,7 +158,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: fluent-bit
-          image: fluent/fluent-bit:3.2.2
+          image: fluent/fluent-bit:3.2.2@sha256:b7a2b9ee1958607da9a16b0efeb24a70a43c5b7e91dbabca4dc02e916aadb914
           ports:
             - name: http
               containerPort: 2020

@@ -1,0 +1,22 @@
+{
+  "policy": {
+    "_meta": {
+      "description": "RADAR per-service logs lifecycle policy. Fluent Bit writes a NEW index per service per day (radar-<service>-logs-YYYY.MM.DD via Logstash_Format), so the daily index is itself the roll — there is no rollover alias to act on, and this policy's job is the other half ILM controls: retention. The delete phase removes a daily index 7 days after it was created, so splitting logs ~8-fold per service cannot grow shard/disk use without bound. The hot phase only sets priority so recovery favours recent logs.",
+      "managed_by": "radar"
+    },
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "set_priority": { "priority": 100 }
+        }
+      },
+      "delete": {
+        "min_age": "7d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}

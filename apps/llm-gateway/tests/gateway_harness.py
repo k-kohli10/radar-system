@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import secrets
 import textwrap
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -31,7 +32,11 @@ from radar_contracts import (
 )
 from radar_llm_gateway.api.chat import create_chat_router
 from radar_llm_gateway.api.embed import create_embed_router
-from radar_llm_gateway.core.config import load_gateway_config, load_token_map
+from radar_llm_gateway.core.config import (
+    CircuitBreakerConfig,
+    load_gateway_config,
+    load_token_map,
+)
 from radar_llm_gateway.core.errors import install_error_handlers
 from radar_llm_gateway.core.security import (
     GatewayAuth,
@@ -218,8 +223,15 @@ class GatewayHarness:
         return {"X-Radar-Agent-Token": self.env.embed_token}
 
 
-def build_harness(env: GatewayEnv) -> GatewayHarness:
+def build_harness(
+    env: GatewayEnv,
+    *,
+    circuit_breaker: CircuitBreakerConfig | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> GatewayHarness:
     config = load_gateway_config(env.config_path)
+    if circuit_breaker is not None:
+        config = config.model_copy(update={"circuit_breaker": circuit_breaker})
     token_map = load_token_map(directory=env.secrets_dir)
 
     primary_chat = FakeChat("gpt-4o")
@@ -264,6 +276,7 @@ def build_harness(env: GatewayEnv) -> GatewayHarness:
         router=router,
         metrics=create_llm_metrics(metrics_registry),
         sleep=record_sleep,
+        clock=clock,
     )
     auth = GatewayAuth(token_map)
 

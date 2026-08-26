@@ -23,9 +23,10 @@ from uuid import uuid4
 
 import pytest
 from radar_contracts import NormalizedAlert
-from radar_database import Alert, Database, Incident, OutboxEvent
+from radar_database import Alert, AuditLog, Database, Incident, OutboxEvent
 from radar_ingestion.normalizer import AlertSource, compute_fingerprint, normalize
 from radar_ingestion.publisher import (
+    ALERT_ATTACHED_AUDIT_EVENT,
     ALERT_NORMALIZED_EVENT,
     WATCHER_TARGET,
     persist_alert,
@@ -154,3 +155,19 @@ async def test_attached_alert_links_to_the_existing_incident(db: Database) -> No
         alert_rows = await session.scalar(select(func.count()).select_from(Alert))
     assert incident_id == result.incident_id
     assert alert_rows == 1
+
+    # The attach is audited: one alert_attached row for the incident, carrying the
+    # bumped alert_count escalation reads off. Drop the audit write in persist_alert
+    # and this goes red — the attach then leaves no trail.
+    async with db.session() as session:
+        attach = (
+            await session.execute(
+                select(AuditLog).where(
+                    AuditLog.event_type == ALERT_ATTACHED_AUDIT_EVENT
+                )
+            )
+        ).scalar_one()
+    assert attach.entity_type == "incident"
+    assert attach.entity_id == result.incident_id
+    assert attach.actor == "ingestion"
+    assert attach.payload["alert_count"] == 2

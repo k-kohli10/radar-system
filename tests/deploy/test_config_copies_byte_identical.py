@@ -115,6 +115,14 @@ FILE_PAIRS: list[tuple[str, str]] = [
         "deploy/fluent-bit/parsers.conf",
         "deploy/helm/platform-deps/files/fluent-bit/parsers.conf",
     ),
+    (
+        "deploy/fluent-bit/logs-index-template.json",
+        "deploy/helm/platform-deps/files/fluent-bit/logs-index-template.json",
+    ),
+    (
+        "deploy/fluent-bit/logs-ilm-policy.json",
+        "deploy/helm/platform-deps/files/fluent-bit/logs-ilm-policy.json",
+    ),
 ]
 
 

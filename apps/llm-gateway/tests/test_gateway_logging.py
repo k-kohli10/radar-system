@@ -56,10 +56,14 @@ def test_prompt_content_absent_from_all_log_output(
     )
     assert dead.status_code == 503
 
-    # mid-stream failure (logs llm.stream_failed)
+    # mid-stream failure (logs llm.stream_failed). By this point the earlier
+    # failure steps have tripped the primary's circuit open, so this stream is
+    # served by the fallback; script both bindings to fail mid-stream so the
+    # mid-stream failure fires regardless of which one serves.
     gw.primary_chat.fail_times = 0
     gw.fallback_chat.fail_times = 0
     gw.primary_chat.stream_scripts = [["partial ", "X"]]
+    gw.fallback_chat.stream_scripts = [["partial ", "X"]]
     with gw.client.stream(
         "POST",
         "/v1/complete",

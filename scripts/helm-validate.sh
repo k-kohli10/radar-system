@@ -47,7 +47,7 @@ RENDERS=(
   "radar|deploy/helm/radar||32|radar chart (default values)"
   "radar|deploy/helm/radar|deploy/examples/minimal/values.yaml|30|radar chart (examples/minimal)"
   "radar|deploy/helm/radar|deploy/examples/bring-your-own-backends/values.yaml|32|radar chart (examples/bring-your-own-backends)"
-  "platform-deps|deploy/helm/platform-deps||42|platform-deps chart (default values)"
+  "platform-deps|deploy/helm/platform-deps||44|platform-deps chart (default values)"
 )
 
 # Distinguish "cannot even validate" (infra) from "charts invalid" (real).

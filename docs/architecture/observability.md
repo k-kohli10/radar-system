@@ -40,7 +40,7 @@ flowchart TB
     OTELC["OTel Collector<br/><small>OTLP :4317</small>"]:::infra
     FB["Fluent Bit<br/><small>tails JSON stdout</small>"]:::infra
     AM["Alertmanager"]:::infra
-    ES[("Elasticsearch<br/><small>traces + radar-logs-*<br/>joined by correlation_id</small>")]:::store
+    ES[("Elasticsearch<br/><small>traces + radar-*-logs-*<br/>joined by correlation_id</small>")]:::store
 
     GRAF["Grafana<br/><small>5 dashboards</small>"]:::ext
     KIB["Kibana<br/><small>APM + Discover</small>"]:::ext
@@ -129,8 +129,11 @@ attribute rather than on propagated distributed-trace context.)
 Every service logs structured JSON to stdout via structlog. Fluent Bit tails those lines
 (the `.dev-run/<service>.log` files in compose, container stdout in Kubernetes), keeps
 only lines that parse as RADAR JSON (a `grep` filter on the presence of a `service`
-field drops interleaved uvicorn plain-text lines), and ships them to Elasticsearch as
-`radar-logs-YYYY.MM.DD`, the index the logs plugin (`plugins/logs/elastic`) queries.
+field drops interleaved uvicorn plain-text lines), and ships each line to a per-service
+`radar-<service>-logs-YYYY.MM.DD` index (routed off the `service` field by a Lua filter).
+A `radar-*-logs-*` index template pins them to 1 shard / 0 replicas and attaches a 7-day
+ILM policy so the ~8-fold per-service split stays shard- and retention-bounded; the logs
+plugin (`plugins/logs/elastic`) queries the `radar-*-logs-*` pattern.
 
 Because `correlation_id` is bound on every RADAR log line and also rides on every span,
 logs and traces for one incident are queryable by the same key in the same

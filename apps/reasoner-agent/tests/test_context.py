@@ -290,10 +290,17 @@ async def test_the_bundle_shape_including_alert_evidence(db: Database) -> None:
         "alert_labels",
         "alert_annotations",
         "retrieved_context",
+        "historical_prior",
+        "past_feedback",
     }
     assert bundle.retrieved_context == [], "Phase 8's slot, empty and in shape"
     assert bundle.alert_labels == {}, "no labels on the alert -> empty, not absent"
     assert bundle.alert_annotations == {}, "no annotations -> empty dict, in shape"
+    # Lever 3's slots: present and empty when this fingerprint has no history.
+    assert bundle.historical_prior.total == 0
+    assert bundle.historical_prior.category_counts == {}
+    assert bundle.past_feedback.confirmed_causes == []
+    assert bundle.past_feedback.unhelpful_count == 0
     assert bundle.service_name == SERVICE
     assert bundle.alert_name == ALERT, "not on the incidents row — read from alerts"
     assert bundle.opened_at == T0

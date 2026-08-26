@@ -31,7 +31,7 @@ imagePullSecrets: []
 # the kubernetes auth roles/policies seeded (platform-deps + bootstrap).
 vault:
   addr: http://vault.radar-infra.svc.cluster.local:8200
-  image: hashicorp/vault:1.18.0
+  image: hashicorp/vault:1.18.0@sha256:e2da7099950443e234ed699940fabcdc44b5babe33adfb459e189a63b7bb50d7
   # Rewrites the Postgres DSN host in Vault (native-dev localhost) to the
   # in-cluster address; passed to fetch-secrets.sh as RADAR_POSTGRES_HOST.
   postgresHost: postgres.radar-infra.svc.cluster.local

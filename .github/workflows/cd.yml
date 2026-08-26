@@ -74,6 +74,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # FROM python:3.14-slim in every Dockerfile is a Docker Hub pull, hit anew
+      # by each of the 8 services this job builds on every merge to main — the
+      # same anonymous rate limit that flaked CI's infra-image pulls (see
+      # ci.yml). Authenticate to raise the limit; skip gracefully when the
+      # secrets are absent.
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       # amd64 ONLY: the deploy target is an amd64 cluster, so building arm64 here
       # is wasted work — and under QEMU emulation it is the slow step that made CD
       # take ~15m and time out. (Local Apple-Silicon arm64 images come from a local

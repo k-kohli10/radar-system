@@ -28,6 +28,7 @@ estimate (the same ~4 chars/token count already used for admission).
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from time import perf_counter
@@ -42,6 +43,11 @@ from radar_llm_gateway.core.errors import (
     ProviderError,
     ProviderTimeoutError,
 )
+from radar_llm_gateway.gateway.circuit_breaker import (
+    CircuitBreaker,
+    CircuitBreakerRegistry,
+    CircuitState,
+)
 from radar_llm_gateway.gateway.fallback import run_with_fallback
 from radar_llm_gateway.gateway.model_router import ModelRouter
 from radar_llm_gateway.gateway.retry import RETRY_DELAYS_SECONDS
@@ -49,6 +55,13 @@ from radar_llm_gateway.gateway.stream import PrimedStream, prime_stream, sse_str
 from radar_llm_gateway.providers.base import ProviderBinding
 
 _log = get_logger(__name__)
+
+_CIRCUIT_STATE_VALUE = {
+    CircuitState.CLOSED: 0.0,
+    CircuitState.OPEN: 1.0,
+    CircuitState.HALF_OPEN: 2.0,
+}
+"""Numeric encoding of circuit state for the circuit-breaker-state gauge."""
 
 
 @dataclass(frozen=True)
@@ -84,18 +97,33 @@ class GatewayService:
         metrics: LLMMetrics,
         delays: tuple[float, ...] = RETRY_DELAYS_SECONDS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._config = config
         self._router = router
         self._metrics = metrics
         self._delays = delays
         self._sleep = sleep
+        self._breakers = CircuitBreakerRegistry(
+            failure_threshold=config.circuit_breaker.failure_threshold,
+            reset_timeout_seconds=config.circuit_breaker.reset_timeout_seconds,
+            clock=clock,
+            on_state_change=self._on_circuit_state,
+        )
 
     def mode_config(self, mode: LLMMode) -> ModeConfig:
         """The limits for ``mode``, for the routes' budget enforcement."""
         return self._config.modes[mode]
 
     # ---------------------------------------------------------------- hooks
+
+    def _breaker_for(self, binding: ProviderBinding) -> CircuitBreaker:
+        return self._breakers.get(binding.provider_name, binding.model)
+
+    def _on_circuit_state(self, provider: str, model: str, state: CircuitState) -> None:
+        self._metrics.circuit_breaker_state.labels(provider, model).set(
+            _CIRCUIT_STATE_VALUE[state]
+        )
 
     def _on_error(self, mode: LLMMode) -> Callable[[ProviderError], None]:
         def hook(exc: ProviderError) -> None:
@@ -176,6 +204,7 @@ class GatewayService:
                 sleep=self._sleep,
                 on_fallback=self._on_fallback,
                 on_error=self._on_error(mode),
+                breaker_for=self._breaker_for,
             )
         except AllProvidersFailedError:
             self._record_total_failure(mode, started, stream=False)
@@ -215,6 +244,7 @@ class GatewayService:
                 sleep=self._sleep,
                 on_fallback=self._on_fallback,
                 on_error=self._on_error(mode),
+                breaker_for=self._breaker_for,
             )
         except AllProvidersFailedError:
             self._record_total_failure(mode, started, stream=True)
@@ -289,6 +319,7 @@ class GatewayService:
                 sleep=self._sleep,
                 on_fallback=self._on_fallback,
                 on_error=self._on_error(mode),
+                breaker_for=self._breaker_for,
             )
         except AllProvidersFailedError:
             self._record_total_failure(mode, started, stream=False)

@@ -71,6 +71,24 @@ class FallbackConfig(BaseModel):
     model: str = Field(description="Fallback model id.")
 
 
+class CircuitBreakerConfig(BaseModel):
+    """Per-binding circuit-breaker tuning for the provider failure policy.
+
+    Optional in the YAML; the defaults match the module constants. A binding
+    that fails ``failure_threshold`` times in a row opens and fails fast for
+    ``reset_timeout_seconds`` before a half-open trial call.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    failure_threshold: int = Field(
+        default=5, gt=0, description="Consecutive failures before the circuit opens."
+    )
+    reset_timeout_seconds: float = Field(
+        default=30.0, gt=0, description="Open-circuit cooldown before a trial call."
+    )
+
+
 class GatewayConfig(BaseModel):
     """The full mode-routing table loaded from the gateway YAML config."""
 
@@ -78,6 +96,7 @@ class GatewayConfig(BaseModel):
 
     modes: dict[LLMMode, ModeConfig]
     fallback: dict[LLMMode, FallbackConfig] = Field(default_factory=dict)
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
 
     @model_validator(mode="after")
     def _require_every_mode(self) -> GatewayConfig:

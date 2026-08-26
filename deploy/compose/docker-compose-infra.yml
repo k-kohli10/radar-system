@@ -6,7 +6,7 @@ name: radar-infra
 
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16@sha256:c1b3783309b6499c795eed7c20135a1a4d25cae1b575c3d52c6f536129a1b109
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set in .env - run scripts/bootstrap.sh}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env - run scripts/bootstrap.sh}
@@ -22,7 +22,7 @@ services:
       retries: 10
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.16.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.16.0@sha256:93a9a7e1908f0c59ffce42ff494791bd785c36de40189759fc2a0ed7d6006c9d
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -38,7 +38,7 @@ services:
       retries: 20
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.16.0
+    image: docker.elastic.co/kibana/kibana:8.16.0@sha256:a1d0a0b439970d74b0a7678dbaaf245d3617865c4e4ec87f1da7673f9658a626
     environment:
       ELASTICSEARCH_HOSTS: http://elasticsearch:9200
     ports:
@@ -59,7 +59,7 @@ services:
     # non-zero on any HTTP error, so a failed install fails this service and, via
     # service_completed_successfully below, blocks the collector — the ordering
     # that stops `make down -v && make up` from reintroducing that race.
-    image: curlimages/curl:8.11.1
+    image: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
     restart: "no"
     depends_on:
       elasticsearch:
@@ -76,8 +76,39 @@ services:
       - --data-binary
       - "@/tmp/traces-index-template.json"
 
+  es-logs-init:
+    # One-shot: installs the per-service logs ILM policy and index template into
+    # Elasticsearch, so every radar-<service>-logs-* daily index gets 1 shard, 0
+    # replicas and a 7-day retention instead of uncontrolled dynamic-mapping defaults
+    # (Phase 13 shard economics). Policy FIRST, then the template that references it
+    # by name — the order matters, an index template naming an absent ILM policy is
+    # rejected. curl -fsS fails this service on any HTTP error, and
+    # service_completed_successfully on fluent-bit below blocks log shipping until the
+    # template exists, so the first daily index is created UNDER it rather than with
+    # defaults it could never pick up retroactively.
+    image: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+    restart: "no"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ../fluent-bit/logs-ilm-policy.json:/tmp/logs-ilm-policy.json:ro
+      - ../fluent-bit/logs-index-template.json:/tmp/logs-index-template.json:ro
+    entrypoint:
+      - sh
+      - -c
+      - >
+        curl -fsS -X PUT
+        http://elasticsearch:9200/_ilm/policy/radar-logs
+        -H 'Content-Type: application/json'
+        --data-binary @/tmp/logs-ilm-policy.json &&
+        curl -fsS -X PUT
+        http://elasticsearch:9200/_index_template/radar-logs
+        -H 'Content-Type: application/json'
+        --data-binary @/tmp/logs-index-template.json
+
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.119.0
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.119.0@sha256:36c35cc213c0f3b64d6e8a3e844dc90822f00725e0e518eaed5b08bcc2231e72
     command: ["--config=/etc/otel/collector-config.yaml"]
     # Mounts the single-source-of-truth config; the k8s ConfigMap embeds a
     # byte-identical copy (see deploy/otel/collector-daemonset.yaml).
@@ -101,7 +132,7 @@ services:
     # service being healthy — host-run services export best-effort.
 
   prometheus:
-    image: prom/prometheus:v2.55.0
+    image: prom/prometheus:v2.55.0@sha256:378f4e03703557d1c6419e6caccf922f96e6d88a530f7431d66a4c4f4b1000fe
     # Mounts the real scrape config + the simulated-shop rules (previously the dev
     # Prometheus ran on its default config with neither). host.docker.internal lets
     # it scrape the host-run RADAR services.
@@ -124,7 +155,7 @@ services:
       retries: 10
 
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    image: prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
     ports:
@@ -142,7 +173,7 @@ services:
       retries: 10
 
   grafana:
-    image: grafana/grafana:11.3.0
+    image: grafana/grafana:11.3.0@sha256:a0f881232a6fb71a0554a47d0fe2203b6888fe77f4cefb7ea62bed7eb54e13c3
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?set in .env - run scripts/bootstrap.sh}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set in .env - run scripts/bootstrap.sh}
@@ -160,7 +191,7 @@ services:
       retries: 10
 
   fluent-bit:
-    image: fluent/fluent-bit:3.2.2
+    image: fluent/fluent-bit:3.2.2@sha256:b7a2b9ee1958607da9a16b0efeb24a70a43c5b7e91dbabca4dc02e916aadb914
     # Tails the host-run services' real JSON logs from .dev-run/*.log (mounted at
     # /var/log/radar) and ships them to Elasticsearch as radar-logs-*, the index
     # the logs plugin queries. No healthcheck: the image has no shell/curl — the
@@ -178,9 +209,12 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+      # Wait for the logs template/ILM so the first daily index is created under it.
+      es-logs-init:
+        condition: service_completed_successfully
 
   vault:
-    image: hashicorp/vault:1.18.0
+    image: hashicorp/vault:1.18.0@sha256:e2da7099950443e234ed699940fabcdc44b5babe33adfb459e189a63b7bb50d7
     command: server -dev
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:?set in .env - run scripts/bootstrap.sh}

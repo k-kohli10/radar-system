@@ -20,7 +20,8 @@ from collections.abc import Awaitable, Callable
 
 from radar_common import get_logger
 
-from radar_llm_gateway.core.errors import ProviderError
+from radar_llm_gateway.core.errors import CircuitOpenError, ProviderError
+from radar_llm_gateway.gateway.circuit_breaker import CircuitBreaker
 
 RETRY_DELAYS_SECONDS: tuple[float, ...] = (1.0, 3.0, 9.0)
 """Backoff before each retry; the tuple length is the retry budget."""
@@ -34,6 +35,7 @@ async def call_with_retries[T](
     delays: tuple[float, ...] = RETRY_DELAYS_SECONDS,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     on_error: Callable[[ProviderError], None] | None = None,
+    breaker: CircuitBreaker | None = None,
 ) -> T:
     """Run ``operation``, retrying retryable :class:`ProviderError` failures.
 
@@ -43,15 +45,30 @@ async def call_with_retries[T](
     ``radar_llm_provider_errors_total``. Raises the final
     :class:`ProviderError` once the budget is exhausted (or immediately when
     the failure is not retryable).
+
+    ``breaker``, when given, guards every attempt: an open circuit fails fast
+    with :class:`CircuitOpenError` before ``operation`` is called at all, and a
+    failure that trips the circuit ends the retry loop immediately rather than
+    sleeping out the remaining budget on a binding now known to be down.
+    Successes and failures are reported to the breaker so it tracks the
+    binding's live health across requests.
     """
     attempts = len(delays) + 1
     for attempt in range(1, attempts + 1):
+        if breaker is not None and not breaker.allow():
+            raise CircuitOpenError(breaker.provider, breaker.model)
         try:
-            return await operation()
+            result = await operation()
         except ProviderError as exc:
+            if breaker is not None:
+                breaker.record_failure()
             if on_error is not None:
                 on_error(exc)
             if not exc.retryable or attempt == attempts:
+                raise
+            if breaker is not None and breaker.is_open():
+                # The circuit just tripped: fail fast to the fallback binding
+                # instead of sleeping out the rest of the retry budget.
                 raise
             delay = delays[attempt - 1]
             _log.warning(
@@ -65,4 +82,8 @@ async def call_with_retries[T](
                 retry_in_seconds=delay,
             )
             await sleep(delay)
+        else:
+            if breaker is not None:
+                breaker.record_success()
+            return result
     raise AssertionError("unreachable: loop always returns or raises")

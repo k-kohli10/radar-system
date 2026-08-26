@@ -115,7 +115,7 @@ spec:
         # compose's service_completed_successfully. --retry-all-errors retries the
         # 404 ES returns until the template is present.
         - name: wait-for-traces-template
-          image: curlimages/curl:8.11.1
+          image: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
           args:
             - -fsS
             - --retry
@@ -129,7 +129,7 @@ spec:
             - http://elasticsearch:9200/_index_template/radar-traces
       containers:
         - name: otel-collector
-          image: otel/opentelemetry-collector-contrib:0.119.0
+          image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.119.0@sha256:36c35cc213c0f3b64d6e8a3e844dc90822f00725e0e518eaed5b08bcc2231e72
           args:
             - --config=/etc/otel/collector-config.yaml
           ports:
