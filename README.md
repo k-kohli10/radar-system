@@ -2,6 +2,9 @@
 
 **Real-time Anomaly Detection and Automated Response**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python 3.14](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/)
+
 RADAR is an AI-powered incident intelligence platform for SRE workflows. It ingests
 pre-fired alerts from Prometheus and Kibana, correlates them into incidents using
 configurable rules, retrieves relevant runbooks, reasons over root causes with an LLM,
@@ -15,6 +18,7 @@ collects feedback on it, and answers status queries through a Slack bot.
 - [How It Works](#-how-it-works)
 - [Run It](#-run-it)
 - [Domain](#-domain)
+- [Stack](#-stack)
 - [Status](#-status)
 - [Documentation](#-documentation)
 - [License](#-license)
@@ -97,6 +101,7 @@ Then fire an alert and watch the RCA land in Slack and Postgres. Full walkthroug
 
 - **Docker (two-stack):** [docs/operations/docker.md](docs/operations/docker.md). One command up, plus the end-to-end test.
 - **Native dev:** [docs/local-development.md](docs/local-development.md). Services on the host for a fast edit loop.
+- **Kubernetes:** [docs/operations/kubernetes-cd.md](docs/operations/kubernetes-cd.md). A Helm chart (`deploy/helm/radar`, plus `deploy/helm/platform-deps`) deployed to a managed cluster by a manual, approval-gated GitHub Actions workflow.
 
 ---
 
@@ -109,12 +114,32 @@ memory pressure) drive the alert scenarios, the runbooks, and the demo narrative
 
 ---
 
+## 🧱 Stack
+
+Python 3.14 across uv workspaces. Each service is FastAPI + Pydantic v2 over
+SQLAlchemy async, with structlog for logging.
+
+| Role | Choice |
+|---|---|
+| **Inter-agent bus** | A Postgres transactional outbox — the only channel between agents. No Redis, no external message broker. |
+| **Secrets** | HashiCorp Vault secret files, never environment variables. |
+| **LLM / agent code** | Written directly against the provider. No LangChain, LangGraph, LiteLLM, or other orchestration framework. |
+
+The outbox keeps every handoff durable, atomic, and idempotent in the same
+database that holds incident state, so RADAR needs no separate broker to
+coordinate agents. Keeping the LLM and agent code framework-free keeps the
+control flow explicit and the dependency surface small.
+
+---
+
 ## 📍 Status
 
-RADAR is built incrementally, one phase at a time, with each phase landing as its own
-PR. See [docs/roadmap.md](docs/roadmap.md) for the phase breakdown and
-[docs/implementation_plan.md](docs/implementation_plan.md) for the full technical
-specification.
+RADAR is a working end-to-end system. Phases 0–13 are complete — the full
+pipeline, observability, CI, Kubernetes deployment, and security hardening — and
+Phase 14, docs and release polish toward the v1.0 tag, is in progress. See
+[docs/roadmap.md](docs/roadmap.md) for the phase-by-phase breakdown and its release
+tags, and [docs/implementation_plan.md](docs/implementation_plan.md) for the full
+technical specification.
 
 ---
 
