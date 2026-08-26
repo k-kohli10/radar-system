@@ -1,7 +1,6 @@
-name: CI
+name: ci
 
-# Single-repo CI (ADR 0018). Lint/typecheck and the full test suite run on every
-# push and pull request. Image builds live in a separate, path-gated workflow.
+# Lint, typecheck, full test suite, and offline Helm-chart validation.
 on:
   push:
     branches: ["**"]
@@ -15,10 +14,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Pin uv to the version the repo's uv.lock was written with (matches the
-  # Dockerfiles' COPY --from=ghcr.io/astral-sh/uv:0.11.26).
   UV_VERSION: "0.11.26"
   UV_PYTHON: "3.14"
+  HELM_VERSION: "v4.2.4"
+  KUBECONFORM_VERSION: "v0.8.0"
 
 jobs:
   lint:
@@ -31,19 +30,13 @@ jobs:
           curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: uv python install "${UV_PYTHON}"
-      # --frozen: fail if pyproject and uv.lock have drifted, rather than silently
-      # relocking. The same gate make lint runs locally: ruff check, ruff format
-      # --check, mypy strict.
       - run: uv sync --frozen --all-packages
       - run: make lint
 
   test:
     name: test (full suite + no-silent-skip guard)
     runs-on: ubuntu-latest
-    # Job-level, not referenced as `secrets.*` directly in a step `if:` below:
-    # the workflow-syntax parser rejects the `secrets` context there ("Unrecognized
-    # named-value: 'secrets'"). Mapping through `env:` first is the documented,
-    # working pattern for an optional-secret gate.
+    # Mapped through env: the workflow parser rejects secrets.* in a step `if:`.
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -56,18 +49,8 @@ jobs:
       - run: uv python install "${UV_PYTHON}"
       - run: uv sync --frozen --all-packages
 
-      # CI infra is the same compose stack as local dev, so the suite runs against
-      # the same services it was written for:
-      #   - Postgres: the real-Postgres guarantees (SKIP LOCKED, atomicity,
-      #     idempotency) — they SKIP without a database, which the guard below
-      #     turns into a red run.
-      #   - Elasticsearch + es-traces-init + otel-collector: the
-      #     trace-by-correlation-id done-condition (spans -> collector -> ES).
-      # The remaining infra tests (kubeconform, real-prometheus, reasoner
-      # fallback) stand up their own containers on the host Docker daemon that
-      # ubuntu-latest provides. The compose file interpolates ${VAR:?} for every
-      # service at load time, so all of them must be defined even though CI only
-      # starts a subset; the non-Postgres values are unused placeholders.
+      # The compose file interpolates ${VAR:?} for every service at load time, so
+      # all must be defined even though CI starts only the Postgres/ES/otel subset.
       - name: Write CI .env for the compose stack
         run: |
           cat > .env <<'ENV'
@@ -80,12 +63,8 @@ jobs:
           GRAFANA_ADMIN_PASSWORD=ci-placeholder-unused
           ENV
 
-      # Authenticate to Docker Hub so infra image pulls use the higher AUTHENTICATED
-      # rate limit instead of the per-IP anonymous one that throttles shared GitHub
-      # runners — the durable fix for the Phase-12 pull flake (the pre-pull retry
-      # below stays as a fallback). Skipped when the secrets are absent (forks, or
-      # PRs from forks, where secrets are not injected), so those fall back to the
-      # anonymous pull + retry rather than failing on a missing credential.
+      # Authenticated pulls use the higher Docker Hub rate limit (shared runners hit
+      # the anonymous per-IP limit). Skipped on forks, where secrets are absent.
       - name: Log in to Docker Hub
         if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         uses: docker/login-action@v3
@@ -93,41 +72,28 @@ jobs:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ env.DOCKERHUB_TOKEN }}
 
-      # Pre-pull the infra images with retries. Authenticated pulls (above) raise the
-      # rate limit, but shared runners can still see a transient Docker Hub timeout;
-      # isolating the pull lets us retry just that flaky step, and `up` below then
-      # uses the cached images. Belt (auth) and suspenders (retry).
+      # Isolated + retried so a transient Docker Hub throttle retries just this step.
       - name: Pre-pull infra images (retry on Docker Hub throttling)
         run: |
           set -uo pipefail
           for i in 1 2 3; do
             docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env \
               pull postgres elasticsearch otel-collector && exit 0
-            echo "infra image pull attempt $i failed (likely Docker Hub throttling); retrying in $((i*20))s"
+            echo "infra image pull attempt $i failed; retrying in $((i*20))s"
             sleep $((i*20))
           done
           echo "infra image pull failed after 3 attempts"; exit 1
 
       - name: Start infra (postgres, elasticsearch, otel-collector)
-        # --wait blocks until postgres is healthy, elasticsearch is healthy,
-        # es-traces-init has completed (installs the traces template), and the
-        # collector is up. Naming postgres + otel-collector pulls the rest in via
-        # depends_on. Images are already cached by the pre-pull step above.
         run: >
           docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env
           up -d --wait postgres otel-collector
 
-      # The full non-live suite — the SAME gate as make test — with a JUnit
-      # report. kubeconform fetches k8s schemas from raw.githubusercontent.com at
-      # run time; GitHub-hosted runners have that egress. Docker is required and
-      # present, so the infra tests FAIL (not skip) if it ever isn't.
       - name: Run tests
         run: uv run pytest -m 'not live' --junitxml=junit.xml
 
-      # THE NO-SILENT-SKIP GUARD. pytest exits 0 when tests SKIP, so a Postgres/
-      # Elasticsearch/Docker that failed to come up would leave the suite
-      # green-with-skips — a false green. This fails the run if any load-bearing
-      # infra/DB proof skipped or was absent from the report.
+      # pytest exits 0 on SKIP, so failed infra would go green-with-skips. This
+      # fails the run if any load-bearing infra/DB proof did not actually run.
       - name: Assert required infra/DB proofs ran (no silent skip)
         run: uv run python scripts/assert-required-tests-ran.py junit.xml
 
@@ -143,3 +109,23 @@ jobs:
         run: >
           docker compose -f deploy/compose/docker-compose-infra.yml --env-file .env
           down -v
+
+  helm:
+    name: helm lint + template + kubeconform (--strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Install kubeconform
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+          sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
+      - name: Validate charts
+        run: make helm-validate

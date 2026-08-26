@@ -58,6 +58,28 @@ spec:
               readOnly: true
             - name: vault-secrets
               mountPath: /vault/secrets
+        {{- /*
+        Startup ordering: block the app container until each dependency's /readyz
+        returns 200, so llm-gateway (and then knowledge-service) come up before
+        their consumers. Reuses the Vault image (busybox wget); the outbox +
+        readiness design tolerates the wait for ungated services.
+        */ -}}
+        {{- range $dep := ($svc.dependsOn | default list) }}
+        - name: wait-for-{{ $dep }}
+          image: {{ $.Values.vault.image }}
+          securityContext:
+            {{- toYaml $.Values.containerSecurityContext | nindent 12 }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "waiting for {{ $dep }} readiness..."
+              until wget -q -O /dev/null "http://{{ $dep }}:8080{{ $.Values.probes.readiness.path }}"; do
+                echo "  {{ $dep }} not ready; retrying in 3s"
+                sleep 3
+              done
+              echo "{{ $dep }} ready"
+        {{- end }}
       containers:
         - name: {{ $name }}
           image: {{ include "radar.image" (dict "name" $name "root" $) }}

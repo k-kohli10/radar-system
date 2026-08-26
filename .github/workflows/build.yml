@@ -1,10 +1,8 @@
 name: build
 
-# Path-gated multi-arch image builds (ADR 0018). The detect job turns the changed
-# files into the exact set of services to build; a deploy/- or docs-only change
-# produces an empty matrix and builds nothing. CD (push to a registry / cluster)
-# is deferred to Phase 12, so this workflow builds and boot-smokes only — it never
-# pushes.
+# Path-gated multi-arch image builds + boot-smoke. Detect turns changed files into
+# the exact services to build; a deploy/- or docs-only change builds nothing. No
+# push — publishing to GHCR happens in deploy.yml.
 on:
   push:
     branches: ["**"]
@@ -26,7 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so the base..head diff can be computed for any event.
           fetch-depth: 0
       - name: Detect changed services
         id: detect
@@ -39,15 +36,13 @@ jobs:
             base="${{ github.event.before }}"
             head="${{ github.sha }}"
           fi
-          # New branch or an unknown base (first push, force-push): diff against the
-          # empty tree so every file counts and every service is rebuilt.
+          # New branch / unknown base: diff against the empty tree so every service builds.
           if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
              || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
             base="$(git hash-object -t tree /dev/null)"
           fi
           changed="$(git diff --name-only "$base" "$head")"
           echo "changed files:"; echo "$changed"
-          # The script is pure stdlib (tomllib), so no uv/venv is needed here.
           services="$(printf '%s\n' "$changed" | python3 scripts/detect-changed-services.py)"
           echo "services to build: $services"
           echo "services=$services" >> "$GITHUB_OUTPUT"
@@ -61,10 +56,7 @@ jobs:
       fail-fast: false
       matrix:
         service: ${{ fromJSON(needs.detect.outputs.services) }}
-    # Job-level, not referenced as `secrets.*` directly in a step `if:` below: the
-    # workflow-syntax parser rejects the `secrets` context there ("Unrecognized
-    # named-value: 'secrets'"). Mapping through `env:` first is the documented,
-    # working pattern for an optional-secret gate.
+    # Mapped through env: the workflow parser rejects secrets.* in a step `if:`.
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -73,11 +65,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      # Every service Dockerfile's FROM python:3.14-slim is a Docker Hub pull, and
-      # this job runs it for every changed service on every PR (twice: multi-arch,
-      # then the native reload for boot-smoke) — the same anonymous per-IP rate
-      # limit that flaked CI's infra-image pulls (see ci.yml). Authenticate to
-      # raise the limit; skip gracefully when the secrets are absent (forks).
+      # Raises the Docker Hub pull rate limit; skipped on forks (no secrets).
       - name: Log in to Docker Hub
         if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         uses: docker/login-action@v3
@@ -85,10 +73,8 @@ jobs:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ env.DOCKERHUB_TOKEN }}
 
-      # Prove BOTH architectures compile. A multi-platform build cannot be loaded
-      # into the local daemon, so this exports nothing — no --push (CD deferred,
-      # no registry), no --load. The image is tagged by git SHA so the tag scheme
-      # is the one CD will publish under.
+      # Prove both arches compile. Multi-platform can't load into the daemon, so no
+      # --load/--push here; tagged by SHA to match the scheme deploy.yml publishes.
       - name: Build multi-arch (amd64 + arm64), tagged by SHA, no push
         run: |
           docker buildx build \
@@ -97,9 +83,7 @@ jobs:
             --tag "radar-${{ matrix.service }}:${{ github.sha }}" \
             .
 
-      # Boot-smoke needs a runnable image. Rebuild the runner's native arch with
-      # --load (reusing the layers just built); amd64 is native on ubuntu-latest,
-      # so no emulation.
+      # Boot-smoke needs a runnable image: rebuild the native arch with --load.
       - name: Build native image for boot-smoke (loadable)
         run: |
           docker buildx build \
@@ -108,13 +92,8 @@ jobs:
             --tag "radar-${{ matrix.service }}:smoke" \
             .
 
-      # SCOPE: this proves the image STARTS and SERVES /healthz — the check that
-      # would have caught the entrypoint and missing-dependency bugs drained
-      # earlier this phase, which buildx alone (it never runs the image) would
-      # ship green. It does NOT prove that configured backends load: runtime
-      # plugin resolution (metrics/traces backends from config + Vault secrets) is
-      # a Phase 12 real-deployment concern. /readyz is expected to be 503 here (no
-      # secrets); /healthz is the liveness contract.
+      # Proves the image STARTS and serves /healthz (catches entrypoint / missing-dep
+      # bugs buildx alone ships green). Not a backend-load check — /readyz needs secrets.
       - name: Boot-smoke — container starts and serves /healthz
         run: |
           set -euo pipefail
@@ -132,7 +111,7 @@ jobs:
             docker logs "smoke-$svc" || true
             exit 1
           fi
-          echo "BOOT-SMOKE OK for $svc: starts and serves /healthz (not a backend-load check)"
+          echo "BOOT-SMOKE OK for $svc: starts and serves /healthz"
 
       - name: Clean up smoke container
         if: always()

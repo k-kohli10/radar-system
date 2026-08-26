@@ -1,8 +1,8 @@
 # Deploying RADAR to a managed Kubernetes cluster (CD)
 
 This is the runbook for the **remote Kubernetes deployment target**: a managed
-Kubernetes (K3s) cluster that the [`cd`](../../.github/workflows/cd.yml) workflow
-deploys to with `helm upgrade` (ADR 0012). It is provisioned on demand for an
+Kubernetes (K3s) cluster that the [`deploy`](../../.github/workflows/deploy.yml)
+workflow deploys to with `helm upgrade` (ADR 0012). It is provisioned on demand for an
 active testing session and torn down after — RADAR rebuilds its state from
 scratch on every start (the dev Vault re-seeds, the runbook index rebuilds), so an
 ephemeral cluster fits.
@@ -22,14 +22,21 @@ token-authenticated, so no self-hosted runner is needed.
 ## How the pieces fit
 
 ```
-push to main ─┐
-              ├─▶ cd workflow (GitHub-hosted runner)
-workflow_     ┘        │
-dispatch               ├─ build + push 8 images ──▶ GHCR (public, SHA + 0.6.0 tags)
-                       └─ helm upgrade ──(kubeconfig secret)──▶ K8s cluster
-                              1. platform-deps  (radar-infra ns)
-                              2. radar          (radar ns, images pinned to the SHA)
+workflow_dispatch ──▶ deploy workflow (GitHub-hosted runner)
+ (service: all               │
+  or one component)          ├─ build + push image(s) ──▶ GHCR (public, SHA + 0.6.0 tags)
+                             └─ [approval] ─ helm upgrade ──(kubeconfig secret)──▶ K8s cluster
+                                    all:            1. platform-deps  (radar-infra ns)
+                                                    2. radar          (radar ns, images pinned to the SHA)
+                                    one component:  helm --reuse-values, rolls only that Deployment
 ```
+
+The deploy is **manual only** (`workflow_dispatch`) — the cluster is ephemeral, so
+"push to main = deploy" would fail whenever no cluster is up. `service: all`
+deploys the whole stack; picking a single service rebuilds only that image and
+rolls only its Deployment. The `[approval]` step is the `kubernetes` environment's
+required-reviewers gate (see setup below), which pauses the run before it touches
+the cluster.
 
 platform-deps installs with `--wait` (it blocks on the Vault-bootstrap Job).
 The radar chart installs **without** `--wait`, on purpose: Helm still runs and waits
@@ -38,7 +45,13 @@ the index), but `--wait` on the release would deadlock — it blocks on every
 Deployment's readiness before running the hooks, yet knowledge-service is not ready
 until the indexer hook builds its index. A separate **Verify rollout** step then
 waits for every app Deployment to become ready — that step is the Phase 12 done-when,
-and a green `cd` run means every readiness probe passed.
+and a green `deploy` run means every readiness probe passed.
+
+Within the app tier, startup is ordered by per-service `dependsOn` wait-for
+init-containers: `llm-gateway` comes up first, then `knowledge-service`, then their
+consumers (`reasoner`/`planner`/`watcher`/`feedback`). `ingestion` and
+`outbox-worker` are ungated and start immediately. Because gated consumers wait on
+the indexer hook, **Verify rollout** allows 300s per Deployment.
 
 ## One-time setup
 
@@ -52,17 +65,18 @@ so the `radar-*` packages are published **public**. Public means pods and the
 Vault-bootstrap Job pull with no image-pull secret, which keeps CD and the chart
 free of registry credentials.
 
-After the first `cd` run has pushed the packages, open each package under
+After the first `deploy` run has pushed the packages, open each package under
 `github.com/users/k-kohli10/packages`, and in **Package settings → Change
 visibility** set it to **Public**. (New GHCR packages default to private.)
 
 ### 2. Create the `kubernetes` GitHub environment
 
-The deploy job runs under an [environment](../../.github/workflows/cd.yml) named
+The deploy job runs under an [environment](../../.github/workflows/deploy.yml) named
 `kubernetes`, so the cluster credentials are scoped to it (they carry
 cluster-admin reach). In the repo: **Settings → Environments → New environment →
-`kubernetes`**, then add its secrets in the next steps. Optionally add a
-required-reviewer protection rule so a deploy waits for approval.
+`kubernetes`**, then add its secrets in the next steps. **Enable Required
+reviewers** (add yourself) — this is the approval gate: the run builds the images,
+then pauses for your approval before the `deploy` job touches the cluster.
 
 ## Per-session: bring the cluster up
 
@@ -113,14 +127,22 @@ The deploy still completes without them — only these two services degrade.
 
 ## Deploy
 
-- **Automatic:** merge to `main`. The `cd` workflow builds, pushes, and upgrades.
-- **On demand:** **Actions → cd → Run workflow** (`workflow_dispatch`). This is
-  the usual path, since the cluster is created per session — bring it up, store
-  the kubeconfig, then dispatch.
+Deploys are **manual** (`workflow_dispatch`) — the cluster is per-session, so bring
+it up, store the kubeconfig, then dispatch: **Actions → deploy → Run workflow**.
 
-Watch the run: `build + push` (8 parallel jobs) then `helm upgrade -> k8s`. The
-final **Verify rollout** step prints the pods and fails the run if any Deployment
-is not fully rolled out.
+- **Full stack:** `service: all` (default). Builds + pushes all 8 images, upgrades
+  `platform-deps` then `radar`.
+- **Single component:** pick one service (e.g. `reasoner-agent`). Rebuilds only
+  that image and runs `helm upgrade --reuse-values --set services.<svc>.image=…`,
+  so only that Deployment rolls. Requires the `radar` release to already exist —
+  run a full-stack deploy first.
+- **`image_tag`** (optional): defaults to the run's git SHA; set it to redeploy a
+  specific previously-built tag.
+
+After the build job(s), the run **pauses for approval** (the `kubernetes`
+environment gate) before `helm upgrade -> k8s`. The final **Verify rollout** step
+prints the pods and fails the run if the targeted Deployment(s) are not fully
+rolled out.
 
 ## Connectivity notes
 

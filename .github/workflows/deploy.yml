@@ -1,0 +1,228 @@
+name: deploy
+
+# Manual deploy to the ephemeral K3s cluster. Build + push service images to GHCR,
+# then helm upgrade. Deploy the whole stack (service: all) or a single component on
+# demand (service: <name>) — a single-component run rebuilds only that image and
+# rolls only that Deployment (helm --reuse-values), leaving the rest untouched. The
+# deploy job runs in the `kubernetes` environment; enable Required reviewers on it
+# (repo Settings) to gate the cluster steps behind an approval.
+#
+# One-time setup:
+#   - GHCR packages radar-* are PUBLIC (images carry no secrets; secrets come from
+#     Vault at runtime) so pods pull without a pull secret.
+#   - Environment `kubernetes` secrets:
+#       CD_KUBECONFIG          (required) base64-encoded kubeconfig, cluster-admin reach
+#       RADAR_OPENAI_API_KEY   (optional) seeds secret/radar/llm for the gateway
+#       RADAR_SLACK_BOT_TOKEN / RADAR_SLACK_APP_TOKEN (optional) for feedback-service
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Component to deploy (all = full stack)"
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - ingestion
+          - llm-gateway
+          - outbox-worker
+          - watcher-agent
+          - planner-agent
+          - reasoner-agent
+          - knowledge-service
+          - feedback-service
+      image_tag:
+        description: "Image tag to deploy (default: this run's git SHA)"
+        required: false
+        default: ""
+
+# Never cancel an in-flight deploy: a half-applied helm upgrade is worse than a queued one.
+concurrency:
+  group: deploy-${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: k-kohli10
+  HELM_VERSION: "v4.2.4"
+  APP_VERSION: "0.6.0"
+
+jobs:
+  setup:
+    name: resolve build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.pick.outputs.services }}
+    steps:
+      - id: pick
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.service }}" = "all" ]; then
+            echo 'services=["ingestion","llm-gateway","outbox-worker","watcher-agent","planner-agent","reasoner-agent","knowledge-service","feedback-service"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "services=[\"${{ inputs.service }}\"]" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-push:
+    name: build + push ${{ matrix.service }}
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.setup.outputs.services) }}
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Raises the Docker Hub pull rate limit; skipped when secrets are absent.
+      - name: Log in to Docker Hub
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      # amd64 only: the deploy target is amd64, so arm64 here is wasted QEMU time.
+      # Pushed under the immutable git SHA (deploy pins it) and the human appVersion.
+      - name: Build and push (amd64), SHA + version tags
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --file "apps/${{ matrix.service }}/Dockerfile" \
+            --tag "${REGISTRY}/${OWNER}/radar-${{ matrix.service }}:${GITHUB_SHA}" \
+            --tag "${REGISTRY}/${OWNER}/radar-${{ matrix.service }}:${APP_VERSION}" \
+            --push \
+            .
+
+  deploy:
+    name: helm upgrade -> k8s
+    needs: build-push
+    runs-on: ubuntu-latest
+    # Deployment credentials live here; enable Required reviewers on this
+    # environment to pause the run for approval before the cluster is touched.
+    environment: kubernetes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      # Kubeconfig is base64 so it survives as a single-line secret.
+      - name: Write kubeconfig
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.CD_KUBECONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          echo "KUBECONFIG=$HOME/.kube/config" >> "$GITHUB_ENV"
+
+      - name: Sanity-check cluster reachability
+        run: kubectl version && kubectl get nodes
+
+      # Full-stack only: out-of-band secrets the vault-bootstrap Job reads. Created
+      # from environment secrets when present; skipped otherwise (bootstrap tolerates
+      # their absence). A single-component deploy assumes infra is already up.
+      - name: Seed out-of-band secrets (if provided)
+        if: ${{ inputs.service == 'all' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.RADAR_OPENAI_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.RADAR_SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN: ${{ secrets.RADAR_SLACK_APP_TOKEN }}
+        run: |
+          set -euo pipefail
+          kubectl create namespace radar-infra --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${OPENAI_API_KEY}" ]; then
+            kubectl -n radar-infra create secret generic radar-llm-keys \
+              --from-literal=openai_api_key="${OPENAI_API_KEY}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "seeded radar-llm-keys"
+          else
+            echo "RADAR_OPENAI_API_KEY not set — gateway will 401 upstream until it is"
+          fi
+          if [ -n "${SLACK_BOT_TOKEN}" ] && [ -n "${SLACK_APP_TOKEN}" ]; then
+            kubectl -n radar-infra create secret generic radar-slack-keys \
+              --from-literal=slack_bot_token="${SLACK_BOT_TOKEN}" \
+              --from-literal=slack_app_token="${SLACK_APP_TOKEN}" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "seeded radar-slack-keys"
+          else
+            echo "Slack tokens not set — feedback-service will stay not-ready until they are"
+          fi
+
+      # Full-stack only. platform-deps first: --wait blocks on the Vault bootstrap
+      # Job so the app chart installs only once infra (Postgres/Vault/ES) is ready.
+      - name: helm upgrade platform-deps
+        if: ${{ inputs.service == 'all' }}
+        run: |
+          helm upgrade --install platform-deps deploy/helm/platform-deps \
+            --namespace radar-infra --create-namespace \
+            --wait --timeout 10m
+
+      # Full stack: install/upgrade the whole radar release pinned to the built tag.
+      # NO --wait: it would block on Deployment readiness before the post-install
+      # hooks (db-migration -> knowledge-indexer) run, and knowledge-service is not
+      # ready until the indexer hook builds its index. Verify below is the gate.
+      - name: helm upgrade radar (full stack)
+        if: ${{ inputs.service == 'all' }}
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          [ -z "$TAG" ] && TAG="${GITHUB_SHA}"
+          helm upgrade --install radar deploy/helm/radar \
+            --namespace radar --create-namespace \
+            --set image.tag="$TAG" \
+            --timeout 15m
+
+      # Single component: override only this service's image and reuse every other
+      # value, so helm rolls just this Deployment. Requires the radar release to
+      # already exist (run a full-stack deploy first).
+      - name: helm upgrade radar (single component)
+        if: ${{ inputs.service != 'all' }}
+        run: |
+          set -euo pipefail
+          svc="${{ inputs.service }}"
+          TAG="${{ inputs.image_tag }}"
+          [ -z "$TAG" ] && TAG="${GITHUB_SHA}"
+          if ! helm status radar -n radar >/dev/null 2>&1; then
+            echo "radar release not found — run a full-stack deploy (service: all) first"; exit 1
+          fi
+          helm upgrade radar deploy/helm/radar \
+            --namespace radar --reuse-values \
+            --set "services.${svc}.image=${REGISTRY}/${OWNER}/radar-${svc}:${TAG}" \
+            --timeout 15m
+
+      # Readiness gate. Gated consumers stay in Init until llm-gateway /
+      # knowledge-service are ready and the indexer hook completes, so allow 300s.
+      - name: Verify rollout
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.service }}" = "all" ]; then
+            kubectl -n radar get pods -o wide
+            kubectl -n radar get deploy -o name | while read -r dep; do
+              kubectl -n radar rollout status "$dep" --timeout=300s
+            done
+          else
+            kubectl -n radar rollout status "deployment/${{ inputs.service }}" --timeout=300s
+          fi
