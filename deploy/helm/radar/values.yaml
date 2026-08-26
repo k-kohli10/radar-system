@@ -136,6 +136,10 @@ containerSecurityContext:
 #               When enabled, the Deployment omits a static replica count.
 #   configMounts — list of {configMap, key, mountPath} single-file ConfigMap
 #               mounts (e.g. correlation rules, plan templates).
+#   dependsOn — list of peer service names; a wait-for init-container blocks this
+#               service's startup until each peer's /readyz returns 200. Enforces
+#               llm-gateway -> knowledge-service -> consumers ordering. Ungated
+#               services (ingestion, outbox-worker) rely on outbox + readiness retry.
 services:
   ingestion:
     hpa:
@@ -163,6 +167,7 @@ services:
       limits:
         memory: 384Mi
   watcher-agent:
+    dependsOn: [llm-gateway, knowledge-service]
     resources:
       requests:
         cpu: 100m
@@ -176,6 +181,7 @@ services:
         key: correlation-rules.yaml
         mountPath: /app/config/correlation-rules.yaml
   planner-agent:
+    dependsOn: [llm-gateway, knowledge-service]
     resources:
       requests:
         cpu: 100m
@@ -188,12 +194,15 @@ services:
       - configMap: planner-plan-templates
         key: plan-templates.yaml
         mountPath: /app/config/plan-templates.yaml
-  reasoner-agent: {}
+  reasoner-agent:
+    dependsOn: [llm-gateway, knowledge-service]
   knowledge-service:
+    dependsOn: [llm-gateway]
     resources:
       requests:
         cpu: 150m
         memory: 384Mi
       limits:
         memory: 768Mi
-  feedback-service: {}
+  feedback-service:
+    dependsOn: [llm-gateway, knowledge-service]
