@@ -1,24 +1,19 @@
 """Anthropic implementation of the RADAR LLM provider contract.
 
 Structural implementation of ``radar_contracts.LLMProvider`` over the
-``anthropic`` SDK. Portable by design: depends on ``radar-contracts`` and the
-vendor SDK only, never on gateway internals. Vendor exceptions propagate
-unwrapped — classification, redaction, timeouts, and retries are the
-caller's job. Anthropic has no embedding model, so there is no
-``EmbeddingProvider`` here.
+``anthropic`` SDK. Vendor exceptions propagate unwrapped: classification,
+redaction, timeouts, and retries are the caller's job. Anthropic has no embedding
+model, so there is no ``EmbeddingProvider`` here.
 
 Two Anthropic-specific translations from the OpenAI-style message format:
 
-- **System messages** go in the API's single ``system`` string, not the
-  messages array. The incoming format allows multiple system messages
-  interspersed in the conversation; they are concatenated with newline
-  separators (never silently dropped). With no system message, the
-  parameter is omitted.
-- **``max_tokens`` is a hard API requirement**, not an option. The
-  constructor requires a positive ``max_output_tokens`` and fails fast at
-  construction (i.e. gateway startup) when it is missing — otherwise every
-  request would 400 (non-retryable), which is correct but miserable to
-  debug at 3am.
+- **System messages** go in the API's single ``system`` string rather than the
+  messages array. Multiple system messages are concatenated with newline
+  separators; with no system message the parameter is omitted.
+- **``max_tokens`` is a hard API requirement.** The constructor requires a
+  positive ``max_output_tokens`` and fails fast at construction (i.e. gateway
+  startup) when it is missing, rather than letting every request 400
+  non-retryably at call time.
 """
 
 from __future__ import annotations

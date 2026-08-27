@@ -1,10 +1,8 @@
 """RADAR Slack notification backend plugin.
 
-Portable structural implementation of the ``radar-contracts``
-``NotificationBackend`` protocol over the slack-sdk async Web API client. Depends
-only on ``radar-contracts`` and the ``slack_sdk`` client (plus ``aiohttp``, which
-its async client requires); the consuming application registers the class with
-its own plugin registry and constructs it via the plugin-sdk loader.
+Structural implementation of the ``radar-contracts`` ``NotificationBackend``
+protocol over the slack-sdk async Web API client (which also pulls in
+``aiohttp``), plus the Socket Mode receive side.
 """
 
 from __future__ import annotations

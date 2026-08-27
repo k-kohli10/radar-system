@@ -1,9 +1,7 @@
 """RADAR Prometheus metrics backend plugin.
 
-Portable structural implementation of the ``radar-contracts`` ``MetricsBackend``
-protocol over the ``prometheus_client`` SDK. Depends only on ``radar-contracts``
-and the ``prometheus_client`` library; the consuming application registers the
-class with its own plugin registry and constructs it via the plugin-sdk loader.
+Structural implementation of the ``radar-contracts`` ``MetricsBackend`` protocol
+over the ``prometheus_client`` SDK.
 """
 
 from __future__ import annotations

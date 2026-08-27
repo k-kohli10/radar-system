@@ -1,18 +1,15 @@
 """Elasticsearch implementation of the RADAR logs backend contract.
 
 Structural implementation of ``radar_contracts.LogsBackend`` over the
-Elasticsearch async client. Portable by design: it depends on ``radar-contracts``
-and the ``elasticsearch`` SDK only, and never imports the plugin-sdk or any RADAR
-service. The consuming application registers this class with its own plugin
-registry and constructs it from config via the plugin-sdk loader.
+Elasticsearch async client.
 
 RADAR services emit one JSON log object per line (see ``radar_common.logging``):
 ``service``, ``event`` (the message), ``level``, ``timestamp`` (ISO-8601 UTC),
 and ``correlation_id``. Fluent Bit ships those to Elasticsearch and this backend
-queries them back — filtering by service and time window, optionally free-text
+queries them back, filtering by service and time window, optionally free-text
 matching the message, newest first. The document field names are constructor
 settings (defaulting to that convention) because the logs index mapping is a
-deployment concern, not part of the contract.
+deployment concern rather than part of the contract.
 
 POC scope: a correct single-index query. Connection pooling, retry-with-jitter,
 and search tuning are deferred to Phase 13.

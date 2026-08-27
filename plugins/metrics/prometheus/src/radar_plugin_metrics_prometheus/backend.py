@@ -1,18 +1,15 @@
 """Prometheus implementation of the RADAR metrics backend contract.
 
 Structural implementation of ``radar_contracts.MetricsBackend`` over
-``prometheus_client``. Portable by design: it depends on ``radar-contracts`` and
-the ``prometheus_client`` SDK only, and never imports the plugin-sdk or any RADAR
-service. The consuming application registers this class with its own plugin
-registry and constructs it from config via the plugin-sdk loader.
+``prometheus_client``.
 
-Recording is in-process and synchronous — counters, histograms, and gauges are
+Recording is in-process and synchronous: counters, histograms, and gauges are
 updated in a ``CollectorRegistry`` and scraped from the service's ``/metrics``
-endpoint; no I/O happens here. ``prometheus_client`` requires each metric to be
-created once with a fixed set of label names, so this backend lazily creates a
+endpoint, and no I/O happens here. ``prometheus_client`` requires each metric to
+be created once with a fixed set of label names, so this backend lazily creates a
 metric on first use (taking its label names from that first call) and caches it,
 reusing the same object on later calls. A name reused with a different metric
-type collides in the registry and raises — misuse is surfaced, not hidden.
+type collides in the registry and raises, surfacing the misuse.
 
 POC scope: default histogram buckets, no metric-name namespacing or per-metric
 bucket tuning (deferred to Phase 13).
@@ -34,10 +31,10 @@ class PrometheusMetricsBackend:
     def __init__(self, *, registry: CollectorRegistry | None = None) -> None:
         """Record into ``registry``, defaulting to the process-global registry.
 
-        The default is ``prometheus_client.REGISTRY`` — the one
-        ``generate_latest()`` scrapes for a standard ``/metrics`` endpoint — so
-        the backend works with no configuration. Tests pass a fresh registry to
-        stay isolated.
+        The default is ``prometheus_client.REGISTRY``, the one
+        ``generate_latest()`` scrapes for a standard ``/metrics`` endpoint, so the
+        backend works with no configuration. Tests pass a fresh registry to stay
+        isolated.
         """
         self._registry = registry if registry is not None else REGISTRY
         self._counters: dict[str, Counter] = {}
