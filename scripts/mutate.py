@@ -2,42 +2,26 @@
 """Mutation harness: break one guarantee, prove the load-bearing test goes red, restore.
 
 A test that passes proves nothing on its own. It has to FAIL when the thing it guards is
-broken — otherwise it is a test-shaped comment, and the suite is certifying code nobody
-has actually checked. So every guard in this repo gets mutated: change the behaviour it
-protects, and watch its test go red.
+broken. So every guard in this repo gets mutated: change the behaviour it protects, and
+watch its test go red.
 
-WHY THIS IS A TOOL AND NOT A HABIT
-----------------------------------
-Three times now, a hand-rolled mutation has quietly certified nothing:
+    A mutation that changes no assertion means the tests are blind, the code is dead, or
+    the mutation never applied. Find out which. Twice in this repo's history it was the
+    third.
 
-1. **Dead code the suite could not see.** The planner's duplicate pre-check was deleted
-   and NO test changed — the unique index absorbed the sequential duplicate too, so the
-   outcome was identical and the pre-check was, as far as the tests knew, dead.
-2. **A guard tested only through the layer below it.** The reasoner's race path was
-   exercised via ``store_recommendation`` directly, so deleting the HANDLER's entire
-   ``except IntegrityError`` block changed nothing. 184 tests passed over dead code.
-3. **A mutation applied to the WRONG SITE.** ``await mark_processed(...)`` followed by
-   ``await session.commit()`` appears twice in the reasoner's handler at identical
-   indentation. A ``str.replace(old, new, 1)`` hit the first one — the unhandled-event
-   branch — not the write path. The run came back green and would have "proved" that
-   post-commit metric placement does not matter. It is the opposite of the truth.
+WHY ANCHORS MUST BE UNIQUE
+--------------------------
+``str.replace(old, new, 1)`` silently mutates the FIRST match. When an anchor occurs
+twice (``await mark_processed(...)`` + ``await session.commit()`` appears twice in the
+reasoner's handler at identical indentation), the mutation lands on the wrong site, the
+run comes back green, and that green is read as proof the guard does not matter.
 
-Case 3 is the dangerous one, and it is the reason for :func:`_locate`. A green run that
-certifies NOTHING is indistinguishable from a passing test. Checking that the anchor is
-PRESENT does not catch it — the anchor was present, twice. Only checking that it is
-**UNIQUE** catches it.
-
-So: an ambiguous anchor is a HARNESS FAILURE, not a mutation that quietly lands
-somewhere else. The wrong thing is made unrepresentable, which is the same rule this
-repo applies to its own code — now applied to the tooling that checks it.
-
-    A mutation that changes no assertion means the tests are blind or the code is dead.
-    Find out which. Never assume the third possibility — that the mutation did not
-    actually apply — is impossible: twice now it was the answer.
+Checking the anchor is PRESENT does not catch this; the anchor was present, twice. Only
+checking it is **UNIQUE** does, which is what :func:`_locate` enforces: an ambiguous
+anchor is a harness failure, not a mutation applied somewhere else.
 
 RUN IT ON THE SIMPLE ONES TOO. The simplicity of the CHANGE says nothing about the
-uniqueness of the TARGET: a one-line increment is trivial, but if that line appears
-twice, the anchor is ambiguous and the harness is the only thing that will tell you.
+uniqueness of the TARGET.
 
 USAGE
 -----
@@ -71,11 +55,10 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class AmbiguousAnchorError(AssertionError):
-    """The anchor matches more than once — the harness refuses to guess.
+    """The anchor matches more than once, and the harness refuses to guess.
 
-    THE bug this tool exists to prevent. ``str.replace(old, new, 1)`` would silently
-    mutate the first match, which may not be the site under test; the suite then passes,
-    and the passing run is read as proof that the mutated guard does not matter.
+    THE bug this tool exists to prevent: a replace would silently mutate the first
+    match, which may not be the site under test.
 
     Fix the ANCHOR (widen it until it is unique), never the assertion.
     """
@@ -91,7 +74,7 @@ class Mutation:
 
     #: What is being broken, in a reviewer's words: "increment before the commit".
     name: str
-    #: What must happen. "the rollback test goes red". Printed next to the result so a
+    #: What must happen ("the rollback test goes red"). Printed next to the result so a
     #: run that does not match the expectation is obvious at a glance.
     expect: str
     file: str
@@ -116,7 +99,7 @@ class _Result:
 def _locate(path: Path, anchor: str) -> None:
     """Refuse anything but exactly one match. The whole point of the harness.
 
-    PRESENT is not enough. The anchor that broke us was present — twice.
+    PRESENT is not enough: the anchor that broke us was present, twice.
     """
     text = path.read_text()
     hits = text.count(anchor)
@@ -163,8 +146,8 @@ def _pytest(tests: str) -> tuple[str, list[str]]:
 def run_mutations(*, tests: str, mutations: list[Mutation]) -> int:
     """Apply each mutation in turn, run ``tests``, restore. Returns an exit code.
 
-    Non-zero if ANY mutation survived — a surviving mutation is a hole, and the harness
-    is not a report you read at your leisure, it is a gate.
+    Non-zero if ANY mutation survived: a surviving mutation is a hole, so this is a
+    gate rather than a report.
     """
     originals = {m.file: (ROOT / m.file).read_text() for m in mutations}
 
