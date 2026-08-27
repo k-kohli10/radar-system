@@ -1,44 +1,29 @@
 """Cross-service timeout budgets, and the ordering invariant between them.
 
-Most timeouts belong to the service that owns them. These two do not: they belong
-to a *relationship* between two services, and getting their ORDER wrong is a bug
-neither service can detect on its own.
+These belong to a *relationship* between two services rather than to either one,
+so they live here together and are asserted against each other at import.
 
 THE INVARIANT
 -------------
 When the outbox worker dispatches ``incident.reasoning_requested``, the reasoner
-calls an LLM before it can answer. Two clocks are running:
-
-- the **reasoner's** budget for its gateway call, and
-- the **worker's** dispatch timeout, i.e. how long it will wait for the answer.
-
-The worker's must be strictly LONGER. Otherwise the worker gives up while the
-reasoner is still talking to OpenAI, classifies the dispatch as retryable,
-redelivers the same event — and the reasoner, whose transaction has not committed
-yet, finds no ``processed_events`` marker and starts a SECOND LLM call. The
-platform pays twice, and two recommendations race to be written for one incident.
+makes remote calls before it can answer. The worker's dispatch timeout must be
+strictly LONGER than everything the reasoner can spend. Otherwise the worker gives
+up mid-call, classifies the dispatch as retryable, and redelivers the event — and
+the reasoner, whose transaction has not committed, finds no ``processed_events``
+marker and starts a SECOND LLM call. The platform pays twice, and two
+recommendations race for one incident.
 
 The idempotency gate cannot prevent this: it protects against redelivery after a
-commit, not during an in-flight call. Only the ordering of these two numbers does.
+commit, not during an in-flight call. Only the ordering of these numbers does, and
+the failure is silent — it does not crash, it bills twice.
 
-So they live here, together, once — not as a literal in the worker's config and
-another in the reasoner's. Two copies of a number whose relative order is the
-whole guarantee is exactly the drift this repo has been burned by before, and the
-failure here is silent: it does not crash, it just quietly bills you twice.
-
-The reasoner never blocks past its budget: on timeout it falls back to a template
-RCA (as it does for a 503), so it always answers within ``REASONER_LLM_BUDGET``.
-The worker's longer timeout is therefore a ceiling that should never be reached —
-it is there for the case where the reasoner is not merely slow but *gone*.
-
-HEAD-OF-LINE COST, STATED HONESTLY
-----------------------------------
+HEAD-OF-LINE COST
+-----------------
 The worker dispatches a claimed batch sequentially, so a reasoner dispatch can
-stall the rest of its batch for up to ``REASONER_DISPATCH_TIMEOUT`` — 90 seconds,
-not 60. Sixty is what the reasoner aims for; ninety is what the worker will
-actually wait if the reasoner never answers at all. At POC volume the events behind
-it are simply delivered a minute or two later, and nothing is lost (the outbox is
-durable). Under real load this wants concurrent dispatch within a batch.
+stall the rest of its batch for up to ``REASONER_DISPATCH_TIMEOUT`` (90s, the wait
+for a reasoner that never answers). At POC volume the events behind it are simply
+delivered later and nothing is lost, the outbox being durable. Under real load this
+wants concurrent dispatch within a batch.
 """
 
 from __future__ import annotations
