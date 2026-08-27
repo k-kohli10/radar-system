@@ -4,21 +4,20 @@ The SDK adapters live in ``plugins/llm/*`` and implement the vendor-neutral
 ``radar-contracts`` protocols, letting their vendor exceptions propagate.
 :class:`ProviderBinding` is how the gateway pipeline calls them: one binding
 wraps one plugin instance already constructed for a concrete model, and adds
-the two behaviors every call needs regardless of vendor:
+two behaviors every call needs regardless of vendor:
 
-- **Hard timeout** — the mode's ``timeout_seconds`` via ``asyncio.timeout``,
+- **Hard timeout**: the mode's ``timeout_seconds`` via ``asyncio.timeout``,
   surfacing as :class:`ProviderTimeoutError` (retryable). For streams the
   deadline covers the whole stream.
-- **Vendor-exception translation** — via a per-vendor
+- **Vendor-exception translation**: via a per-vendor
   :data:`FailureTranslator` from ``providers/{vendor}_provider.py``.
 
-Redaction is enforced here *by construction*: a translator can only classify a
-failure (:class:`FailureInfo`: status code, retryable, timeout) — it cannot
-supply text. The :class:`ProviderError` reason is always built in this module
-from the vendor exception's **class name** alone, and errors are raised
-``from None`` so the vendor exception (whose message can echo prompt content)
-never rides along in tracebacks or logs. Vendor messages are dropped entirely,
-never truncated.
+Redaction is enforced by construction: a translator can only classify a failure
+(:class:`FailureInfo`: status code, retryable, timeout), it cannot supply text.
+The :class:`ProviderError` reason is always built here from the vendor
+exception's class name alone, and errors are raised ``from None`` so the vendor
+exception (whose message can echo prompt content) never rides along in
+tracebacks or logs. Vendor messages are dropped entirely, never truncated.
 """
 
 from __future__ import annotations

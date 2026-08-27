@@ -1,30 +1,16 @@
 """llm-gateway service assembly.
 
-Startup contract (all of it inside the lifespan, none at import time):
-
-1. ``bootstrap(GatewaySettings, with_agent_auth=False)`` — the gateway has no
-   single inbound agent token, so ``bootstrap`` returns ``auth=None`` **by
-   design**. That is handled explicitly here and auth is NOT skipped: the
-   gateway enforces caller auth itself via :class:`GatewayAuth` over the
-   token→mode map (``core/security.py``), built during startup.
-2. Plugin registration, config load, token-map load, and router construction
-   all run **inside the lifespan startup block** — never at module import —
-   so any failure (plugin conformance, bad config, missing Vault secret or
-   API key) is caught, keeps :class:`Readiness` false, and surfaces as a
-   ``/readyz`` 503 instead of an import-time crash the probe never sees.
-3. Only after everything above succeeds are the ``/v1`` routers mounted and
-   readiness marked true. While not ready, ``/v1/*`` does not exist (404);
-   Kubernetes routes no traffic to a pod whose readyz is 503.
-
-Shutdown contract: the FIRST action on the shutdown path is
-``readiness.mark_not_ready("shutting down")`` — before any draining — so a
-load balancer health-checking the pod during shutdown sees 503 immediately
-and stops sending traffic.
+Startup contract: plugin registration, config load, token-map load, and router
+construction all run inside the lifespan startup block, never at module import,
+so any failure (plugin conformance, bad config, missing Vault secret or API key)
+keeps :class:`Readiness` false and surfaces as a ``/readyz`` 503 instead of an
+import-time crash the probe never sees. The ``/v1`` routers are mounted only
+after all of it succeeds, so while not ready ``/v1/*`` returns 404.
 
 Also wired here: the app-level error handlers (AllProvidersFailedError ->
 503), the 401-beats-422 validation handler, the platform request metrics
-middleware (``radar_requests_total``/``duration``/``errors_total``), OTel
-FastAPI instrumentation, and ``/healthz``, ``/readyz``, ``/metrics``.
+middleware, OTel FastAPI instrumentation, and ``/healthz``, ``/readyz``,
+``/metrics``.
 """
 
 from __future__ import annotations
@@ -69,8 +55,8 @@ from radar_llm_gateway.gateway.service import GatewayService
 def register_plugins(registry: PluginRegistry) -> None:
     """Register every LLM provider plugin the gateway can route to.
 
-    Called from lifespan startup only: a conformance failure here must keep
-    readiness false, not crash the module import.
+    Called from lifespan startup only, so a conformance failure keeps readiness
+    false instead of crashing the module import.
     """
     registry.register(
         LLMProvider,
@@ -106,9 +92,9 @@ def create_app(
 ) -> FastAPI:
     """Build the gateway app. ``metrics_registry`` is injectable for tests."""
     runtime = bootstrap(GatewaySettings, with_agent_auth=False)
-    # bootstrap(with_agent_auth=False) returns auth=None by design: the
-    # gateway validates callers' tokens against its own token→mode map. Fail
-    # loudly if that assumption ever changes rather than half-using it.
+    # auth=None is by design: the gateway validates callers against its own
+    # token->mode map (GatewayAuth), built in lifespan startup. Fail loudly if
+    # that assumption ever changes rather than half-using it.
     if runtime.auth is not None:
         raise ConfigurationError(
             "gateway bootstrap unexpectedly built an AgentTokenAuth; "

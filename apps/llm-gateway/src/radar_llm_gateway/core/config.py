@@ -3,14 +3,13 @@
 Two strictly separated sources, mirroring the platform-wide config/secret split
 (docs/adr/0007-vault-init-container.md):
 
-- **Mode config** — which provider/model serves each mode, per-mode token
-  limits and timeouts, and optional fallback providers. Non-secret YAML,
-  mounted as a ConfigMap in production; path set via
-  ``RADAR_GATEWAY_CONFIG_PATH``.
-- **Token map** — the agent-token IAM table (token → calling service + its one
+- **Mode config**: which provider/model serves each mode, per-mode token limits
+  and timeouts, and optional fallback providers. Non-secret YAML mounted as a
+  ConfigMap; path set via ``RADAR_GATEWAY_CONFIG_PATH``.
+- **Token map**: the agent-token IAM table (token -> calling service + its one
   allowed mode). Token values are secrets, so the whole map lives in a single
-  Vault secret file (``gateway_tokens``) written by the init-container and read
-  once at startup, never in the ConfigMap and never in the environment.
+  Vault secret file (``gateway_tokens``) read once at startup, never in the
+  ConfigMap and never in the environment.
 
 ``gateway_tokens`` secret file shape (YAML)::
 

@@ -12,17 +12,16 @@ The request/response bodies follow the plan's API contract exactly::
     { "mode": "embed", "input": ["chunk one", "chunk two"] }
     -> { "embeddings": [[...], [...]], "model": "...", "usage": {...} }
 
-``usage.prompt_tokens`` is the gateway's admission estimate — the
+``usage.prompt_tokens`` is the gateway's admission estimate, since the
 ``EmbeddingProvider`` contract returns only vectors (see
 ``gateway/service.py``).
 
-Only ``mode: embed`` is accepted here: other modes' bindings have no
-embedding capability, so a mode that got past ``authorize_mode`` (its token
-legitimately allows it) would otherwise hit a routing bug instead of a clean
-422.
+Only ``mode: embed`` is accepted here: other modes' bindings have no embedding
+capability, so a mode that got past ``authorize_mode`` (its token legitimately
+allows it) would otherwise hit a routing bug instead of a clean 422.
 """
 
-# NOTE: no ``from __future__ import annotations`` — the auth dependency is an
+# NOTE: no ``from __future__ import annotations``. The auth dependency is an
 # instance and route annotations must be resolvable at runtime (see
 # core/security.py).
 

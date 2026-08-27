@@ -1,10 +1,10 @@
-"""Mode → provider routing.
+"""Mode to provider routing.
 
 :func:`build_router` turns the validated :class:`GatewayConfig` into a
-:class:`ModelRouter` holding one live :class:`ProviderBinding` per mode
-(primary) plus one per configured fallback entry. All construction happens at
-startup so a bad config — unknown vendor, unregistered plugin, missing API key
-— fails readiness loudly instead of failing the first request.
+:class:`ModelRouter` holding one live :class:`ProviderBinding` per mode plus one
+per configured fallback entry. All construction happens at startup, so a bad
+config (unknown vendor, unregistered plugin, missing API key) fails readiness
+instead of failing the first request.
 
 Provider plugins are instantiated through the plugin SDK's
 :class:`BackendLoader`, so the router never imports a vendor SDK; the vendor
@@ -12,10 +12,9 @@ specifics it needs (Vault secret name for the API key, exception translator)
 come from the :data:`VENDORS` table assembled from ``providers/*``.
 
 Fallback bindings reuse the mode's own ``timeout_seconds`` and
-``max_output_tokens``: the fallback config names only a provider and model,
-and a mode's limits are the mode's limits regardless of which provider serves
-it. Embed modes get an ``EmbeddingProvider`` plugin; chat modes an
-``LLMProvider``.
+``max_output_tokens``: the fallback config names only a provider and model, and
+a mode's limits hold regardless of which provider serves it. Embed modes get an
+``EmbeddingProvider`` plugin; chat modes an ``LLMProvider``.
 """
 
 from __future__ import annotations

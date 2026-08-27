@@ -3,11 +3,8 @@
 The Anthropic SDK adapter itself lives in ``plugins/llm/anthropic``. This
 module is the gateway-side knowledge about that vendor: which Vault secret
 holds its API key and how its SDK exceptions classify for retry.
-
-:func:`translate_failure` returns classification only (:class:`FailureInfo`)
-— it cannot return text. Vendor exception messages can echo prompt content,
-so ``ProviderBinding`` drops them entirely (never truncated) and builds the
-``ProviderError`` reason from the exception class name alone.
+:func:`translate_failure` returns classification only, never text; see
+``providers/base.py`` for the redaction rule that enforces.
 
 Mapping (anthropic SDK exception taxonomy, same shape as openai's):
 
@@ -41,11 +38,9 @@ def translate_failure(exc: BaseException) -> FailureInfo | None:
     if isinstance(exc, anthropic.APIConnectionError):
         return FailureInfo(retryable=True)
     if isinstance(exc, anthropic.APIStatusError):
-        # Includes 529, Anthropic's "overloaded" status. 529 is NOT in the
+        # Includes 529, Anthropic's "overloaded" status. 529 is not in the
         # spec's closed retry-on list (429, 500, 502, 503, 504), so it is
-        # non-retryable and falls through to the fallback provider by design —
-        # not because retrying is wrong in theory, but because widening the
-        # retry list requires an explicit spec decision, not a silent
-        # assumption here.
+        # non-retryable and falls through to the fallback provider. Widening
+        # the retry list is an explicit spec decision, not one made here.
         return FailureInfo(status_code=exc.status_code)
     return None

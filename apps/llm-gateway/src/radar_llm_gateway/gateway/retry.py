@@ -1,15 +1,15 @@
 """Retry with fixed backoff for provider calls.
 
-The spec's policy, verbatim: retry 3 times with 1s, 3s, 9s backoff — i.e. an
+The spec's policy, verbatim: retry 3 times with 1s, 3s, 9s backoff, so an
 initial attempt plus up to three retries (four calls total), sleeping before
-each retry. Only failures classified retryable by the provider layer (429,
-500, 502, 503, 504, timeouts, connection errors) are retried; anything else
-— including a non-ProviderError, which is a bug rather than a provider
-failure — propagates immediately. After the budget is exhausted the last
-error is raised for the fallback layer to handle.
+each retry. Only failures classified retryable by the provider layer (429, 500,
+502, 503, 504, timeouts, connection errors) are retried; anything else
+propagates immediately, including a non-ProviderError, which signals a bug
+rather than a provider failure. After the budget is exhausted the last error is
+raised for the fallback layer to handle.
 
 Retry attempts are logged with metadata only (provider, model, status code,
-exception class name, attempt number) — never message content; the
+exception class name, attempt number), never message content; the
 ``ProviderError`` reason is already redacted at the provider boundary.
 """
 

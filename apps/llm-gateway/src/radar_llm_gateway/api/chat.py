@@ -10,17 +10,16 @@ by the app-level handler from ``core.errors``.
 Streaming responses set their headers before any byte goes out:
 
 - ``Content-Type: text/event-stream``
-- ``Cache-Control: no-cache`` — SSE must never be cached
-- ``X-Accel-Buffering: no`` — the nginx ingress in front of this service
-  buffers responses by default, which would break streaming; this disables
-  it per-response.
+- ``Cache-Control: no-cache``, since SSE must never be cached
+- ``X-Accel-Buffering: no``, because the nginx ingress in front of this service
+  buffers responses by default, which would break streaming.
 
-Because the service primes the stream before the response object is built,
-a request whose providers are all dead still gets a clean JSON 503, not a
-200 with a broken SSE body.
+The service primes the stream before the response object is built, so a request
+whose providers are all dead still gets a clean JSON 503 rather than a 200 with
+a broken SSE body.
 """
 
-# NOTE: no ``from __future__ import annotations`` — the auth dependency is an
+# NOTE: no ``from __future__ import annotations``. The auth dependency is an
 # instance and route annotations must be resolvable at runtime (see
 # core/security.py).
 

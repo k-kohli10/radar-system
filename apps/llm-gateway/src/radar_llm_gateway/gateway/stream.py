@@ -6,18 +6,18 @@ A stream splits the failure policy in two at the first event:
 - **Before the first event** nothing has been sent, so the full retry and
   fallback policy applies. :func:`prime_stream` starts the provider stream
   under ``run_with_fallback`` and returns only once the first event has
-  arrived — or raises ``AllProvidersFailedError`` so the API layer can still
+  arrived, or raises ``AllProvidersFailedError`` so the API layer can still
   answer a clean 503 instead of a broken SSE body.
 - **After the first event** bytes are on the wire: the gateway cannot fall
-  back, and it must never just close the connection — a silently truncated
-  stream is indistinguishable from a complete one. On mid-stream failure
-  :func:`sse_stream` emits a terminal error event before closing::
+  back, and it must never just close the connection, because a silently
+  truncated stream is indistinguishable from a complete one. On mid-stream
+  failure :func:`sse_stream` emits a terminal error event before closing::
 
       data: {"error": "stream_failed", "provider": "openai", "recoverable": false}
 
-  No content, ever: provider name and a ``recoverable`` flag only (mapped
-  from the failure's retryability), so the client can decide to retry the
-  whole request against the gateway or degrade.
+  No content, ever: provider name and a ``recoverable`` flag only (mapped from
+  the failure's retryability), so the client can retry the whole request
+  against the gateway or degrade.
 
 Normal events are encoded as one SSE ``data:`` line per
 :class:`GatewayStreamEvent`; the contract's ``done`` flag is the end-of-stream

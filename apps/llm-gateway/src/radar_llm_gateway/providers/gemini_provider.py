@@ -2,18 +2,15 @@
 
 The Gemini SDK adapter itself lives in ``plugins/llm/gemini``. This module is
 the gateway-side knowledge about that vendor: which Vault secret holds its API
-key and how its exceptions classify for retry.
-
-:func:`translate_failure` returns classification only (:class:`FailureInfo`)
-— it cannot return text. Vendor exception messages can echo prompt content,
-so ``ProviderBinding`` drops them entirely (never truncated) and builds the
-``ProviderError`` reason from the exception class name alone.
+key and how its exceptions classify for retry. :func:`translate_failure`
+returns classification only, never text; see ``providers/base.py`` for the
+redaction rule that enforces.
 
 ``google-generativeai`` surfaces call failures as
 ``google.api_core.exceptions.GoogleAPICallError`` subclasses. Mapping:
 
-- ``DeadlineExceeded``     -> timeout=True. It IS a timeout, not a generic
-  transient failure; ``ProviderBinding`` treats the two differently.
+- ``DeadlineExceeded``     -> timeout=True; ``ProviderBinding`` treats a
+  timeout differently from a generic transient failure.
 - ``RetryError``           -> timeout=True; api_core raises it when its own
   internal retry deadline is exhausted, i.e. the call timed out as a whole.
 - other ``GoogleAPICallError`` -> its HTTP status; retryable iff in the
@@ -21,12 +18,11 @@ so ``ProviderBinding`` drops them entirely (never truncated) and builds the
 - anything else (including safety blocks like ``BlockedPromptException``)
   -> unrecognized (non-retryable)
 
-The ``code`` attribute on Google exceptions is an HTTP int for REST
-transport but can be a gRPC ``StatusCode`` enum (whose ``value`` is a
-``(number, text)`` tuple — and the number is a *gRPC* code, not an HTTP
-status) depending on how the exception was constructed. :func:`_http_status`
-therefore only trusts ``code`` when it is an ``int``; otherwise it falls back
-to mapping the exception class itself, and never crashes on an odd ``code``.
+The ``code`` attribute on Google exceptions is an HTTP int for REST transport,
+but depending on how the exception was constructed it can be a gRPC
+``StatusCode`` enum whose ``value`` is a ``(number, text)`` tuple carrying a
+gRPC code rather than an HTTP status. :func:`_http_status` therefore trusts
+``code`` only when it is an ``int``, and otherwise maps the exception class.
 """
 
 from __future__ import annotations

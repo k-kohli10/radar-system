@@ -1,32 +1,18 @@
 """Per-provider circuit breaker: fail fast when a provider is down.
 
-The retry policy (retry.py) and provider fallback (fallback.py) already handle
-*transient* failures. What they cannot handle well is a provider that is simply
-*down*: every request then burns its full retry budget — four calls with
-1s+3s+9s of backoff — before failing over, so a hard outage turns each request
-into 13s of dead waiting on a provider that was never going to answer.
+Retry (retry.py) and provider fallback (fallback.py) handle transient failures.
+A provider that is wholly down is different: every request burns its full retry
+budget (four calls, 1s+3s+9s of backoff) before failing over. The breaker
+tracks consecutive failures per binding and, at :data:`failure_threshold`,
+opens: further calls are rejected with :class:`CircuitOpenError` before any
+network call, so ``run_with_fallback`` moves straight to the fallback binding
+(and, if that is also open, straight to the 503 that drives the Reasoner's
+template RCA).
 
-The circuit breaker closes that gap. It tracks consecutive failures per binding
-(provider + model) and, once a binding has failed :data:`failure_threshold`
-times in a row, **opens**: subsequent calls to that binding are rejected
-immediately with :class:`CircuitOpenError` — no network call, no backoff — so
-``run_with_fallback`` moves straight to the fallback binding (and, if that is
-also open, straight to the 503 that drives the Reasoner's template RCA).
-
-States, per binding:
-
-- **closed** — normal operation; calls flow and failures are counted.
-- **open** — calls fail fast. After :data:`reset_timeout_seconds` the next
-  call is allowed through as a single trial (half-open).
-- **half-open** — exactly one trial call is permitted. Success closes the
-  circuit and resets the count; failure reopens it and restarts the timer.
-  Concurrent callers while a trial is in flight are rejected.
-
-Keyed per binding, not per provider: a mode whose fallback is a *different*
-model on the same vendor (the default openai/gpt-4o → openai/gpt-4o-mini)
-still fails over to a healthy sibling model instead of being pre-empted by the
-primary's open circuit. When primary and fallback share a vendor that is wholly
-down, each opens on its own and the mode reaches 503 fast regardless.
+Circuits are keyed per binding (provider + model). A mode whose fallback is a
+different model on the same vendor (the default openai/gpt-4o ->
+openai/gpt-4o-mini) still fails over to the healthy sibling instead of being
+pre-empted by the primary's open circuit.
 
 The breaker holds no locks: the gateway is single-threaded asyncio and every
 method here runs to completion without awaiting, so state transitions are
