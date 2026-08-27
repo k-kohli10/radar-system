@@ -619,7 +619,7 @@ dead-letters (see "Recovering a dead-lettered event" above).
 | Path | What's there |
 |---|---|
 | [`../README.md`](../README.md) | What RADAR is, the problem it solves, and how it works |
-| [`roadmap.md`](roadmap.md) | The phase-by-phase build plan |
+| [`roadmap.md`](roadmap.md) | What's shipped, what's next |
 | [`architecture/`](architecture/) | System overview, agent pipeline, data model, sequence flows |
 | [`operations/docker.md`](operations/docker.md) | Running the whole stack in Docker + the end-to-end test |
 | [`implementation_plan.md`](implementation_plan.md) | The full technical specification |
