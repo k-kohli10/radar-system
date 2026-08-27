@@ -68,7 +68,6 @@ flowchart TD
     W -->|correlate alerts into an incident| PL[planner-agent]
     PL -->|build an investigation plan| R[reasoner-agent]
     R -->|retrieve + grade runbook context| K[knowledge-service]
-    K -->|graded excerpts, or nothing relevant| R
     R -->|call LLM, produce RCA| F[feedback-service]
     F -->|deliver Slack card, run Slack bot| S[("Slack")]
 
