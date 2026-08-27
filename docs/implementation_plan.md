@@ -2928,13 +2928,33 @@ Completed CHANGELOG and CONTRIBUTING
 
 Commits:
 ```
-docs: add professional readme with architecture diagram
+feat(scripts): full Prometheus-shape alerts and --every loop mode in fire-alert.sh
 docs: add 15 minute quickstart
+docs: polish README for v1.0 (k8s run path, stack section, badges, status)
 docs: add plugin development guide
-docs: add performance benchmark results
-docs: add sre portfolio case study
-docs: finalize changelog and contributing
+docs: add changelog and refresh contributing guide
+feat(load): add live Kubernetes load benchmark and results
+docs: apply house style to architecture decision records
+docs: trim oversized docstrings in ingestion service
+docs: trim oversized module docstring in reasoner agent
+docs: trim oversized docstrings in outbox-worker service
+docs: trim oversized docstrings in watcher-agent service
+docs: trim oversized docstrings in planner-agent service
+docs: trim oversized docstrings in feedback-service
+docs: trim oversized docstrings in common package
+docs: trim oversized docstrings in plugin packages
+docs: trim oversized docstring in mutate script
+docs: trim oversized docstrings in llm-gateway
+docs: trim oversized docstrings in knowledge-service
+docs: apply house style to operations docs
+docs: apply house style to architecture docs
 ```
+
+The open-source-polish cleanup grew past the original plan: a repo-wide doc style
+pass (docs/STYLE.md, all 20 ADRs, docs/operations/, docs/architecture/) and an
+oversized-comment trim across every app, shared package, and plugin, on top of the
+five originally planned deliverables. SRE portfolio case study is still open,
+pending the user's narrative.
 
 Done when: someone else can run the local demo in 15 minutes from the README alone.
 
