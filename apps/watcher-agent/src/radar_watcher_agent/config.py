@@ -9,13 +9,13 @@ The same strict split every RADAR service keeps (docs/adr/0007-vault-init-contai
   missing file keeps ``/readyz`` at 503 rather than crashing the import a probe
   never sees.
 
-The watcher's own ``agent_token`` is loaded in ``security``, and the YAML
-correlation rules in ``rules`` (next commit) — each next to the thing that uses it.
+The watcher's own ``agent_token`` is loaded in ``security``, and the YAML correlation
+rules in ``rules``, each next to the thing that uses it.
 
-``service_name`` is ``watcher-agent``, and that string is load-bearing in three
-places that must agree: the ``target_service`` ingestion writes on its outbox
-events, the ``processed_by`` column this service writes in ``processed_events``,
-and the Vault path its secrets come from. It is not cosmetic.
+``service_name`` is ``watcher-agent``, and that string is load-bearing in three places
+that must agree: the ``target_service`` ingestion writes on its outbox events, the
+``processed_by`` column this service writes in ``processed_events``, and the Vault path
+its secrets come from.
 """
 
 from __future__ import annotations

@@ -1,39 +1,33 @@
 """watcher-agent service assembly.
 
 The first stage of the incident pipeline. Everything it needs is loaded inside the
-lifespan — nothing at import time: the Postgres DSN and the watcher's own
+lifespan, nothing at import time: the Postgres DSN and the watcher's own
 ``agent_token`` come from Vault, the correlation rules from their ConfigMap, and a
 missing or invalid one of any of them leaves readiness false so ``/readyz`` answers
 503 instead of crashing an import that no probe will ever see. A bad rules file does
-NOT fall back to defaults — a watcher enforcing policy nobody configured is worse
-than one that will not start, because the first one looks healthy.
-``Database`` construction is lazy (no connection yet), so a database that is down at
-startup does not fail startup — ``/readyz`` live-pings it and recovers when it
-returns.
+NOT fall back to defaults: a watcher enforcing policy nobody configured looks healthy
+and is not. ``Database`` construction is lazy, so a database down at startup does not
+fail startup; ``/readyz`` live-pings it and recovers when it returns.
 
 ``/readyz`` is 200 only when BOTH hold, every time it is asked:
 
 1. the Vault secrets loaded at startup, AND
 2. the database answers ``SELECT 1`` **right now**.
 
-The second is not redundant. A readiness probe that checks only its own startup
-state is a probe that reports healthy while its database is unreachable — it would
-keep Kubernetes routing traffic to a pod that cannot do anything, and the failure
-would surface as errors to callers instead of a pod taken out of rotation. So the
-DB is pinged per request, not remembered from boot.
+The DB is pinged per request, not remembered from boot: a probe that trusts its
+boot-time state reports healthy while its database is unreachable, and Kubernetes
+keeps routing traffic to a pod that cannot do anything.
 
-``/healthz`` is process liveness only — deliberately NOT gated on the database, or a
-database blip would get the pod killed and restarted rather than merely removed from
-service. Liveness and readiness answer different questions.
+``/healthz`` is process liveness only, NOT gated on the database, or a database blip
+would get the pod killed and restarted rather than merely removed from service.
 
 Shutdown marks not-ready first (so a load balancer sees 503 immediately) and then
 disposes the engine pool.
 
-Unlike ingestion, this IS an agent: it exposes ``POST /events`` behind its own
-``X-Radar-Agent-Token``. The token is loaded in the lifespan rather than via
-``bootstrap(with_agent_auth=True)`` — which would read it at app-build time and
-crash on a missing secret — and late-bound into the auth dependency, so a missing
-token degrades to 503 like every other secret.
+This service exposes ``POST /events`` behind its own ``X-Radar-Agent-Token``. The
+token is loaded in the lifespan rather than via ``bootstrap(with_agent_auth=True)``,
+which would read it at app-build time and crash on a missing secret, and late-bound
+into the auth dependency, so a missing token degrades to 503 like every other secret.
 """
 
 from __future__ import annotations
@@ -72,7 +66,7 @@ class Readiness:
     Starts not-ready ("starting"); :meth:`mark_ready` flips it once the Vault
     secrets have loaded. The live database check is separate (``/readyz`` pings on
     each call), so this tracks only the startup half of the contract. ``reason``
-    strings are safe to return to a probe — the config layer names files, never
+    strings are safe to return to a probe: the config layer names files, never
     secret values.
     """
 
@@ -118,16 +112,15 @@ def create_app(
             assert agent_token is not None  # required=True: raised if absent
             agent_auth = AgentTokenAuth([agent_token])
             # A bad rules file is a startup failure, not a fallback to defaults: a
-            # watcher silently running policy nobody configured is worse than one
-            # that will not start, because the first one looks fine.
+            # watcher running policy nobody configured looks fine and is not.
             rules = load_correlation_rules(settings.correlation_rules_path)
             database = Database(dsn)
             readiness.mark_ready()
             log.info(
                 "watcher.ready",
-                # Say out loud which policy is actually in force — a rule count of
-                # zero here is the fastest way to spot a ConfigMap that did not
-                # mount, which otherwise looks exactly like "nothing to suppress".
+                # A rule count of zero here is the fastest way to spot a ConfigMap
+                # that did not mount, which otherwise looks like "nothing to
+                # suppress".
                 suppression_rules=len(rules.suppression),
                 escalation_rules=len(rules.escalation),
                 rules_path=str(settings.correlation_rules_path),
@@ -191,9 +184,8 @@ def create_app(
         if reason is not None:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "not_ready", "reason": reason}
-        # Secrets loaded; now the live half of the contract. Asked every time,
-        # because a probe that trusts its boot-time state will report healthy with a
-        # dead database underneath it.
+        # The live half of the contract, asked every time: a probe that trusts its
+        # boot-time state reports healthy with a dead database underneath it.
         if database is None or not await database.ping():
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "not_ready", "reason": "database unreachable"}
@@ -243,12 +235,11 @@ _app: FastAPI | None = None
 def __getattr__(name: str) -> FastAPI:
     """Build the ASGI ``app`` lazily on first access (``main:app`` for uvicorn).
 
-    Importing this module — e.g. to reach :func:`create_app` from tests — must have
-    no side effects; in particular it must not register platform metrics on the
-    global Prometheus registry, which would collide (`Duplicated timeseries`) when
-    another service's app is imported in the same process. That is the import-time
-    collision Phase 5 hit with an eager ``app = create_app()``. Cached, so repeated
-    ``app`` access returns one instance and never a second registration.
+    Importing this module (e.g. to reach :func:`create_app` from tests) must have no
+    side effects. In particular it must not register platform metrics on the global
+    Prometheus registry, which collides (`Duplicated timeseries`) when another
+    service's app is imported in the same process. Cached, so repeated ``app`` access
+    returns one instance and never a second registration.
     """
     if name == "app":
         global _app

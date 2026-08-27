@@ -1,48 +1,30 @@
 """The correlation rules: a typed, validated model of the YAML ConfigMap.
 
-Correlation policy is configuration, not code — a window or a cooldown changes with
-a ConfigMap edit and a restart, never a deploy. What this module guarantees is that
-a *wrong* edit is loud: the file is validated on startup, and an invalid one leaves
-``/readyz`` at 503 rather than silently falling back to defaults. ``extra="forbid"``
-throughout is the load-bearing part of that — ``suppresion:`` (one 's') would
-otherwise be silently ignored, and suppression would appear to be configured while
-doing nothing at all. That is precisely the class of bug that config-driven behaviour
-invites, and the only defence is to refuse unknown keys.
+Correlation policy is configuration, so a window or a cooldown changes with a ConfigMap
+edit and a restart. This module makes a *wrong* edit loud: the file is validated on
+startup, and an invalid one leaves ``/readyz`` at 503 rather than falling back to
+defaults. ``extra="forbid"`` throughout is load-bearing: ``suppresion:`` (one 's')
+would otherwise be ignored, and suppression would appear configured while doing
+nothing.
 
-Unlike the gateway's token map, this file holds NO secrets, so error messages here
-quote the offending path and the validation detail freely. That is deliberate and
-worth contrasting: the gateway's loader must never echo its parse errors, because a
-YAML error quotes the source line and the source line is a credential.
+This file holds no secrets, so error messages quote the offending path and the
+validation detail freely. The gateway's token-map loader must not, because a YAML
+error there quotes a credential.
 
-WHAT IS LIVE, AND WHAT IS INERT
--------------------------------
-Live, and enforced by later commits in this phase:
-
-- ``suppression`` — a new incident too soon after the previous one of the same
-  (service, alert) gets no investigation plan.
-- ``escalation`` — a burst of alerts on one incident raises its severity.
+Live: ``suppression`` and ``escalation``.
 
 Parsed and validated, but applied by nothing (docs/adr/0013):
+``default_window_minutes`` / ``window_overrides``, ``service_groups``, and
+``fingerprint_fields``. Ingestion decides which incident an alert lands on, deduping
+on the fingerprint inside its own window, so by the time the watcher sees the event
+the incident already exists and a window it disagreed with would be a claim it cannot
+honour. The fields are kept, validated, and pinned inert by a test.
 
-- ``default_window_minutes`` / ``window_overrides``
-- ``service_groups``
-- ``fingerprint_fields``
-
-They are inert because **ingestion decides which incident an alert lands on** — it
-dedups on the fingerprint inside its own window, and by the time the watcher sees the
-event the incident already exists. The watcher cannot un-create it, so a window it
-disagreed with would be a claim it cannot honour. Rather than delete the config (and
-lose the plan's intent) or pretend it works, the fields are kept, validated, and
-pinned inert by a test.
-
-``fingerprint_fields`` gets stronger treatment than "ignored": it is enforced as a
-DECLARATION. The field list lives once, in :data:`radar_contracts.FINGERPRINT_FIELDS`
-— ingestion *builds* its digest from it, and this loader refuses to start if the YAML
-no longer declares the same list in the same order. So there is no second copy to go
-stale, and the one field most likely to be edited in the belief that it changes
-behaviour cannot silently diverge from what the system actually hashes: reorder the
-contract and ingestion's fingerprints change *and* this config stops loading, in the
-same commit.
+``fingerprint_fields`` is enforced as a DECLARATION. The list lives once, in
+:data:`radar_contracts.FINGERPRINT_FIELDS`, which ingestion builds its digest from;
+this loader refuses to start if the YAML no longer declares the same list in the same
+order. Reorder the contract and ingestion's fingerprints change *and* this config stops
+loading, in the same commit.
 """
 
 from __future__ import annotations
@@ -82,9 +64,8 @@ class SuppressionRule(BaseModel):
     ``opened_at`` for the same ``(service_name, alert_name)``. A cooldown shorter
     than ingestion's 5-minute dedup window can never fire: an alert arriving that
     soon attaches to the still-open incident rather than opening a new one, and a
-    suppression rule only ever sees new incidents. That is a configuration mistake
-    worth catching, but it is not an error — a 5-minute cooldown is exactly the
-    boundary — so it is left to the operator and documented in the YAML.
+    suppression rule only ever sees new incidents. A 5-minute cooldown is exactly the
+    boundary, so this is left to the operator and documented in the YAML.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -98,9 +79,8 @@ class EscalationRule(BaseModel):
 
     ``alert_count_threshold`` alerts attached to the incident within
     ``within_minutes`` raises it to ``escalate_to``. The count is over alerts by
-    arrival time, NOT the incident's running ``alert_count`` — an untimed counter
-    would make ``within_minutes`` decorative, and 3 alerts over three hours would
-    escalate exactly like 3 in ten seconds.
+    arrival time, NOT the incident's running ``alert_count``: an untimed counter would
+    escalate 3 alerts over three hours exactly like 3 in ten seconds.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -124,9 +104,9 @@ class CorrelationRules(BaseModel):
 
     @model_validator(mode="after")
     def _validate(self) -> CorrelationRules:
-        # A second rule for the same alert would be silently unreachable — the
-        # lookup returns the first match. Refuse, rather than let an operator edit a
-        # rule that never applies and conclude the feature is broken.
+        # A second rule for the same alert would be silently unreachable: the lookup
+        # returns the first match. Refuse, rather than let an operator edit a rule
+        # that never applies and conclude the feature is broken.
         self._reject_duplicates([r.alert_name for r in self.suppression], "suppression")
         self._reject_duplicates(
             [w.alert_name for w in self.window_overrides], "window_overrides"
@@ -175,14 +155,13 @@ class RulesDocument(BaseModel):
 def load_correlation_rules(path: Path) -> CorrelationRules:
     """Load and validate the correlation rules at ``path``.
 
-    Raises :class:`~radar_common.ConfigurationError` — which keeps ``/readyz`` at
-    503 — on a missing file, invalid YAML, or a document that fails validation.
-    Startup does not proceed on a bad config: a watcher running with defaults it was
-    never configured with is worse than a watcher that will not start, because the
-    first one looks fine.
+    Raises :class:`~radar_common.ConfigurationError`, which keeps ``/readyz`` at 503,
+    on a missing file, invalid YAML, or a document that fails validation. A watcher
+    running with defaults it was never configured with looks fine and is not, so
+    startup does not proceed on a bad config.
 
-    The messages quote the path and the validation detail. Safe here, unlike the
-    gateway's token map: this file contains no secrets.
+    The messages quote the path and the validation detail: this file contains no
+    secrets.
     """
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
