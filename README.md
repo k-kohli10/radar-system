@@ -2,6 +2,7 @@
 
 **Real-time Anomaly Detection and Automated Response**
 
+[![CI](https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml/badge.svg)](https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/)
 
@@ -21,6 +22,7 @@ collects feedback on it, and answers status queries through a Slack bot.
 - [Stack](#-stack)
 - [Status](#-status)
 - [Documentation](#-documentation)
+- [Contributing](#-contributing)
 - [License](#-license)
 
 ---
@@ -121,7 +123,7 @@ SQLAlchemy async, with structlog for logging.
 
 | Role | Choice |
 |---|---|
-| **Inter-agent bus** | A Postgres transactional outbox — the only channel between agents. No Redis, no external message broker. |
+| **Inter-agent bus** | A Postgres transactional outbox: the only channel between agents. No Redis, no external message broker. |
 | **Secrets** | HashiCorp Vault secret files, never environment variables. |
 | **LLM / agent code** | Written directly against the provider. No LangChain, LangGraph, LiteLLM, or other orchestration framework. |
 
@@ -134,12 +136,12 @@ control flow explicit and the dependency surface small.
 
 ## 📍 Status
 
-RADAR is a working end-to-end system. Phases 0–13 are complete — the full
-pipeline, observability, CI, Kubernetes deployment, and security hardening — and
-Phase 14, docs and release polish toward the v1.0 tag, is in progress. See
-[docs/roadmap.md](docs/roadmap.md) for the phase-by-phase breakdown and its release
-tags, and [docs/implementation_plan.md](docs/implementation_plan.md) for the full
-technical specification.
+RADAR is a working end-to-end system today: alert ingestion, incident
+correlation, investigation planning, LLM-grounded root cause analysis, Slack
+delivery, and feedback collection all run in production-shaped form, backed by
+CI, a Kubernetes deployment path, and a security hardening pass. Documentation
+and release polish toward a v1.0 tag are in progress. See
+[docs/roadmap.md](docs/roadmap.md) for what's shipped and what's next.
 
 ---
 
@@ -157,7 +159,19 @@ technical specification.
 | [`docs/operations/`](docs/operations/) | Runbooks for operating RADAR itself |
 | [`docs/runbooks/`](docs/runbooks/) | Runbooks about the target services RADAR reasons over |
 | [`docs/glossary.md`](docs/glossary.md) | Terminology used across the codebase and docs |
-| [`docs/roadmap.md`](docs/roadmap.md) | Phase by phase build plan |
+| [`docs/roadmap.md`](docs/roadmap.md) | What's shipped, what's next |
+| [`CHANGELOG.md`](CHANGELOG.md) | What shipped, milestone by milestone |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Ground rules, dev setup, and PR expectations |
+
+---
+
+## 🤝 Contributing
+
+RADAR is built against a locked architecture: no orchestration frameworks, no
+Redis, Postgres-outbox-only agent communication, Vault-only secrets.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR, and check
+[docs/adr/](docs/adr/) for the reasoning behind a decision before proposing to
+change it. Found a bug or have a question? Open an issue.
 
 ---
 
