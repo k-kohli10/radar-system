@@ -1,24 +1,21 @@
 """Inbound alert API: source-routed ingestion endpoints.
 
-Three POST endpoints, one per source (``prometheus``, ``kibana``, ``mock``),
-all funnel into one ingestion flow. This is the RADAR entry point, not an agent
-surface: the endpoints carry no ``X-Radar-Agent-Token`` and there is no
-``POST /events`` here. Inbound authentication uses a per-source
-``X-Radar-Webhook-Token`` (added with the webhook-auth commit; see ADR 0011).
+Three POST endpoints, one per source (``prometheus``, ``kibana``, ``mock``), all
+funnelling into one flow. This is the RADAR entry point, not an agent surface: no
+``X-Radar-Agent-Token``, no ``POST /events``. Inbound auth is a per-source
+``X-Radar-Webhook-Token`` (ADR 0011).
 
-Each request carries exactly one alert (ADR 0011). The handler binds a
-correlation id, normalizes the vendor payload to a ``NormalizedAlert`` (a
-malformed or batched payload is rejected 422, never crashes), then persists it in
-one transaction. Every response is 202; the body's ``status`` says what happened:
+Each request carries exactly one alert (ADR 0011). The handler binds a correlation
+id, normalizes the vendor payload (a malformed or batched payload is a 422, never a
+crash), then persists it in one transaction. Every response is 202; the body's
+``status`` says what happened:
 
-- ``accepted`` — a firing alert opened or attached to an incident (carries
-  ``incident_id`` and ``deduplicated``), publishing an ``alert.normalized`` event.
-- ``resolved`` — a resolve matched a live incident and flipped its firing alert
-  rows (carries ``incident_id`` and ``alerts_resolved``, the count flipped, 0 on a
-  duplicate delivery). The incident row itself is untouched here.
-- ``ignored`` — a resolve matched no live incident; it opens nothing, publishes
-  nothing, and only records an ``audit_log`` receipt. No incident id — there is
-  none.
+- ``accepted`` — a firing alert opened or attached to an incident (``incident_id``,
+  ``deduplicated``), publishing an ``alert.normalized`` event.
+- ``resolved`` — a resolve matched a live incident and flipped its firing alert rows
+  (``incident_id``, ``alerts_resolved``; 0 on a duplicate delivery).
+- ``ignored`` — a resolve matched no live incident: nothing opened, nothing
+  published, only an ``audit_log`` receipt. No incident id, because there is none.
 """
 
 from __future__ import annotations
@@ -90,9 +87,8 @@ def create_alerts_router(
             await session.commit()
 
         if result.ignored:
-            # A resolved alert that matched no live incident. The only trace is
-            # the audit_log row persist_alert wrote; there is no incident to
-            # return, so the response says so rather than inventing an id.
+            # Resolved alert with no live incident: the audit_log row persist_alert
+            # wrote is the only trace, and there is no incident id to return.
             log.info(
                 "alert.resolve_ignored",
                 source=source.value,
@@ -106,10 +102,9 @@ def create_alerts_router(
                 "reason": "no_open_incident_for_resolved_alert",
             }
 
-        # A firing alert or a matched resolve always lands on an incident, so
-        # incident_id is present here. A `raise`, not an `assert`: `assert` is
-        # stripped under `python -O`, which would let a None id flow into the
-        # response silently — the fail-loud rule applies in a request path.
+        # A firing alert or a matched resolve always lands on an incident. A `raise`,
+        # not an `assert`: `assert` is stripped under `python -O`, which would let a
+        # None id flow silently into the response.
         if result.incident_id is None:
             raise RuntimeError(
                 "persist_alert returned a non-ignored result with no incident_id; "
@@ -117,9 +112,7 @@ def create_alerts_router(
             )
 
         if result.alerts_resolved is not None:
-            # A resolve that matched a live incident: it flipped that many firing
-            # alert rows (0 on a duplicate delivery), and — if that cleared the last
-            # firing alert — transitioned the incident itself to resolved.
+            # A resolve that matched a live incident.
             log.info(
                 "alert.resolved",
                 source=source.value,
@@ -139,11 +132,9 @@ def create_alerts_router(
             }
 
         if not result.deduplicated:
-            # A NEW incident was opened (a dedup attach reuses an existing one). Counted
-            # here, AFTER the commit above: incrementing before it would count opens
-            # that a rolled-back transaction never made durable, and the dashboards
-            # would read more incidents than the table holds. `service`/`severity` are
-            # the alert's own labels, so the counter groups the way the incidents do.
+            # A NEW incident was opened. Counted AFTER the commit above: incrementing
+            # before it would count opens a rolled-back transaction never made
+            # durable.
             metrics.incidents_total.labels(
                 alert.service_name, alert.severity.value
             ).inc()

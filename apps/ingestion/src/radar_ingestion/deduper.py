@@ -1,24 +1,18 @@
 """Fingerprint deduplication.
 
-Before opening a new incident, ingestion checks whether a matching one is
-already open and recent: an open incident with the same fingerprint whose
-``opened_at`` falls within the dedup window ending at the incoming alert's
-reference time. If one is found the alert attaches to it and no new outbox event
-is written; otherwise a new incident is opened. This module owns only the
-*query* — the transactional attach-or-create is the publisher's job.
+Before opening a new incident, ingestion looks for an ``open`` incident with the
+same fingerprint whose ``opened_at`` falls within the dedup window ending at the
+incoming alert's reference time. This module owns only the *query* — the
+transactional attach-or-create is the publisher's job.
 
-The window is a boundary, not a rounding. With the 5-minute window and an
-incident opened at ``T0``, an alert whose reference time is ``T0 + 4m59s``
-attaches (``opened_at`` is within the window) while one at ``T0 + 5m01s`` opens a
-new incident. The comparison is ``opened_at >= as_of - window``, so exactly
-``T0 + 5m00s`` still attaches.
+The window is a boundary, not a rounding: the comparison is
+``opened_at >= as_of - window``, so with a 5-minute window and an incident opened
+at ``T0``, exactly ``T0 + 5m00s`` still attaches while ``T0 + 5m01s`` opens a new
+incident. It is a fixed window measured from ``opened_at``, not a sliding one from
+``updated_at``.
 
-The window is measured from ``opened_at`` (a fixed window from when the incident
-opened), matching the plan's "within 5 minutes" and the boundary test framing. A
-sliding window from last activity would instead compare against ``updated_at``.
-
-``as_of`` is passed in (the incoming alert's ``received_at``) rather than read
-from the clock here, so dedup timing is explicit and deterministically testable.
+``as_of`` is passed in (the alert's ``received_at``) rather than read from the clock
+here, so dedup timing is explicit and deterministically testable.
 """
 
 from __future__ import annotations

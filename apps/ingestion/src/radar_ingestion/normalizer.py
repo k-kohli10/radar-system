@@ -5,20 +5,15 @@ vendor-neutral :class:`radar_contracts.NormalizedAlert` the rest of the pipeline
 reasons over, and computes the correlation fingerprint
 ``sha256(service_name:alert_name:severity)``.
 
-**One alert per request.** Ingestion normalizes exactly one alert per POST and
-the pipeline opens exactly one incident per new fingerprint (the plan's singular
-"202 with incident_id"). Prometheus alertmanager batches multiple alerts into a
-single webhook by default, so RADAR configures alertmanager to *fan out* one
-alert per POST — a receiver whose grouping makes each alert its own group (see
-ADR 0011 and the ingestion README). A batched alertmanager envelope — a body
-carrying an ``alerts`` array — is therefore a misconfiguration: it is rejected
-with :class:`~radar_common.InvalidPayloadError` (→ 422), never silently
-truncated to ``alerts[0]`` and never a crash.
+**One alert per request.** Alertmanager batches by default, so RADAR configures it
+to fan out one alert per POST (ADR 0011 and the ingestion README). A batched
+envelope — a body carrying an ``alerts`` array — is a misconfiguration, rejected
+with :class:`~radar_common.InvalidPayloadError` (→ 422), never silently truncated
+to ``alerts[0]``.
 
 Every field access is guarded: a missing ``service``/``alert``/``severity``, a
 wrong-typed field, or an unparseable timestamp likewise raises
-``InvalidPayloadError``, which the route maps to 422. Normalization never trusts
-the payload's shape.
+``InvalidPayloadError`` (→ 422). Normalization never trusts the payload's shape.
 
 Expected per-source shapes:
 
@@ -70,11 +65,10 @@ def compute_fingerprint(service_name: str, alert_name: str, severity: str) -> st
     key.
 
     The field list and its order come from the shared
-    :data:`radar_contracts.FINGERPRINT_FIELDS`, and the digest is *built* from it —
+    :data:`radar_contracts.FINGERPRINT_FIELDS`, and the digest is *built* from it,
     not merely documented by it. The watcher validates its correlation-rules
-    ConfigMap against that same constant, so the two services cannot come to disagree
-    about what a fingerprint is: there is one definition, and changing it changes this
-    hash.
+    ConfigMap against the same constant, so the two services cannot disagree about
+    what a fingerprint is.
     """
     values = {
         "service_name": service_name,
@@ -253,10 +247,9 @@ def _require_str(payload: Mapping[str, Any], key: str, *, where: str) -> str:
 def _require_severity(payload: Mapping[str, Any], key: str, *, where: str) -> Severity:
     """Return ``payload[key]`` as a canonical :class:`Severity`, or raise (→ 422).
 
-    Severity is a closed vocabulary: an unknown value (e.g. ``'warning'``,
-    ``'page'``, ``'P1'``) is a source-configuration error, rejected with a
-    message listing the allowed set — never silently mapped or floored, so
-    equal severities always compare equal downstream.
+    Severity is a closed vocabulary: an unknown value is a source-configuration
+    error, rejected with a message listing the allowed set — never silently mapped
+    or floored, so equal severities always compare equal downstream.
     """
     value = _require_str(payload, key, where=where)
     try:

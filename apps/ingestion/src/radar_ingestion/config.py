@@ -10,8 +10,7 @@ Two strictly separated sources, mirroring the platform config/secret split
   :func:`radar_common.read_secret`, never from the environment. A missing file
   raises ``SecretNotFoundError`` and keeps ``/readyz`` at 503.
 
-The per-source webhook token map is loaded separately in ``security`` (added
-with the webhook-auth commit).
+The per-source webhook token map is loaded separately in ``security``.
 """
 
 from __future__ import annotations
