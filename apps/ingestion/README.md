@@ -1,4 +1,4 @@
-# radar-ingestion
+# 🚦 radar-ingestion
 
 The RADAR entry point. Detection happens outside RADAR (Prometheus alertmanager,
 Kibana Watcher); ingestion receives those pre-fired alerts, normalizes them,
@@ -9,7 +9,17 @@ Inbound `/alerts/*` authenticate with a per-source `X-Radar-Webhook-Token` loade
 from Vault (never the internal `X-Radar-Agent-Token`), and there is no
 `POST /events`: ingestion *produces* outbox events, it does not consume them.
 
-## Endpoints
+## 📚 Contents
+
+- [🔗 Endpoints](#-endpoints)
+- [🔁 Ingestion logic](#-ingestion-logic)
+- [✉️ One alert per request](#-one-alert-per-request)
+- [🔑 Webhook authentication](#-webhook-authentication)
+- [⚙️ Configuration and secrets](#-configuration-and-secrets)
+- [▶️ Run locally](#-run-locally)
+- [🐳 Docker](#-docker)
+
+## 🔗 Endpoints
 
 ```
 POST /alerts/prometheus   X-Radar-Webhook-Token   Prometheus alertmanager webhook
@@ -20,7 +30,7 @@ GET  /readyz                                      DB reachable AND Vault secrets
 GET  /metrics                                     Prometheus text format
 ```
 
-## Ingestion logic
+## 🔁 Ingestion logic
 
 ```
 1. Validate the per-source webhook token (Vault secret).
@@ -36,7 +46,7 @@ GET  /metrics                                     Prometheus text format
 The 5-minute window is a boundary, not a rounding: an identical alert at 4m59s
 attaches to the open incident; at 5m01s it opens a new one.
 
-## One alert per request
+## ✉️ One alert per request
 
 Each POST carries exactly one alert and produces at most one incident. Prometheus
 alertmanager batches alerts into a single webhook by default, so RADAR configures
@@ -69,7 +79,7 @@ Every source must emit one of these; an unknown value (e.g. `warning`, `page`, `
 is a **422**, never mapped or floored, so the same severity always compares equal
 downstream (watcher escalation) and produces a stable dedup fingerprint.
 
-## Webhook authentication
+## 🔑 Webhook authentication
 
 Every `/alerts/*` request must carry an `X-Radar-Webhook-Token` header, validated
 **per source** ([ADR 0011](../../docs/adr/0011-inbound-webhook-token.md)): the
@@ -93,7 +103,7 @@ file is absent is not loaded and its endpoint fails closed (401); at least one
 must be present. In local dev, pull them from Vault into secret files with
 `make ingestion-secrets` (writes the three files, matching the prod layout).
 
-## Configuration and secrets
+## ⚙️ Configuration and secrets
 
 Non-secret settings come from `RADAR_*` environment variables. Secrets are read
 from Vault-mounted files, never the environment
@@ -101,7 +111,7 @@ from Vault-mounted files, never the environment
 (the DSN embeds a password) and the per-source `webhook_token_*` files above.
 `/readyz` is 200 only when both have loaded and the database is reachable.
 
-## Run locally
+## ▶️ Run locally
 
 ```
 uv run uvicorn radar_ingestion.main:app --port 8080
@@ -113,7 +123,7 @@ curl -sX POST localhost:8080/alerts/mock \
   -d '{"service_name": "order-service", "alert_name": "OrderProcessingFailureRate", "severity": "critical"}'
 ```
 
-## Docker
+## 🐳 Docker
 
 Build from the **repo root** (uv workspace resolves against the root lockfile):
 

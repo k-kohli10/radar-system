@@ -1,7 +1,7 @@
-# Example: bring-your-own-backends
+# 🏗️ Example: bring-your-own-backends
 
 The production pattern. RADAR's app chart runs against **your** managed backends
-instead of the bundled dev stack — you do not install `platform-deps`.
+instead of the bundled dev stack: you do not install `platform-deps`.
 
 ## What you provide
 
@@ -25,7 +25,7 @@ namespace, and reads its secrets from `secret/radar/*`. Your Vault must have:
   paths;
 - the secrets seeded (agent/gateway tokens, provider key, `postgres_dsn`, …).
 
-The bundled bootstrap is the exact reference — read
+The bundled bootstrap is the exact reference. Read
 [`deploy/helm/platform-deps/files/k8s-vault-bootstrap.py`](../../helm/platform-deps/files/k8s-vault-bootstrap.py)
 and the token model in
 [`scripts/dev-mint-tokens.py`](../../../scripts/dev-mint-tokens.py). Adapt it to

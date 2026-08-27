@@ -1,4 +1,4 @@
-# knowledge-service
+# 📚 knowledge-service
 
 Indexes the runbook corpus and serves grounding context to the reasoner.
 
@@ -7,7 +7,17 @@ chunking contract are documented in that directory's README, and the join
 between runbook frontmatter and the Prometheus alert rules is enforced by
 `tests/test_runbook_alert_contract.py`.
 
-## Design constraints
+## 📑 Contents
+
+- [🚧 Design constraints](#-design-constraints)
+- [🔎 The retrieval pipeline](#-the-retrieval-pipeline)
+- [🧩 Modules](#-modules)
+- [🌐 The context API](#-the-context-api)
+- [🏃 Running an indexing pass](#-running-an-indexing-pass)
+- [🗂️ Indexed document shape](#-indexed-document-shape)
+- [✂️ Chunking](#-chunking)
+
+## 🚧 Design constraints
 
 - **Never calls a model provider directly.** Embeddings and CRAG grading go
   through `llm-gateway`, which is the only service holding provider API keys.
@@ -21,7 +31,7 @@ between runbook frontmatter and the Prometheus alert rules is enforced by
 - **Touches only `runbook_documents`** and the Elasticsearch index, never the
   pipeline tables.
 
-## The retrieval pipeline
+## 🔎 The retrieval pipeline
 
 ```
 services pre-filter -> BM25 (top 20)  ┐
@@ -43,7 +53,7 @@ does not cover this incident, rather than being handed the least-bad wrong
 runbook. That path is gated by
 [`tests/e2e/test_crag_empty_context.py`](../../tests/e2e/test_crag_empty_context.py).
 
-## Modules
+## 🧩 Modules
 
 | module | role |
 |---|---|
@@ -65,7 +75,7 @@ The Elasticsearch mapping and the two search primitives live in the
 [`plugins/knowledge/elastic/`](../../plugins/knowledge/elastic/) plugin, not
 here: no vendor SDK is imported outside `plugins/`.
 
-## The context API
+## 🌐 The context API
 
 `POST /v1/context`, guarded by this service's agent token. Takes the incident
 shape (`service_name`, `alert_name`, `investigation_steps`) and returns graded
@@ -82,7 +92,7 @@ Each entry carries `grade` (`sufficient` or `partial`) and `status`, which is
 **no `score`**: RRF fuses by rank and discards scores, and BM25 and cosine are
 not on a comparable scale, so any single number would be invented precision.
 
-## Running an indexing pass
+## 🏃 Running an indexing pass
 
 ```bash
 make tokens && make agent-secrets   # mint + pull the two gateway tokens
@@ -93,7 +103,7 @@ make index                          # one incremental pass over docs/runbooks/
 Re-running on an unchanged corpus is a no-op (`embedded=0`, every runbook
 skipped), which is the incremental guarantee, visible from the command line.
 
-## Indexed document shape
+## 🗂️ Indexed document shape
 
 One Elasticsearch document per chunk, `_id` = `chunk_id`.
 
@@ -109,7 +119,7 @@ One Elasticsearch document per chunk, `_id` = `chunk_id`.
 | `status` | keyword | `fixture` until the corpus has a human review pass. Passed through to the reasoner. |
 | `indexed_at` | date | When this chunk was written. See below. |
 
-### Why `indexed_at` exists, and what it is *not* for
+### ❓ Why `indexed_at` exists, and what it is *not* for
 
 It is **not** staleness detection. Chunk ids are content hashes and superseded
 chunks are deleted, so a chunk in the index necessarily matches the current file;
@@ -134,7 +144,7 @@ part of `chunk_id`: if it were, every run would write new documents instead of
 overwriting, duplicating the corpus and defeating incremental indexing. A test
 pins that.
 
-## Chunking
+## ✂️ Chunking
 
 One chunk per `##` (H2) section, with the document title prepended as a
 breadcrumb so a chunk retrieved alone still says what it belongs to. **No

@@ -1,4 +1,4 @@
-# radar-outbox-worker
+# 📮 radar-outbox-worker
 
 The transport that moves work between RADAR agents.
 
