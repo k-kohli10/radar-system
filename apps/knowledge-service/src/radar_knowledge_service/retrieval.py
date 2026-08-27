@@ -2,47 +2,33 @@
 
 This is where ``KnowledgeStore.retrieve`` conformance lives. It cannot live on
 the Elasticsearch plugin: ``retrieve`` takes a query STRING, so something must
-embed it, and a plugin holds no embedding client by design — the gateway is the
-only component with provider keys. This layer has the embedder, so it is the
-layer that can honestly satisfy the contract.
+embed it, and a plugin holds no embedding client because the gateway is the only
+component with provider keys. This layer has the embedder, so it is the layer
+that can honestly satisfy the contract.
 
 WHAT IT DOES, AND WHAT IT DELIBERATELY DOES NOT
 -----------------------------------------------
 Embed the query, run both searches, fuse their rankings. Every decision inside
 that sequence already lives somewhere pure and tested: fusion in
 :mod:`radar_knowledge_service.fusion`, query assembly in
-:mod:`radar_knowledge_service.query`. This module chooses nothing on its own — it
-is the I/O shell, matching how :mod:`radar_knowledge_service.indexer` sits over
-``reconciliation``.
+:mod:`radar_knowledge_service.query`. This module is the I/O shell, matching how
+:mod:`radar_knowledge_service.indexer` sits over ``reconciliation``.
 
 CRAG grading is a later stage and is not here. What this returns is the fused
-top-``limit``, which the retrieval baselines measure directly — so the numbers in
-``tests/retrieval/`` describe this code, not an aspirational pipeline.
+top-``limit``, which the retrieval baselines measure directly, so the numbers in
+``tests/retrieval/`` describe this code.
 
 WHY THERE IS NO CROSS-ENCODER RERANK STAGE
 -------------------------------------------
-There was one. It was built, measured against a criterion pre-registered before
-it existed, and removed on the evidence. The full record is in
-``tests/retrieval/probes.yaml`` and ``baseline-reranked.json``; in short, at 20
-repeats per probe:
-
-- it did not reliably fix either probe it was meant to fix — the depth case
-  reached rank 1 in 9 runs of 20, the repair case in 16 of 20;
-- it was the ONLY source of run-to-run variance in the pipeline. Filter, kNN and
-  fusion return identical ranks on all 17 probes at n=20;
-- it destabilised a probe that had been rank 1 at every earlier stage;
-- it cost a ``reason``-mode LLM call on every incident.
-
-It did improve the average. That is not the same as improving the system: an
-on-call engineer sees ONE retrieval, not a distribution, so an 80% chance of the
-right runbook means one incident in five is grounded in the wrong one, varying
-between identical alerts on different days. Deterministic-and-slightly-worse
-beats better-on-average-but-unpredictable when each incident is a single draw
-and the result has to be debuggable.
-
-The baselines and probes stay in the repository deliberately: they are the
-evidence for this decision, and deleting them would leave the absence of a
-rerank stage looking like an oversight.
+One was built, measured against a criterion pre-registered before it existed,
+and removed on the evidence (``tests/retrieval/probes.yaml`` and
+``baseline-reranked.json``, at 20 repeats per probe). It improved the average
+while introducing the pipeline's only run-to-run variance, fixed neither probe it
+targeted reliably, destabilised a probe that had been rank 1 at every earlier
+stage, and cost a ``reason``-mode LLM call per incident. An on-call engineer sees
+one retrieval rather than a distribution, so a deterministic result that is
+slightly worse on average is the one that can be debugged. The baselines and
+probes stay in the repository as the evidence for this decision.
 
 WHY THE LEGS ARE SEARCHED WIDER THAN THE RESULT
 -----------------------------------------------
@@ -72,7 +58,7 @@ class SearchBackend(Protocol):
     """The two search primitives, as this layer needs them.
 
     A Protocol rather than the concrete Elasticsearch class, so this module holds
-    no vendor dependency — the plugin satisfies it structurally, exactly as
+    no vendor dependency; the plugin satisfies it structurally, exactly as
     ``KnowledgeIndex`` is satisfied on the write side.
     """
 
@@ -100,7 +86,8 @@ class Grader(Protocol):
     """The CRAG stage, as this layer needs it.
 
     Returns the usable chunks and never raises. An empty result means the grader
-    judged nothing relevant — a real answer, and the reason the stage exists.
+    judged nothing relevant, which is a real answer and the reason the stage
+    exists.
     """
 
     async def grade(
@@ -121,7 +108,7 @@ class HybridRetriever:
     ) -> None:
         """``grader`` is optional, and its absence is a supported configuration.
 
-        Without it, retrieval returns the fused ordering ungraded — which is what
+        Without it, retrieval returns the fused ordering ungraded, which is what
         the recorded stage baselines in ``tests/retrieval/`` measure, and why
         those numbers describe fusion rather than fusion-plus-grading.
         """
@@ -140,8 +127,8 @@ class HybridRetriever:
         """Return the most relevant chunks for ``query``, best first.
 
         ``service_name`` pre-filters both legs to one service. It is applied
-        inside each search rather than to their results — see the plugin's
-        search methods for why post-filtering would starve a leg.
+        inside each search rather than to their results; see the plugin's search
+        methods for why post-filtering would starve a leg.
 
         An empty query is refused rather than sent. Embedding the empty string
         returns a valid vector pointing somewhere arbitrary, and BM25 matches

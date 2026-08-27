@@ -1,17 +1,16 @@
 """Deciding what work an indexing run actually needs to do.
 
-Pure functions, zero I/O — the same shape as ``chunking``. Given what is on disk
+Pure functions, zero I/O, the same shape as ``chunking``. Given what is on disk
 and what is already stored, these decide what to embed, what to delete, and what
 to leave alone. The caller performs the work; nothing here talks to Postgres,
 Elasticsearch, or the gateway.
 
 **This module is where the scale property lives.** Re-embedding the whole corpus
-on every run would produce a perfectly correct index — which is exactly why it is
+on every run would produce a perfectly correct index, which is what makes it
 dangerous: a correctness test cannot tell the two apart. At 17 runbooks a full
-rebuild costs 136 embedding calls and a few seconds, so the wrong implementation
-looks fine; at 200 runbooks it is thousands of calls per run and a bill. The
-difference is visible only in *how much work was done*, so that is what the tests
-assert on.
+rebuild costs 136 embedding calls and a few seconds; at 200 runbooks it is
+thousands of calls per run and a bill. The difference is visible only in how much
+work was done, so that is what the tests assert on.
 
 Two levels of diff, because there are two levels of change:
 
@@ -83,8 +82,8 @@ def diff_corpus(
 
     ``on_disk`` and ``manifest`` both map ``runbook_id`` to a document hash (see
     ``chunking.compute_document_hash``). A runbook whose hash is unchanged is
-    skipped entirely — not chunked, not diffed, not embedded — which is what
-    makes a no-change run cost nothing.
+    skipped entirely, meaning not chunked, not diffed, not embedded, which is
+    what makes a no-change run cost nothing.
 
     A runbook present in the manifest but absent from disk was deleted, and its
     chunks must be removed. Without this, deleting a runbook would leave its

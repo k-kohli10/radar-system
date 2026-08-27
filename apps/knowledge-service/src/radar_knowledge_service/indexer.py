@@ -9,26 +9,23 @@ in a state the next run can finish from.
 TWO ORDERING RULES, AND WHY EACH DIRECTION WAS CHOSEN
 ------------------------------------------------------
 **Elasticsearch first, the Postgres manifest last.** The manifest records "this
-file's content is indexed". If it were written before the chunks reached
-Elasticsearch and the run then died, the next run would compare hashes, see no
-change, and skip the file — permanently, silently, with its chunks absent from
-the index. Writing it last means a crash leaves the manifest stale, the next run
-re-does the work, and the only cost is repeating it.
+file's content is indexed". Written before the chunks reached Elasticsearch, a
+crash would leave the next run comparing hashes, seeing no change, and skipping
+the file permanently and silently with its chunks absent from the index. Writing
+it last means a crash leaves the manifest stale and the next run redoes the work.
 
 **New chunks are indexed BEFORE stale ones are deleted.** The reverse order has
 a window where a section's old chunk is gone and its replacement has not landed;
-a crash inside that window makes the content unretrievable. Deleting last means a
-crash leaves *outdated but present* content instead. Both are wrong states, and
-outdated-but-present is the better one to fail into: retrieval still grounds the
-RCA in something, and the next run corrects it.
+a crash inside that window makes the content unretrievable. Deleting last leaves
+outdated-but-present content instead, which is the better wrong state to fail
+into: retrieval still grounds the RCA in something, and the next run corrects it.
 
 FAILURES PROPAGATE
 ------------------
 Per :mod:`radar_knowledge_service.embeddings`, embedding failures raise. Nothing
-here catches them: a failed run is a failed run, the manifest is not advanced for
-the runbook that failed, and the index keeps whatever it already had. Partial
-progress from earlier runbooks IS committed, because their content is genuinely
-indexed and re-doing it on the next run would be pointless work.
+here catches them: the manifest is not advanced for the runbook that failed, and
+the index keeps whatever it already had. Partial progress from earlier runbooks
+IS committed, because their content is genuinely indexed.
 """
 
 from __future__ import annotations
@@ -53,7 +50,7 @@ class KnowledgeIndex(Protocol):
     """The write side of the chunk index, as the indexer needs it.
 
     A Protocol rather than the concrete Elasticsearch class so this module holds
-    no vendor dependency — the plugin satisfies it structurally.
+    no vendor dependency; the plugin satisfies it structurally.
     """
 
     async def ensure_index(self) -> bool: ...
@@ -84,7 +81,7 @@ class Embedder(Protocol):
 
 @dataclass(frozen=True)
 class IndexRunResult:
-    """What a run actually did — counted, because the counts are the guarantee.
+    """What a run actually did, counted, because the counts are the guarantee.
 
     ``embedded`` is the number that matters: it is the gateway calls a run cost,
     and it must be zero when nothing changed. A correct index says nothing about
@@ -122,8 +119,8 @@ def chunk_to_document(
     between documents.
 
     It is not part of ``chunk_id`` (a content hash), so it can never trigger a
-    re-embed — see ``build_mapping`` in the Elasticsearch plugin for why the
-    field exists at all.
+    re-embed. See ``build_mapping`` in the Elasticsearch plugin for why the field
+    exists at all.
     """
     return {
         "chunk_id": chunk.chunk_id,
@@ -148,7 +145,7 @@ def read_corpus(directory: Path) -> dict[str, tuple[Path, str]]:
     """Read every runbook, keyed by id, with its source.
 
     ``README.md`` documents the corpus and is not part of it. The runbook id is
-    the filename stem — the join the contract test enforces.
+    the filename stem, the join the contract test enforces.
     """
     return {
         path.stem: (path, path.read_text())
@@ -195,11 +192,10 @@ class RunbookIndexer:
 
         result = IndexRunResult(skipped=len(corpus_diff.unchanged))
 
-        # One timestamp for the whole run, taken before any writing: every chunk
-        # this run writes carries it, whichever runbook it came from. Stamping
-        # per-runbook instead would only restate `runbook_documents.indexed_at`,
-        # which Postgres already answers; per-run answers what Postgres cannot —
-        # "which chunks did run N write" — as a single-term query.
+        # One timestamp for the whole run, taken before any writing, so every
+        # chunk this run writes carries it whichever runbook it came from. That
+        # makes "which chunks did run N write" a single-term query, which
+        # `runbook_documents.indexed_at` cannot answer.
         written_at = utcnow()
 
         for runbook_id in corpus_diff.removed:
@@ -313,8 +309,8 @@ class RunbookIndexer:
         Metadata comes off the chunks rather than being re-parsed: they carry the
         frontmatter already, and taking it from the same objects that were
         indexed means the manifest cannot describe something different from what
-        is in the index. ``services`` in particular is not decoration — it is the
-        GIN-indexed pre-filter key.
+        is in the index. ``services`` in particular is the GIN-indexed
+        pre-filter key.
         """
         first = chunks[0]
         async with self._sessions() as session:

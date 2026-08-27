@@ -2,34 +2,31 @@
 
 ``POST /v1/context`` takes an incident-shaped request, assembles the query with
 :func:`radar_knowledge_service.query.build_query`, and runs the full retrieval
-pipeline — pre-filter, BM25 + kNN, RRF, CRAG grading. The reasoner therefore
-exercises exactly the code path the pre-registered probes measured; there is no
-API-only variant of retrieval to drift from the measured one.
+pipeline: pre-filter, BM25 + kNN, RRF, CRAG grading. The reasoner therefore
+exercises exactly the code path the pre-registered probes measured.
 
-EMPTY IS AN ANSWER; UNAVAILABLE IS AN ERROR — THE STATUS CODE KEEPS THEM APART
+EMPTY IS AN ANSWER; UNAVAILABLE IS AN ERROR, AND THE STATUS CODE SEPARATES THEM
 -------------------------------------------------------------------------------
 ``{"chunks": []}`` with 200 means CRAG judged nothing in the corpus relevant.
 That claim is the reason the grading stage exists, and it must never be
-manufactured from a failure — so when retrieval itself is unavailable (the
-gateway cannot embed the query, Elasticsearch is unreachable), the response is
-503, not an empty 200. The caller decides what to do with a 503; the reasoner
-proceeds with no context, exactly as it would for a genuinely empty corpus, but
-the STORED bundle can say which of the two happened. Collapsing them here would
-make the audit trail lie.
+manufactured from a failure, so retrieval being unavailable (the gateway cannot
+embed the query, Elasticsearch is unreachable) answers 503 rather than an empty
+200. The reasoner proceeds with no context either way, but the STORED bundle can
+say which of the two happened, and collapsing them here would make the audit
+trail lie.
 
 Error detail carries the exception CLASS only, never the message: messages from
-vendor SDKs can carry request details, and this is the same redaction rule the
-llm-gateway applies to provider errors.
+vendor SDKs can carry request details, the same redaction rule the llm-gateway
+applies to provider errors.
 
 WHY THE RESPONSE CARRIES NO SCORE, DESPITE THE PLAN'S v2 SKETCH
 ----------------------------------------------------------------
-The plan's v2 ``retrieved_context`` entry shows a ``score``. That sketch
-predates two measured findings: RRF fuses by rank and discards scores, so no
-single comparable relevance number exists after fusion (BM25 and cosine are on
-different scales); and the rerank stage that would have produced one was
-measured and removed. Inventing a number to fill the field would put false
-precision in front of the model. The entry carries the ``grade`` instead, which
-is the judgement the pipeline actually made.
+The plan's v2 ``retrieved_context`` entry shows a ``score``. That sketch predates
+two measured findings: RRF fuses by rank and discards scores, so no single
+comparable relevance number survives fusion (BM25 and cosine are on different
+scales); and the rerank stage that would have produced one was measured and
+removed. The entry carries the ``grade`` instead, which is the judgement the
+pipeline actually made.
 """
 
 from __future__ import annotations
@@ -48,7 +45,7 @@ log = get_logger("knowledge.api")
 
 
 class Retriever(Protocol):
-    """Retrieval, as the API needs it — the KnowledgeStore.retrieve shape.
+    """Retrieval, as the API needs it: the KnowledgeStore.retrieve shape.
 
     A Protocol rather than the concrete HybridRetriever so the router depends on
     the contract, not the composition; tests satisfy it structurally.
@@ -79,7 +76,7 @@ class ContextChunk(BaseModel):
     """One graded chunk, in the v2 ``retrieved_context`` entry shape.
 
     ``grade`` is optional because a failed grading call degrades to ungraded
-    retrieval rather than raising — an ungraded chunk is one nobody vouched for,
+    retrieval rather than raising. An ungraded chunk is one nobody vouched for,
     and the reasoner can tell the difference.
     """
 
@@ -161,10 +158,10 @@ def create_context_router(
                 limit=CONTEXT_LIMIT,
             )
         except Exception as exc:
-            # Retrieval UNAVAILABLE — embed failed, Elasticsearch unreachable.
-            # Never an empty 200: that would manufacture CRAG's "the corpus has
-            # nothing for this incident" claim out of an outage. Class name
-            # only; vendor messages can carry request detail.
+            # Retrieval UNAVAILABLE: embed failed, or Elasticsearch unreachable.
+            # Never an empty 200, which would manufacture CRAG's "the corpus has
+            # nothing for this incident" claim out of an outage. Class name only;
+            # vendor messages can carry request detail.
             log.warning(
                 "knowledge.context_unavailable",
                 service_name=request.service_name,
@@ -191,8 +188,8 @@ def create_context_router(
 def _to_entry(chunk: dict[str, Any]) -> ContextChunk:
     """Map a pipeline chunk onto the response shape.
 
-    ``text`` becomes ``content`` (the plan's field name), and internal fields —
-    ids, per-leg scores, index metadata — stay internal.
+    ``text`` becomes ``content`` (the plan's field name); internal fields (ids,
+    per-leg scores, index metadata) stay internal.
     """
     return ContextChunk(
         runbook_id=chunk["runbook_id"],
