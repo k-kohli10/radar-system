@@ -1,4 +1,4 @@
-# radar-contracts
+# 📜 radar-contracts
 
 Shared contracts for RADAR: Pydantic v2 domain schemas and backend `Protocol`
 interfaces used across every service and plugin.
@@ -6,7 +6,7 @@ interfaces used across every service and plugin.
 ## Rules
 
 - **Pydantic v2** for all models.
-- **`typing.Protocol`** (not ABCs) for all backend interfaces.
+- **`typing.Protocol`** for all backend interfaces.
 - **Zero vendor imports.** No `anthropic`, `openai`, `google-generativeai`,
   `slack-sdk`, Elasticsearch, or any other SDK. This package depends only on
   `pydantic` and the standard library.

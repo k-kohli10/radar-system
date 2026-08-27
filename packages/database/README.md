@@ -1,4 +1,4 @@
-# radar-database
+# 🗄️ radar-database
 
 The RADAR persistence layer, built on async SQLAlchemy 2.0 + asyncpg:
 

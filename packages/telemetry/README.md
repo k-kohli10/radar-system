@@ -1,4 +1,4 @@
-# radar-telemetry
+# 📡 radar-telemetry
 
 Observability primitives shared by every RADAR service:
 
