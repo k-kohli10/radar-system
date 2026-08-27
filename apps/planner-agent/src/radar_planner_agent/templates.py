@@ -1,45 +1,32 @@
 """Investigation templates: a typed, validated model of the YAML ConfigMap.
 
-The planner's one job. Given ``service_name`` and ``alert_name`` from the event,
-find the investigation an engineer would run — or fall back to a generic one.
+The planner's one job. Given ``service_name`` and ``alert_name`` from the event, find
+the investigation an engineer would run, or fall back to a generic one.
 
-THE MATCH IS EXACT
-------------------
-The key is ``f"{service_name}:{alert_name}"``. No case folding, no prefix match,
-no fuzzy fallback, no stripping. That is a deliberate refusal, not an omission: a
-loose match that served the *wrong specific* template would be worse than no match
-at all, because the engineer would follow a confident, plausible, and irrelevant
-checklist. Better a generic plan that is honest about being generic.
+**The match is exact.** The key is ``f"{service_name}:{alert_name}"``: no case
+folding, no prefix match, no fuzzy fallback, no stripping. A loose match that served
+the *wrong specific* template would have the engineer follow a confident, plausible,
+irrelevant checklist. Better a generic plan that is honest about being generic.
 
-THE FAILURE THIS MODULE IS BUILT AROUND
----------------------------------------
-Because the match is exact, a mismatch is **silent**. Write a key with the wrong
-casing or a trailing space and that alert quietly falls through to ``_default`` —
-which produces a perfectly plausible plan. Nothing breaks. Nobody notices. Every
-incident just gets a slightly-too-generic investigation forever.
+**Because the match is exact, a mismatch is silent.** A key with the wrong casing or
+a trailing space falls through to ``_default``, which produces a perfectly plausible
+plan. Nothing breaks and nobody notices. Three guards, because one is not enough for
+a bug that hides this well:
 
-Three guards, because one is not enough for a bug that hides this well:
-
-1. **Keys are validated at startup.** Exactly one colon, no surrounding
-   whitespace, both halves non-empty. A key that could never match anything is
-   dead config, and the planner refuses to start rather than carry it. This is the
-   one that catches the trailing space.
+1. **Keys are validated at startup.** Exactly one colon, no surrounding whitespace,
+   both halves non-empty. A key that could never match anything is dead config, and
+   the planner refuses to start rather than carry it. This catches the trailing space.
 2. **Every fallback logs the key that missed** (in ``routes``, at WARNING), so the
-   miss is greppable rather than invisible.
-3. **A counter distinguishes matched from default** (in ``routes``), so "every
-   alert is hitting ``_default``" is a line on a dashboard rather than something
-   somebody has to notice.
+   miss is greppable.
+3. **A counter distinguishes matched from default** (in ``routes``), so "every alert
+   is hitting ``_default``" is a line on a dashboard.
 
-``_default`` IS REQUIRED
-------------------------
-An alert nobody wrote a template for still gets a generic investigation. No
-incident is ever left unplanned merely because the template library has a gap. A
-missing ``_default`` is a boot failure — loud, at deploy time — rather than a
-surprise at 3am when an unknown alert arrives and the planner has nothing to say.
+``_default`` is required, so a gap in the template library is a generic plan rather
+than a stalled incident. A missing ``_default`` is a boot failure at deploy time
+rather than a surprise at 3am.
 
-``extra="forbid"`` throughout: a typo'd field is a startup failure, not a silently
-ignored one. Unlike the gateway's token map this file holds no secrets, so errors
-quote the path and the validation detail freely.
+``extra="forbid"`` throughout: a typo'd field is a startup failure. This file holds no
+secrets, so errors quote the path and the validation detail freely.
 """
 
 from __future__ import annotations
@@ -53,20 +40,20 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from radar_common import ConfigurationError
 
 DEFAULT_KEY = "_default"
-"""The template used when nothing matches. Required — see the module docstring."""
+"""The template used when nothing matches. Required; see the module docstring."""
 
 KEY_SEPARATOR = ":"
 """``service_name:alert_name``. Exactly one, and no whitespace around it."""
 
 
 def template_key(service_name: str, alert_name: str) -> str:
-    """Build the lookup key for an alert. EXACT — nothing is normalized here.
+    """Build the lookup key for an alert. EXACT: nothing is normalized here.
 
     This is the ONE place the key is constructed, and it is deliberately dumb: no
     strip, no lower, no substitution. If the watcher emits ``alert_name`` with a
     different casing than the YAML declares, the correct outcome is a visible
-    fallback to ``_default`` — not a silent coercion that appears to work and
-    serves an unrelated template on some other alert.
+    fallback to ``_default``, not a coercion that appears to work and serves an
+    unrelated template on some other alert.
     """
     return f"{service_name}{KEY_SEPARATOR}{alert_name}"
 
@@ -89,9 +76,8 @@ class InvestigationTemplate(BaseModel):
 
     @model_validator(mode="after")
     def _unique_orders(self) -> InvestigationTemplate:
-        # Two steps claiming order 3 make the plan's sequence ambiguous, and the
-        # engineer reading the card cannot tell which comes first. Cheap to catch
-        # here; impossible to notice in production.
+        # Two steps claiming order 3 leave the engineer reading the card unable to
+        # tell which comes first. Cheap here; impossible to notice in production.
         duplicates = sorted(
             order
             for order, count in Counter(s.order for s in self.steps).items()
@@ -168,7 +154,7 @@ class PlanTemplates(BaseModel):
 
     @property
     def keys(self) -> list[str]:
-        """Sorted template keys — safe to log at startup (no secrets here)."""
+        """Sorted template keys. Safe to log at startup: no secrets here."""
         return sorted(self.templates)
 
 
@@ -192,11 +178,10 @@ def _key_problem(key: str) -> str | None:
 def load_plan_templates(path: Path) -> PlanTemplates:
     """Load and validate the investigation templates at ``path``.
 
-    Raises :class:`~radar_common.ConfigurationError` — which keeps ``/readyz`` at
-    503 — on a missing file, invalid YAML, or a document that fails validation.
-    Startup does not proceed on a bad config: a planner running with templates
-    nobody wrote is worse than a planner that will not start, because the first one
-    looks fine and quietly hands every incident the same generic checklist.
+    Raises :class:`~radar_common.ConfigurationError`, which keeps ``/readyz`` at 503,
+    on a missing file, invalid YAML, or a document that fails validation. A planner
+    running with templates nobody wrote looks fine and quietly hands every incident
+    the same generic checklist, so startup does not proceed on a bad config.
     """
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))

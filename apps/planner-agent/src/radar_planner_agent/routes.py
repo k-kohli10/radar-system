@@ -1,42 +1,37 @@
 """The ``POST /events`` endpoint: idempotency first, then the plan.
 
-The outbox worker delivers at *least* once — a dispatch that times out, or a
-worker that dies after delivering but before recording the result, is
-redelivered. So the first thing this handler does, before any interpretation of
-the event at all, is ask ``processed_events`` whether this ``event_id`` has
-already been handled by ``planner-agent``. If it has, the answer is 200 and
-nothing else happens.
+The outbox worker delivers at *least* once: a dispatch that times out, or a worker
+that dies after delivering but before recording the result, is redelivered. So before
+any interpretation of the event at all, this handler asks ``processed_events`` whether
+this ``event_id`` has already been handled by ``planner-agent``. If it has, the answer
+is 200 and nothing else happens.
 
 Everything the event changes is in the SAME transaction as the marker:
 
     processed_events  +  investigation_plan  +  reasoning_requested outbox event
                       +  audit_log
 
-Committed together, so a crash between them is impossible. A marker committed
-without its plan would be quietly terminal: the incident would never be planned,
-and the gate would then ensure it was never planned on redelivery *either*,
-because the marker says the work was done. The pipeline would stop for that
-incident, permanently and silently.
+A marker committed without its plan would be quietly terminal: the incident would
+never be planned, and the gate would skip the redelivery because the marker says the
+work was done. The pipeline stops for that incident, permanently and silently.
 
-THE DUPLICATE PLAN, AND WHY IT IS NOT A 500
--------------------------------------------
-A *second, distinct* ``plan_requested`` for an incident that already has a plan
-gets past the idempotency gate (different ``event_id``) and hits the unique index
-on ``investigation_plans.incident_id``. Sequentially the pre-check catches it;
+**The duplicate plan, and why it is not a 500.** A second, distinct
+``plan_requested`` for an incident that already has a plan gets past the idempotency
+gate (different ``event_id``) and hits the unique index on
+``investigation_plans.incident_id``. Sequentially the pre-check catches it;
 concurrently the index does, with an ``IntegrityError``.
 
 Both answer 200 with no second plan and no second ``reasoning_requested``. The
-incident IS planned and the reasoner already has it, so re-planning is unnecessary
-rather than erroneous — and a 500 would only have the worker retry a race it will
-lose again, eventually dead-lettering an event whose work was already done.
+incident IS planned and the reasoner already has it, and a 500 would only have the
+worker retry a race it will lose again, eventually dead-lettering an event whose work
+was already done.
 
-But a 200 absorbs an upstream bug, and silence is how a bug survives. So every
-duplicate is a named WARNING log, an ``audit_log`` row, and the
-``radar_duplicate_plan_requests_total`` counter — a non-zero rate means the watcher
-is double-emitting, and it says so on a dashboard.
+A 200 can absorb an upstream bug, so every duplicate is a named WARNING log, an
+``audit_log`` row, and the ``radar_duplicate_plan_requests_total`` counter. A non-zero
+rate means the watcher is double-emitting, and it says so on a dashboard.
 
 Status codes are the documented agent contract: 200 processed (or already seen),
-401 bad token, 422 malformed payload — and 401 beats 422 (the shared guard in
+401 bad token, 422 malformed payload. 401 beats 422 (the shared guard in
 ``radar_common.auth``).
 """
 
@@ -76,16 +71,15 @@ def create_events_router(
     """Build the ``POST /events`` surface.
 
     ``get_database`` and ``get_templates`` return the live objects (set during
-    startup) or ``None`` when the service is not ready — the handler answers 503
-    then, rather than planning against templates nobody configured.
+    startup) or ``None`` when the service is not ready, in which case the handler
+    answers 503 rather than planning against templates nobody configured.
     """
     router = APIRouter()
 
     @router.post("/events", dependencies=[Depends(events_auth.require())])
     async def receive_event(envelope: EventEnvelope) -> dict[str, str]:
-        # Bind before anything else can log: every line this request produces,
-        # including a rejection, carries the correlation id minted at ingress, so
-        # the pipeline stays traceable by that value alone.
+        # Bind before anything else can log, so every line this request produces
+        # (rejections included) carries the correlation id minted at ingress.
         bind_correlation_id(envelope.correlation_id)
 
         database = get_database()
@@ -97,8 +91,8 @@ def create_events_router(
             )
 
         async with database.session() as session:
-            # THE GATE. First read of the handler, before the event is interpreted
-            # at all: a redelivery must not be able to reach any work.
+            # THE GATE. First read of the handler, before the event is interpreted at
+            # all, so a redelivery cannot reach any work.
             if await is_already_processed(session, envelope.event_id, SERVICE_NAME):
                 log.info(
                     "event.already_processed",
@@ -131,9 +125,9 @@ def create_events_router(
                 await mark_processed(session, envelope.event_id, SERVICE_NAME)
                 await session.commit()
             except IncidentNotFoundError as exc:
-                # Checked explicitly (see planning) so it can never be mistaken for
-                # a duplicate race and silently absorbed. 422 dead-letters it, and a
-                # human sees it. No marker: nothing was decided.
+                # Checked explicitly (see planning) so it can never be mistaken for a
+                # duplicate race and absorbed. 422 dead-letters it, and a human sees
+                # it. No marker: nothing was decided.
                 log.error("incident.not_found", event_id=str(envelope.event_id))
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -142,7 +136,7 @@ def create_events_router(
                 # THE RACE. Two deliveries interleaved between the pre-check and the
                 # insert; the unique index on investigation_plans.incident_id
                 # rejected this one. The other transaction planned the incident, so
-                # the work IS done — this delivery just has nothing left to do.
+                # this delivery has nothing left to do.
                 await session.rollback()
                 return await _absorb_duplicate(
                     database, envelope=envelope, payload=payload, metrics=metrics
@@ -171,7 +165,7 @@ def create_events_router(
             log.warning(
                 "planner.template_defaulted",
                 incident_id=str(outcome.incident_id),
-                # The key that MISSED — so the fix is a grep away, not a guess.
+                # The key that MISSED, so the fix is a grep away.
                 missed_key=f"{payload.service_name}:{payload.alert_name}",
             )
         log.info(
@@ -196,9 +190,9 @@ async def _absorb_duplicate(
 ) -> dict[str, str]:
     """Record the lost race in a FRESH transaction, and answer 200.
 
-    The original transaction is rolled back, so its marker and audit row are gone
-    with it — they have to be rewritten here or the worker would redeliver this
-    event forever, losing the same race every time.
+    The original transaction is rolled back, so its marker and audit row went with it
+    and have to be rewritten here, or the worker would redeliver this event forever,
+    losing the same race every time.
 
     The marker is re-checked first: the ``IntegrityError`` could also have come from
     two deliveries of the SAME event racing on the ``processed_events`` primary key,
@@ -231,12 +225,11 @@ async def _absorb_duplicate(
 def _parse_payload(envelope: EventEnvelope) -> PlanRequestedPayload:
     """Validate the event body against the shape the watcher promised to send.
 
-    The envelope's ``payload`` is an open dict by design — the envelope is generic
-    transport — so the per-event-type shape is judged here, by the agent that knows
-    what its own events mean. The watcher *constructs* this same model, so a
-    mismatch is a real malformation, and 422 is the honest answer (the worker treats
-    it as permanent and dead-letters it, rather than retrying a body that will never
-    parse).
+    The envelope is generic transport and its ``payload`` an open dict, so the
+    per-event-type shape is judged here, by the agent that knows what its own events
+    mean. The watcher constructs this same model, so a mismatch is a real
+    malformation: 422, which the worker treats as permanent and dead-letters rather
+    than retrying a body that will never parse.
     """
     try:
         return PlanRequestedPayload.model_validate(envelope.payload)
