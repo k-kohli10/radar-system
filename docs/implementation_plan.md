@@ -1822,6 +1822,24 @@ volumes:
 Each phase is one PR, one milestone. The commit history tells the story of how the
 project grew, one scoped, reviewable commit at a time.
 
+Progress:
+
+- [x] Phase 0: Foundation
+- [x] Phase 1: Developer Environment
+- [x] Phase 2: Contracts and Plugin SDK
+- [x] Phase 3: Shared Packages
+- [x] Phase 4: LLM Gateway
+- [x] Phase 5: Ingestion and Platform Simulator
+- [x] Phase 6: Outbox Worker
+- [x] Phase 7: Agent Pipeline and Vertical Slice
+- [x] Phase 8: Knowledge Service
+- [x] Phase 9: Feedback Service and Slack Bot
+- [x] Phase 10: Observability
+- [x] Phase 11: CI/CD
+- [x] Phase 12: Kubernetes and Helm
+- [x] Phase 13: Security and Resilience Audit
+- [x] Phase 14: Open Source Polish
+
 ---
 
 ## Phase 0: Foundation
@@ -2922,9 +2940,11 @@ Professional README with architecture diagram
 15-minute quickstart (test on a clean machine)
 Plugin development guide
 Performance benchmark
-SRE portfolio case study
 Completed CHANGELOG and CONTRIBUTING
 ```
+
+SRE portfolio case study was dropped from scope: a separate, personal-narrative
+piece, not a repo document.
 
 Commits:
 ```
@@ -2948,13 +2968,18 @@ docs: trim oversized docstrings in llm-gateway
 docs: trim oversized docstrings in knowledge-service
 docs: apply house style to operations docs
 docs: apply house style to architecture docs
+docs: update phase 14 commit list in implementation plan
+docs: remove em-dash in phase 12 note
+docs: remove em-dashes in roadmap carried-debt notes
+docs: apply house style to app and deploy example READMEs
+docs: apply house style to package READMEs
+docs: add CI badge, contributing section, and remove internal phase language from README
 ```
 
 The open-source-polish cleanup grew past the original plan: a repo-wide doc style
-pass (docs/STYLE.md, all 20 ADRs, docs/operations/, docs/architecture/) and an
-oversized-comment trim across every app, shared package, and plugin, on top of the
-five originally planned deliverables. SRE portfolio case study is still open,
-pending the user's narrative.
+pass (docs/STYLE.md, all 20 ADRs, docs/operations/, docs/architecture/, every
+package/app README) and an oversized-comment trim across every app, shared
+package, and plugin, on top of the five originally planned deliverables.
 
 Done when: someone else can run the local demo in 15 minutes from the README alone.
 
@@ -2988,7 +3013,7 @@ Phase 12 + deploy/helm/radar deploy/examples .github/workflows/deploy.yml
            TAG: v0.6.0
 Phase 13 + tests/load docs/architecture/threat-model.md
            TAG: v0.7.0
-Phase 14   Polished docs case study benchmark
+Phase 14   Polished docs, style pass, comment trim, benchmark
            TAG: v1.0.0
 ```
 
