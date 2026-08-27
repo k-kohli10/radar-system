@@ -2801,7 +2801,7 @@ CD workflow; and the setup and connectivity guide
 
 > **Post-Phase-12 workflow consolidation.** The four workflows were later collapsed
 > to three: `helm.yml` (validation) folded into `ci.yml` as its `helm` job, and
-> `cd.yml` was renamed to `deploy.yml` — now manual-only, approval-gated (the
+> `cd.yml` was renamed to `deploy.yml`, now manual-only and approval-gated (the
 > `kubernetes` environment's required reviewers), with a `service` input for
 > single-component deploys. Intra-app startup ordering (`llm-gateway` →
 > `knowledge-service` → consumers) is enforced by per-service `dependsOn` wait-for
