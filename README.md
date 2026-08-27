@@ -149,6 +149,7 @@ technical specification.
 |---|---|
 | [`docs/quickstart.md`](docs/quickstart.md) | 15-minute clone-to-RCA walkthrough |
 | [`docs/plugin-development.md`](docs/plugin-development.md) | Add a new LLM/notification/logs/metrics/traces backend |
+| [`docs/performance-benchmark.md`](docs/performance-benchmark.md) | 100-alert burst on Kubernetes with the real LLM: latency + no-data-loss |
 | [`docs/local-development.md`](docs/local-development.md) | Run the stack locally, native or Docker |
 | [`docs/operations/docker.md`](docs/operations/docker.md) | The two-stack Docker workflow and end-to-end test |
 | [`docs/adr/`](docs/adr/) | Architectural decision records: the why behind each choice |
