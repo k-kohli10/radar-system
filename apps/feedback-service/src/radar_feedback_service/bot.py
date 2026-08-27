@@ -7,21 +7,19 @@ renders the reply, and it is posted as a threaded reply under the mention.
 
 Two things this layer owns:
 
-- **Every mention gets a reply — an unparseable one included.** A bare mention, an
+- **Every mention gets a reply, an unparseable one included.** A bare mention, an
   unknown verb, or a bad argument raises :class:`BotCommandError` from the parser; this
-  handler renders the matching help/error text and posts it. It never swallows the
-  raise into a silent no-op — that would undo the parser, leaving a user who typed
-  something wrong staring at nothing.
+  handler renders the matching help/error text and posts it. Swallowing the raise into
+  a silent no-op would undo the parser and leave a user who typed something wrong
+  staring at nothing.
 - **The cap bites here.** The parser accepts any ``last <n>`` with n≥1; policy is this
   layer's, so ``last`` clamps the count to ``max_rows`` (the deployment's
-  ``bot_max_rows``) before it reaches the query's ``LIMIT``. ``@radar last 1000``
-  returns ``max_rows`` rows, not a thousand — the repository bounds by the argument, the
-  handler decides the argument.
+  ``bot_max_rows``) before it reaches the query's ``LIMIT``. The repository bounds by
+  the argument; the handler decides the argument.
 
-Read-only: every command is a SELECT-and-render. Nothing here mutates state — there is
-no ``@radar resolve`` or ``@radar close`` (close is deferred). Replies are posted
-in-thread (``thread_ref`` = the mention's ts) so an answer sits under its question and
-the channel stays a clean incident feed.
+Read-only: every command is a SELECT-and-render, and nothing here mutates state.
+Replies are posted in-thread (``thread_ref`` = the mention's ts) so an answer sits
+under its question and the channel stays a clean incident feed.
 """
 
 from __future__ import annotations
@@ -83,9 +81,8 @@ def build_mention_handler(
         try:
             command = parse_command(mention)
         except BotCommandError as exc:
-            # The parser rejected it — render the matching help/error and reply. NEVER a
-            # silent return: a rejected mention that produced no reply would undo the
-            # parser and leave the user with nothing.
+            # Render the matching help/error and reply. NEVER a silent return: a
+            # rejected mention with no reply leaves the user with nothing.
             log.info(
                 "bot.command_rejected",
                 failure=exc.failure.value,
@@ -115,7 +112,7 @@ async def _reply(
     notifier: NotificationBackend, mention: BotMention, response: BotResponse
 ) -> None:
     """Post the reply in-thread, best-effort. The mention is already acked (no
-    redelivery), so a failed post is logged and dropped — nothing to retry."""
+    redelivery), so a failed post is logged and dropped: nothing to retry."""
     try:
         await notifier.send(
             mention.channel_id,
@@ -133,7 +130,7 @@ async def _reply(
 
 def _rejection_reply(exc: BotCommandError) -> BotResponse:
     """Render a parse rejection: plain help (bare/help), unknown-command + help, or the
-    specific bad-argument message + help — the three distinct paths of Q1/Q3."""
+    specific bad-argument message + help."""
     if exc.failure is BotParseFailure.EMPTY:
         return BotResponse(text=_HELP)
     if exc.failure is BotParseFailure.UNKNOWN_COMMAND:
@@ -247,7 +244,7 @@ def _incident_detail(incident: Incident, rec: Recommendation | None) -> str:
 
 
 def _ago(then: datetime, now: datetime) -> str:
-    """A compact relative time — "4m ago", "2h ago", "3d ago", or "just now"."""
+    """A compact relative time: "4m ago", "2h ago", "3d ago", or "just now"."""
     seconds = int((now - then).total_seconds())
     if seconds < 60:
         return "just now"
@@ -259,7 +256,7 @@ def _ago(then: datetime, now: datetime) -> str:
 
 
 def _window(period: str, now: datetime) -> tuple[datetime, datetime, str]:
-    """The half-open ``[start, end)`` for ``today``/``yesterday`` in UTC — the same
+    """The half-open ``[start, end)`` for ``today``/``yesterday`` in UTC, the same
     convention the count queries use, so the two days partition without overlap."""
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     if period == "yesterday":

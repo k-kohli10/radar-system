@@ -1,43 +1,35 @@
 """feedback-service assembly.
 
-The last stage of the incident pipeline: it consumes ``recommendation.created``
-and puts the RCA in front of a human. Everything it needs is loaded inside the
-lifespan — nothing at import time: the Postgres DSN, this service's own
-``agent_token``, and the Slack bot token all come from Vault, and a missing secret
-leaves readiness false so ``/readyz`` answers 503 instead of crashing an import no
-probe will ever see. ``Database`` construction is lazy (no connection yet), so a
-database that is down at startup does not fail startup — ``/readyz`` live-pings it
-and recovers when it returns.
+The last stage of the incident pipeline: it consumes ``recommendation.created`` and
+puts the RCA in front of a human. Everything it needs is loaded inside the lifespan,
+nothing at import time: the Postgres DSN, this service's own ``agent_token``, and the
+Slack bot token all come from Vault, and a missing secret leaves readiness false so
+``/readyz`` answers 503 instead of crashing an import no probe will ever see.
+``Database`` construction is lazy, so a database down at startup does not fail
+startup; ``/readyz`` live-pings it and recovers when it returns.
 
 ``/readyz`` is 200 only when BOTH hold, every time it is asked:
 
 1. the Vault secrets loaded at startup, AND
 2. the database answers ``SELECT 1`` **right now**.
 
-The second is not redundant. A probe that checks only its own startup state
-reports healthy while its database is unreachable — Kubernetes keeps routing
-traffic to a pod that cannot do anything, and the failure surfaces as errors to
-callers instead of a pod taken out of rotation. So the DB is pinged per request,
-not remembered from boot.
+The DB is pinged per request, not remembered from boot: a probe that trusts its
+boot-time state reports healthy while its database is unreachable, and Kubernetes
+keeps routing traffic to a pod that cannot do anything.
 
-``/healthz`` is process liveness only — deliberately NOT gated on the database,
-or a database blip would get the pod killed and restarted rather than merely
-removed from service. Liveness and readiness answer different questions.
+``/healthz`` is process liveness only, NOT gated on the database, or a database blip
+would get the pod killed and restarted rather than merely removed from service.
 
-**The Slack bot token is required to become ready**, even though this commit does
-not yet post anything. A feedback-service without it cannot do the one thing it
-exists for, and finding that out at the first real incident — with an engineer
-waiting for a card that will never arrive — is strictly worse than refusing to go
-ready. Same reasoning as the planner refusing to start without its templates. The
-token is loaded and held here; the commit that delivers cards constructs the Slack
-backend from it.
+**The Slack bot token is required to become ready.** A feedback-service without it
+cannot do the one thing it exists for, and finding that out at the first real
+incident, with an engineer waiting for a card that will never arrive, is worse than
+refusing to go ready.
 
 The agent token is loaded in the lifespan rather than via
-``bootstrap(with_agent_auth=True)``, which would read it at app-build time and
-crash on a missing secret — the exact crash ``/readyz`` exists to turn into a
-503. It is late-bound into the shared :class:`~radar_common.EventsAuth`, so a
-missing token degrades to 503 (which the outbox worker retries) rather than 401
-(which it would dead-letter).
+``bootstrap(with_agent_auth=True)``, which would read it at app-build time and crash
+on a missing secret. It is late-bound into the shared
+:class:`~radar_common.EventsAuth`, so a missing token degrades to 503 (which the
+outbox worker retries) rather than 401 (which it would dead-letter).
 """
 
 from __future__ import annotations
@@ -95,7 +87,7 @@ class Readiness:
     Starts not-ready ("starting"); :meth:`mark_ready` flips it once the Vault
     secrets have loaded. The live database check is separate (``/readyz`` pings on
     each call), so this tracks only the startup half of the contract. ``reason``
-    strings are safe to return to a probe — the config layer names files, never
+    strings are safe to return to a probe: the config layer names files, never
     secret values.
     """
 
@@ -141,10 +133,8 @@ def create_app(
 
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
-    # feedback-service produces radar_feedback_total and only that: the sibling
-    # incidents_total / incident_duration_seconds counters that used to share a family
-    # here now live with their producers (ingestion / reasoner), so this service no
-    # longer exports two counters it can never move.
+    # feedback-service produces radar_feedback_total and only that; incidents_total
+    # and incident_duration_seconds live with their producers (ingestion / reasoner).
     feedback_metrics = create_feedback_metrics(metrics_registry)
     database: Database | None = None
     agent_auth: AgentTokenAuth | None = None
@@ -155,8 +145,8 @@ def create_app(
         handler: InteractionHandler, mention_handler: MentionHandler
     ) -> InteractionSource:
         # Production factory: the one place the concrete Socket Mode source is named.
-        # Tokens are read here — at lifespan time, in the factory — not at import, so a
-        # missing secret degrades to /readyz 503 (the lifespan catches it), never an
+        # Tokens are read at lifespan time, in the factory, not at import, so a missing
+        # secret degrades to /readyz 503 (the lifespan catches it) rather than an
         # import crash. app_token authenticates the socket; bot_token backs the web
         # client the SDK uses to ack. One socket carries both clicks and mentions.
         return SlackSocketSource(
@@ -176,19 +166,19 @@ def create_app(
             agent_token = read_secret(AGENT_TOKEN_SECRET)
             assert agent_token is not None  # required=True: raised if absent
             agent_auth = AgentTokenAuth([agent_token])
-            # The Slack backend is constructed here from the Vault-mounted bot
-            # token — required to go ready (see the module docstring). The handler
-            # depends only on the NotificationBackend Protocol; this is the one
-            # place the concrete plugin is named. A test may inject a fake instead.
+            # The Slack backend is constructed from the Vault-mounted bot token,
+            # required to go ready (see the module docstring). The handler depends
+            # only on the NotificationBackend Protocol; this is the one place the
+            # concrete plugin is named. A test may inject a fake instead.
             notifier = notifier_override or SlackNotificationBackend(
                 token=load_slack_bot_token()
             )
             database = Database(dsn)
-            # The receive side: open the Socket Mode connection that delivers button
-            # clicks AND @radar mentions, each wired to its handler over this database
-            # and notifier. Started BEFORE mark_ready and inside the try, so a socket
-            # that will not open keeps the pod out of rotation (readiness stays false)
-            # rather than advertising a bot whose buttons and mentions reach nothing.
+            # The receive side: the Socket Mode connection that delivers button clicks
+            # AND @radar mentions, each wired to its handler. Started BEFORE
+            # mark_ready and inside the try, so a socket that will not open keeps the
+            # pod out of rotation rather than advertising a bot whose buttons and
+            # mentions reach nothing.
             interaction_source = build_source(
                 build_interaction_handler(database, notifier, feedback_metrics),
                 build_mention_handler(
@@ -199,10 +189,9 @@ def create_app(
             readiness.mark_ready()
             log.info(
                 "feedback.ready",
-                # The channel, out loud. It is deployment config, and a card
-                # delivered to the wrong channel looks identical to no card at all
-                # from the on-call engineer's side — this is the line that says
-                # where they will actually land.
+                # Where cards will actually land. A card delivered to the wrong
+                # channel looks identical to no card at all from the on-call
+                # engineer's side.
                 slack_channel=settings.slack_channel,
                 slack_bot_name=settings.slack_bot_name,
             )
@@ -270,9 +259,8 @@ def create_app(
         if reason is not None:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "not_ready", "reason": reason}
-        # Secrets loaded; now the live half of the contract. Asked every time,
-        # because a probe that trusts its boot-time state will report healthy with
-        # a dead database underneath it.
+        # The live half of the contract, asked every time: a probe that trusts its
+        # boot-time state reports healthy with a dead database underneath it.
         if database is None or not await database.ping():
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "not_ready", "reason": "database unreachable"}
@@ -322,12 +310,11 @@ _app: FastAPI | None = None
 def __getattr__(name: str) -> FastAPI:
     """Build the ASGI ``app`` lazily on first access (``main:app`` for uvicorn).
 
-    Importing this module — e.g. to reach :func:`create_app` from tests — must
-    have no side effects; in particular it must not register platform metrics on
-    the global Prometheus registry, which would collide (`Duplicated timeseries`)
-    when another service's app is imported in the same process.
-    Cached, so repeated ``app`` access returns one instance and never a second
-    registration.
+    Importing this module (e.g. to reach :func:`create_app` from tests) must have no
+    side effects. In particular it must not register platform metrics on the global
+    Prometheus registry, which collides (`Duplicated timeseries`) when another
+    service's app is imported in the same process. Cached, so repeated ``app`` access
+    returns one instance and never a second registration.
     """
     if name == "app":
         global _app

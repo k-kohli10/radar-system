@@ -1,26 +1,23 @@
-"""Parse a raw ``@radar`` mention into a validated :class:`BotCommand` — pure.
+"""Parse a raw ``@radar`` mention into a validated :class:`BotCommand`. Pure.
 
-The one parse surface of the Slack bot, and the reason stage 4 has a parse boundary at
-all. Everything downstream is a SELECT-and-render; this is where untrusted free text
-becomes a closed, typed command. It is a read path (no state is mutated by any command),
-so the treatment is normal-plus rather than the deep treatment the callback parser got —
-but the two discipline points still hold:
+The one parse surface of the Slack bot: where untrusted free text becomes a closed,
+typed command. Everything downstream is a SELECT-and-render. Two discipline points:
 
 - **The bot handle is normalised away FIRST.** Slack delivers the mention text exactly
-  as typed — ``<@U0BOT> status``, not ``status`` — so the leading ``<@…>`` token is
-  stripped before any verb matching. Parse against the RAW mention, never a
-  pre-stripped string, or every command fails to match. This is the transport/parser
-  split: the plugin hands over what Slack sent; normalising it is here.
+  as typed (``<@U0BOT> status``), so the leading ``<@…>`` token is stripped before any
+  verb matching. Parse against the RAW mention, never a pre-stripped string, or every
+  command fails to match: the plugin hands over what Slack sent, and normalising it is
+  this module's job.
 - **A malformed ``incident <id>`` is rejected AT PARSE**, never passed to a lookup as a
   raw string. A bad id ("that's not a valid incident id") and a valid-but-absent id
   ("no such incident", decided at query time downstream) tell the engineer different
   things and must stay distinct.
 
-Unrecognised input is never silence and never a guess (Q1): a bare mention asks for
-help, an unknown verb says so and then helps, and a bad argument says what was wrong.
-The parser signals which case via :class:`BotParseFailure` on a raised
-:class:`BotCommandError`; the handler renders the matching reply. Raising (not a
-sentinel) keeps an unparseable mention from looking handled.
+Unrecognised input is never silence and never a guess: a bare mention asks for help, an
+unknown verb says so and then helps, and a bad argument says what was wrong. The parser
+signals which case via :class:`BotParseFailure` on a raised :class:`BotCommandError`,
+and the handler renders the matching reply. Raising rather than returning a sentinel
+keeps an unparseable mention from looking handled.
 """
 
 from __future__ import annotations
@@ -34,16 +31,15 @@ from radar_common import RadarError
 from radar_contracts import BotCommand, BotCommandType, BotMention
 
 #: A leading Slack mention token: ``<@U0BOT>`` or the piped ``<@U0BOT|radar>`` form.
-#: Only the FIRST is stripped — it is the bot handle that triggered the app_mention;
-#: any ``<@…>`` later in the text is an argument the user typed and is left alone.
+#: Only the FIRST is stripped: it is the bot handle that triggered the app_mention.
+#: Any ``<@…>`` later in the text is an argument the user typed and is left alone.
 _MENTION_RE = re.compile(r"^\s*<@[^>]+>\s*")
 
 _FOR = "for"
 
 #: Typed as help, not as a command: an explicit ``@radar help`` (or ``?``) is the user
 #: asking what the bot does, so it takes the same plain-help path as a bare mention
-#: rather than answering "unknown command: help". (Small addition beyond the settled
-#: bare-vs-unknown split — flagged for review.)
+#: rather than answering "unknown command: help".
 _HELP_WORDS = frozenset({"help", "?"})
 
 _SUMMARY_PERIODS = frozenset({"today", "yesterday"})
@@ -51,7 +47,7 @@ _DEFAULT_PERIOD = "today"
 
 
 class BotParseFailure(StrEnum):
-    """Why a mention is not a runnable command — the handler renders one reply per kind.
+    """Why a mention is not a runnable command; the handler renders one reply per kind.
 
     ``EMPTY`` → plain help (a bare mention or an explicit ``help``). ``UNKNOWN_COMMAND``
     → "unknown command: X" plus help. ``BAD_ARGUMENT`` → the specific message (a bad
@@ -116,8 +112,8 @@ def parse_command(mention: BotMention) -> BotCommand:
 def _strip_handle(text: str) -> str:
     """Remove the leading ``<@…>`` bot handle and surrounding whitespace.
 
-    The normalisation Finding 1 is about: the mention arrives as ``<@U0BOT> status``,
-    so without this the first token would be the handle and no verb would ever match.
+    The mention arrives as ``<@U0BOT> status``, so without this the first token would
+    be the handle and no verb would ever match.
     """
     return _MENTION_RE.sub("", text, count=1).strip()
 
@@ -134,7 +130,7 @@ def _incident_args(args: list[str]) -> dict[str, object]:
         )
     raw = args[0]
     try:
-        # Validate at PARSE — never hand a raw string to a lookup. Stored normalised so
+        # Validate at PARSE, never hand a raw string to a lookup. Stored normalised so
         # the handler queries a real id; a missing row is a DIFFERENT reply downstream.
         incident_id = str(UUID(raw))
     except ValueError as exc:
@@ -167,7 +163,7 @@ def _last_args(args: list[str]) -> dict[str, object]:
 
 
 def _parse_for(rest: list[str]) -> str | None:
-    """The optional ``for <service>`` tail of ``last``. Absent → no filter."""
+    """The optional ``for <service>`` tail of ``last``. Absent means no filter."""
     if not rest:
         return None
     if rest[0].lower() != _FOR or len(rest) < 2:
