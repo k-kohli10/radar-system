@@ -44,7 +44,7 @@ sequenceDiagram
 The knowledge call is a DIRECT HTTP call, not an outbox hop, and that is not an
 exception to the no-direct-HTTP rule: the rule governs AGENT-TO-AGENT handoffs,
 which are pipeline state transitions. The knowledge service is not an agent in
-the pipeline — it consumes no events and emits none. The reasoner queries it the
+the pipeline: it consumes no events and emits none. The reasoner queries it the
 same way it queries the llm-gateway.
 
 **Retrieval has three outcomes, and the reasoner keeps them apart:**
@@ -52,10 +52,10 @@ same way it queries the llm-gateway.
 | outcome | what the model sees | why it matters |
 |---|---|---|
 | grounded | the graded chunks | the RCA can cite the runbook |
-| empty (`200`, no chunks) | an empty slot | CRAG judged nothing relevant — the RCA says no runbook covers this |
+| empty (`200`, no chunks) | an empty slot | CRAG judged nothing relevant, so the RCA says no runbook covers this |
 | unavailable (`503`, timeout, transport) | an empty slot | retrieval FAILED; the corpus may well cover it |
 
-The last two are identical to the model, deliberately — it should reason the same
+The last two are identical to the model, deliberately: it should reason the same
 way either time. The difference is recorded on the stored context bundle, so an
 RCA's grounding state stays auditable.
 
@@ -66,7 +66,7 @@ transaction → outbox-worker polls, claims the row (`FOR UPDATE SKIP LOCKED`), 
 ## 1a. Full Pipeline Detail: outbox-worker, transactions, and fallback
 
 The same happy path as (1), with the outbox-worker hops, the Postgres transactions, and
-the reasoner's fallback made explicit — the view that matters when reasoning about
+the reasoner's fallback made explicit. This is the view that matters when reasoning about
 atomicity and the correlation chain.
 
 ```mermaid
@@ -82,12 +82,12 @@ sequenceDiagram
 
     Prometheus->>ingestion: alert fired (webhook token)
     ingestion->>Postgres: INSERT incident + alert + outbox(alert.normalized)
-    Note over ingestion,Postgres: one tx — new incident, or dedup onto an open one within 5m.<br/>The dedup path bumps alert_count only (never the watcher)
+    Note over ingestion,Postgres: one tx: new incident, or dedup onto an open one within 5m.<br/>The dedup path bumps alert_count only
 
     outbox->>Postgres: claim outbox row (FOR UPDATE SKIP LOCKED)
     outbox->>watcher: POST /events (watcher token)
     watcher->>Postgres: read incident (live severity/alert_count),<br/>suppress/escalate, INSERT outbox(plan_requested) + marker
-    Note over watcher,Postgres: one tx — alert_count is READ from the row, never written here
+    Note over watcher,Postgres: one tx: alert_count is READ from the row here, not written
 
     outbox->>planner: POST /events (planner token)
     planner->>Postgres: match template, INSERT plan<br/>+ outbox(reasoning_requested) + marker (one tx)
@@ -96,12 +96,12 @@ sequenceDiagram
     reasoner->>Postgres: read incident + plan (tx1)
     reasoner->>llm: POST /v1/complete, mode=extended (gateway token)
     Note over reasoner,llm: no DB transaction is held across this call
-    llm-->>reasoner: RCA JSON — or 503 / timeout / unparseable
+    llm-->>reasoner: RCA JSON, or 503 / timeout / unparseable
     reasoner->>Postgres: INSERT recommendation<br/>+ outbox(recommendation.created) + marker (tx2)
     Note over reasoner,Postgres: any non-success → template RCA, is_fallback=true.<br/>An incident always ends with a recommendation
 
     outbox->>Postgres: claim recommendation.created
-    Note over outbox,Postgres: dead-letters — no feedback-service until Phase 9
+    Note over outbox,Postgres: dead-letters until Phase 9, since feedback-service doesn't exist yet
 ```
 
 Two details this view makes precise:
@@ -115,9 +115,10 @@ Two details this view makes precise:
   the recommendation, its outbox event, and the marker together in `tx2`. A crash during
   the call leaves no marker, so the event is simply redelivered.
 
-The one correlation id minted at ingress is written on every row in this flow —
+The one correlation id minted at ingress is written on every row in this flow:
 `incidents`, `investigation_plans`, `recommendations`, `audit_log`, and every
-`outbox_events` row — so an incident is traceable end-to-end by that value alone.
+`outbox_events` row. That's what makes an incident traceable end-to-end by that
+value alone.
 
 ## 2. Deduplication
 
@@ -159,11 +160,11 @@ sequenceDiagram
 No incident is ever left without a recommendation, even during a full LLM provider
 outage. See [docs/adr/0004-llm-gateway.md](../adr/0004-llm-gateway.md).
 
-### 3a. Retrieval degradation — a different failure, a different cost
+### 3a. Retrieval degradation: a different failure, a different cost
 
 The knowledge call has its own failure path, and it costs strictly less: the
 reasoner proceeds with an EMPTY `retrieved_context` and still calls the LLM, so
-the incident gets a real RCA that is merely ungrounded — not a template.
+the incident gets a real RCA that is merely ungrounded, not a template.
 
 ```mermaid
 sequenceDiagram

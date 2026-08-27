@@ -8,7 +8,6 @@
 - 🔀 [Data and Control Flow](#data-and-control-flow)
 - 🧵 [Cross-Cutting Concerns](#cross-cutting-concerns)
 - 🚀 [Deployment Target](#deployment-target)
-- 🚫 [Non-Goals](#non-goals)
 
 ## Purpose
 
@@ -90,8 +89,8 @@ flowchart TB
     class pg store
 ```
 
-Note: `reasoner-agent` also calls `llm-gateway` directly via `POST /v1/complete` — that hop is a
-direct call, not mediated by the outbox, and is omitted above for clarity.
+Note: `reasoner-agent` also calls `llm-gateway` directly via `POST /v1/complete`
+(a direct call, not mediated by the outbox, omitted above for clarity).
 
 All agent-to-agent communication is mediated by the Postgres transactional outbox.
 There is never direct HTTP between agents. See
@@ -122,10 +121,3 @@ Two targets, from the same multi-arch images: the two-stack Docker deployment
 (`radar-infra` + `radar-apps`) for local end-to-end runs, and an ephemeral managed
 Kubernetes (K3s) cluster for the k8s path (Phase 12). Images build for `linux/amd64`
 (the cluster, x86 CI) and `linux/arm64` (local Docker on Apple Silicon) via `docker buildx`.
-
-## Non-Goals
-
-- RADAR does not detect anomalies. Prometheus and Kibana own that.
-- RADAR does not remediate automatically. It recommends.
-- RADAR does not create tickets. Incident state lives entirely in Postgres.
-- RADAR does not adopt an agent framework. The three stage pipeline is hand rolled.
