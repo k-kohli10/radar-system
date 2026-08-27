@@ -1,30 +1,24 @@
 """The reaper: recover events stranded in ``processing`` by a crashed worker.
 
-Model A commits the claim *before* dispatching, so a worker that dies
-mid-dispatch leaves its claimed rows in ``processing`` — which the pending-only
-:func:`~radar_database.claim_outbox_batch` never re-selects. Without recovery
-those events are stranded forever. The reaper is a separate periodic task that
+The claim commits *before* dispatching, so a worker that dies mid-dispatch leaves
+rows in ``processing``, which the pending-only
+:func:`~radar_database.claim_outbox_batch` never re-selects. This periodic task
 sweeps them back into the pipeline.
 
 Each sweep, :func:`~radar_database.claim_stuck_processing` locks rows whose
-``updated_at`` is older than the interval (a server-side age threshold,
-``FOR UPDATE SKIP LOCKED`` so concurrent reapers recover disjoint sets), and each
-is re-driven through :func:`~radar_database.mark_failed` with ``immediate=True``.
-That is the *same* promotion path normal retries use: it counts the attempt (so a
-poison event that crashes the worker mid-dispatch still reaches ``dead_letter``
-instead of looping forever) and, below the ceiling, re-pends with
-``process_after = NOW()`` — a crash is not the target's fault, so retry at once.
-There is no second dead-letter path; the reaper never decides promotion itself.
+``updated_at`` is older than the interval (``FOR UPDATE SKIP LOCKED``, so
+concurrent reapers recover disjoint sets) and re-drives each through
+:func:`~radar_database.mark_failed` with ``immediate=True``. That is the same
+promotion path normal retries use: it counts the attempt, so a poison event that
+crashes the worker mid-dispatch still reaches ``dead_letter`` instead of looping
+forever, and below the ceiling re-pends with ``process_after = NOW()`` (a crash
+is not the target's fault). The reaper never decides promotion itself.
 
-The sweep interval and the stuck-age threshold are deliberately the same value
-(``interval_seconds``): sweep every N seconds for rows stuck more than N seconds —
-one operational knob, no magic number. Each sweep is one short-lived transaction
-(open, claim, re-drive, commit, close); no session is held across the idle sleep.
-
-Shutdown: :meth:`stop` ends the loop cleanly, and because a sweep either commits
-whole or rolls back, a stop mid-sweep leaves rows in ``processing`` for the next
-run — never half-reaped. The graceful-shutdown commit drives ``stop`` on SIGTERM
-alongside the poll loop, so both drain together within the budget.
+The sweep interval and the stuck-age threshold are the same knob
+(``interval_seconds``): sweep every N seconds for rows stuck more than N seconds.
+Each sweep is one short-lived transaction, so a stop mid-sweep leaves rows in
+``processing`` for the next run rather than half-reaped. Graceful shutdown drives
+:meth:`Reaper.stop` on SIGTERM alongside the poll loop.
 """
 
 from __future__ import annotations
@@ -59,12 +53,7 @@ log = get_logger("outbox-worker.reaper")
 
 
 class Reaper:
-    """Periodically re-drives events stranded in ``processing`` by a crashed worker.
-
-    Mirrors :class:`~radar_outbox_worker.poller.Poller`'s lifecycle (``run`` /
-    ``stop`` / interruptible sleep); the shared "periodic task with graceful stop"
-    shape is worth extracting once a third consumer appears.
-    """
+    """Periodically re-drives events stranded in ``processing`` by a crashed worker."""
 
     def __init__(
         self,
@@ -91,8 +80,8 @@ class Reaper:
             try:
                 await self._sweep()
             except Exception as exc:
-                # A transient DB failure must not kill the reaper: log the class
-                # (never a message — it may embed the DSN), back off, retry.
+                # A transient DB failure must not kill the reaper. Log the class
+                # only: the message may embed the DSN.
                 log.error("outbox.reaper.sweep_failed", error_type=type(exc).__name__)
             await self._sleep_or_stop(self._interval)
         log.info("outbox.reaper.stopped")
@@ -160,9 +149,8 @@ async def requeue_dead_letter(
     the poller claims it immediately, keeping ``last_error`` for forensics, and
     writes an ``outbox.requeued`` ``audit_log`` row snapshotting the prior
     attempts and error. Returns the row, or ``None`` if no ``dead_letter`` event
-    has that ``event_id`` (the caller answers 404). Does not commit — the caller
-    controls the transaction. ``event_id`` is the stable business key operators
-    see in the dead-letter list and audit trail, not the internal row id.
+    has that ``event_id`` (the caller answers 404). Does not commit: the caller
+    controls the transaction.
     """
     result = await session.execute(
         select(OutboxEvent).where(
