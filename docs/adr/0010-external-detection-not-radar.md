@@ -1,4 +1,4 @@
-# ADR 0010: Detection Is External, RADAR Does Not Watch Metrics
+# 📡 ADR 0010: Detection Is External, RADAR Does Not Watch Metrics
 
 ## Status
 Accepted

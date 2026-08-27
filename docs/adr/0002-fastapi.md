@@ -1,4 +1,4 @@
-# ADR 0002: FastAPI for All Services
+# 🚀 ADR 0002: FastAPI for All Services
 
 ## Status
 Accepted

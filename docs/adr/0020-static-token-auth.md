@@ -1,4 +1,4 @@
-# ADR 0020: Static Token Auth for Internal Services in V1
+# 🔑 ADR 0020: Static Token Auth for Internal Services in V1
 
 > Renumbered from ADR 0013 when this was moved out of
 > `docs/implementation_plan.md`. ADR 0013 was already taken by
@@ -7,6 +7,21 @@
 **Status**: Accepted
 **Date**: 2025-01-15
 **Author**: Kashyap
+
+---
+
+## Contents
+
+- [Context](#context)
+- [Decision](#decision)
+- [Why Not No Auth](#why-not-no-auth)
+- [Why Not JWT](#why-not-jwt)
+- [Why Not Mutual TLS](#why-not-mutual-tls)
+- [What This Looks Like in Practice](#what-this-looks-like-in-practice)
+- [Security Properties This Provides](#security-properties-this-provides)
+- [Security Properties This Does Not Provide](#security-properties-this-does-not-provide)
+- [Migration Path](#migration-path)
+- [Decision Record](#decision-record)
 
 ---
 

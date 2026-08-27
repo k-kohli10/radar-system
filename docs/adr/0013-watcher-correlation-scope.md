@@ -1,4 +1,4 @@
-# ADR 0013: Ingestion owns incident identity; the watcher owns correlation policy
+# 🔗 ADR 0013: Ingestion owns incident identity; the watcher owns correlation policy
 
 **Status:** Accepted
 **Date:** 2026-07-13
@@ -11,7 +11,7 @@ fingerprint, search for an open incident within a window, and then either attach
 alert to it or **INSERT a new incident**. Phase 5's ingestion service, already
 shipped and tested, does exactly that same work: it computes
 `sha256(service_name:alert_name:severity)`, looks for an open incident inside a
-5-minute window, and attaches or opens one — then writes the `alert.normalized`
+5-minute window, and attaches or opens one. It then writes the `alert.normalized`
 outbox event the watcher later receives.
 
 So by the time an event reaches the watcher, **the incident and the alert rows
@@ -23,7 +23,7 @@ already exist**. The plan's watcher steps cannot execute as written:
   payload; re-inserting it is a primary-key violation.
 
 The plan is internally inconsistent here. Its own end-to-end test reads `incident_id`
-from ingestion's `202` response — which only works if *ingestion* opens the incident —
+from ingestion's `202` response (which only works if *ingestion* opens the incident),
 and `docs/architecture/sequence-flows.md` describes the shipped behaviour ("Note over
 ingestion: normalize, dedupe, INSERT incident+alert+outbox"). It is the *Watcher Agent
 Logic* pseudo-code and the agent-pipeline flowchart that are stale.
@@ -36,8 +36,8 @@ The watcher never inserts an incident or an alert. It loads the incident ingesti
 resolved (by `incident_id`, carried on the event), and decides what should *happen*
 to it:
 
-- **escalation** — raise its severity when alerts arrive fast enough
-- **suppression** — withhold the investigation plan for a too-soon repeat
+- **escalation**: raise its severity when alerts arrive fast enough
+- **suppression**: withhold the investigation plan for a too-soon repeat
 - otherwise, emit `incident.plan_requested`
 
 Three consequences follow, and each is a deliberate deferral rather than an
@@ -46,8 +46,8 @@ oversight.
 ### 1. Ingestion publishes on the dedup path too
 
 Ingestion previously wrote **no** outbox event when an alert deduplicated onto an open
-incident, so duplicates never reached the watcher. That makes escalation — *"3 alerts
-within 2 minutes"* — unenforceable by construction, not merely unimplemented: a
+incident, so duplicates never reached the watcher. That makes escalation (*"3 alerts
+within 2 minutes"*) unenforceable by construction, not merely unimplemented: a
 watcher shown only first-of-kind alerts can never observe a burst. Ingestion now
 publishes on both paths, tagging the payload with `incident_id` and `deduplicated`
 (commit `a288a4e`).
@@ -60,7 +60,7 @@ different window because it cannot un-create an incident ingestion already opene
 `window_overrides` entry the watcher "respected" would be a claim it has no power to
 make.
 
-Making them live means moving the window decision — either ingestion reads this same
+Making them live means moving the window decision: either ingestion reads this same
 ConfigMap, or the window moves into ingestion's own settings. Both are real options;
 neither is needed for the POC, and the boundary is already tested where it is actually
 enforced (ingestion's `test_dedup_boundary` pins 4m59s / 5m00s / 5m01s).
@@ -68,13 +68,13 @@ enforced (ingestion's `test_dedup_boundary` pins 4m59s / 5m00s / 5m01s).
 ### 3. `service_groups` are inert
 
 Folding `[order-service, order-db, inventory-service]` into a single incident requires
-**merging incidents ingestion has already opened separately** — a lifecycle the schema
-does not have (there is no `merged_into_id`, no `merged` status) and the POC does not
-need. The config also contains an ambiguity that proves the feature needs designing
+**merging incidents ingestion has already opened separately**. That's a lifecycle the
+schema does not have (there is no `merged_into_id`, no `merged` status), and the POC
+does not need it. The config also contains an ambiguity that proves the feature needs designing
 rather than defaulting: `order-service` belongs to *both* `order-stack` and
 `checkout-stack`, and nothing says which wins.
 
-### 4. `fingerprint_fields` is a declaration, not a knob — and it is enforced
+### 4. `fingerprint_fields` is a declaration, not a knob (and it is enforced)
 
 Ingestion hashes the three fields in code. Rather than let the YAML *appear* to
 control something it does not, the watcher **refuses to start** if
@@ -84,8 +84,8 @@ in silence: it fails loudly.
 
 ## Why the idempotency marker is not itself in the correlation chain
 
-The load-bearing property of this phase is that **one** correlation id — the value
-minted at ingress — appears on every row the pipeline writes, so Phase 10 can trace an
+The load-bearing property of this phase is that **one** correlation id (the value
+minted at ingress) appears on every row the pipeline writes, so Phase 10 can trace an
 incident by that value alone. The chain the tests assert is:
 
 ```
@@ -97,15 +97,15 @@ ingress UUID == incidents.correlation_id      (written by ingestion)
 `processed_events` is deliberately **not** a link in that chain. It has no
 `correlation_id` column: the table is keyed `(event_id, processed_by)` and holds
 nothing else (Phase 3 schema). The marker is therefore anchored by the `event_id` of
-the very envelope that carried the ingress correlation id — the same event whose
+the very envelope that carried the ingress correlation id: the same event whose
 handling produced the audit and outbox rows above.
 
 We considered adding a `correlation_id` column to `processed_events` to make the
 assertion read more cleanly in one line, and rejected it. The marker's job is
-idempotency — "has this service handled this event id?" — and that question needs
+idempotency (has this service handled this event id?), and that question needs
 exactly two columns. Adding a third so a test can assert on it is reshaping the schema
 to fit the test, and it would put a *denormalized copy* of the correlation id in a table
-that has no use for it. The chain is complete without it; the marker is evidence that
+that has no use for it. The chain is complete without it. The marker is evidence that
 the event was handled, not evidence about the trace.
 
 ## Consequences
@@ -118,25 +118,21 @@ feature.
 
 **Bad.** Three of the five rule sections in `correlation-rules.yaml` are inert for the
 POC. That is a genuine gap between the config's apparent surface and its behaviour, and
-the mitigation is that it is *stated* — in the YAML's own comments, in the loader's
+the mitigation is that it is *stated*: in the YAML's own comments, in the loader's
 docstring, and by a test that asserts the deferred rules do **not** affect correlation.
 An inert field that nobody has written down is a trap; an inert field with a test
 pinning it inert is a decision.
 
 **The window mismatch is real and worth naming.** A watcher window *shorter* than
 ingestion's (the config's `OrderServiceCrashLoop: 2m`) is unenforceable in principle
-today — those alerts are absorbed by ingestion's 5-minute window and arrive tagged
+today: those alerts are absorbed by ingestion's 5-minute window and arrive tagged
 `deduplicated`, not as new incidents. A *longer* one (`CheckoutTimeoutRate: 10m`) means
 ingestion opens a second incident where a 10-minute window would have correlated. Both
 resolve the same way: by moving the window decision to whoever opens the incident.
 
 ## Alternatives considered
 
-**Strip dedup and incident creation out of ingestion** (the plan, taken literally).
-Rewrites a shipped and tested phase, and breaks the `202 → incident_id` response that
-the plan's own e2e test depends on.
-
-**Watcher merges group siblings.** Truest to `group_as_single_incident`, and the right
-answer eventually. Needs a migration (`incidents.merged_into_id`, a `merged` status)
-and a merge lifecycle — real work, no POC payoff, and nothing in Phase 7's tests
-exercises it.
+| Alternative | Why not chosen |
+|---|---|
+| **Strip dedup and incident creation out of ingestion** (the plan, taken literally) | Rewrites a shipped and tested phase, and breaks the `202 → incident_id` response that the plan's own e2e test depends on. |
+| **Watcher merges group siblings.** Truest to `group_as_single_incident`, and the right answer eventually | Needs a migration (`incidents.merged_into_id`, a `merged` status) and a merge lifecycle: real work, no POC payoff, and nothing in Phase 7's tests exercises it. |

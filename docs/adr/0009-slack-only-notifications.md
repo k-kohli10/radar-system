@@ -1,4 +1,4 @@
-# ADR 0009: Slack-Only Notifications, Owned by feedback-service
+# 💬 ADR 0009: Slack-Only Notifications, Owned by feedback-service
 
 ## Status
 Accepted

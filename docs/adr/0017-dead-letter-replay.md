@@ -1,8 +1,23 @@
-# ADR 0017: Dead Letter Replay Strategy
+# 💀 ADR 0017: Dead Letter Replay Strategy
 
 **Status**: Accepted
 **Date**: 2025-01-15
 **Author**: Kashyap
+
+---
+
+## Contents
+
+- [Context](#context)
+- [What Causes Dead Letters](#what-causes-dead-letters)
+- [Dead Letter Detection](#dead-letter-detection)
+- [Investigation Before Replay](#investigation-before-replay)
+- [Replay Mechanism](#replay-mechanism)
+- [Replay Rules](#replay-rules)
+- [When to Discard Instead of Replay](#when-to-discard-instead-of-replay)
+- [Dead Letter Metrics and Alerting](#dead-letter-metrics-and-alerting)
+- [Preventing Dead Letters](#preventing-dead-letters)
+- [Decision Record](#decision-record)
 
 ---
 
@@ -21,30 +36,15 @@ how to replay them, and when to discard them instead.
 ## What Causes Dead Letters
 
 An event reaches dead_letter status because the target service rejected or failed
-to process it five consecutive times. Common causes:
+to process it five consecutive times.
 
-**Target service is down.** The pod crashed and Kubernetes has not restarted it yet.
-Or the pod is in a crash loop. The event fails because the HTTP call cannot connect.
-Resolution: fix the service, then replay the event.
-
-**Target service returned a 5xx.** The service is up but something inside it is
-failing. A database connection problem, a dependency timeout, a bug. The outbox
-worker retries on 5xx but eventually gives up. Resolution: fix the root cause, then
-replay.
-
-**Target service returned a 4xx.** This is different. A 422 means the payload was
-invalid. A 401 means the token was wrong. These are not transient failures. Retrying
-the same invalid payload will always fail. Resolution: investigate the payload,
-fix the schema or the service, then decide whether to replay or discard.
-
-**Schema version mismatch.** The target service does not know how to parse the
-event's schema_version. This happens when a producer was updated but the consumer
-was not. Resolution: update the consumer, then replay.
-
-**The target service processed the event but crashed before acknowledging it.**
-In this case the event retries and the service sees it again. This is why idempotency
-exists. The service checks `processed_events` and returns 200 without doing the
-work again. The outbox worker marks the event delivered. No dead letter.
+| Cause | Resolution |
+|---|---|
+| **Target service is down.** The pod crashed and Kubernetes has not restarted it yet, or the pod is in a crash loop. The event fails because the HTTP call cannot connect | Fix the service, then replay the event |
+| **Target service returned a 5xx.** The service is up but something inside it is failing: a database connection problem, a dependency timeout, a bug. The outbox worker retries on 5xx but eventually gives up | Fix the root cause, then replay |
+| **Target service returned a 4xx.** A 422 means the payload was invalid; a 401 means the token was wrong. These are not transient failures. Retrying the same invalid payload will always fail | Investigate the payload, fix the schema or the service, then decide whether to replay or discard |
+| **Schema version mismatch.** The target service does not know how to parse the event's schema_version. This happens when a producer was updated but the consumer was not | Update the consumer, then replay |
+| **Target service processed the event but crashed before acknowledging it.** The event retries and the service sees it again | Nothing to do: idempotency handles it. The service checks `processed_events` and returns 200 without redoing the work, and the outbox worker marks the event delivered. No dead letter |
 
 ---
 
@@ -65,7 +65,7 @@ dead-letter event does not fire the alert. A sustained rate does.
 > **Corrected (Phase 9):** the paragraph originally here described `@radar status`
 > reporting a dead-letter count and an `@radar dead-letters` command listing them.
 > Neither shipped. `@radar status` reports open incidents, last RCA, and outbox
-> depth only (`bot.py`'s `_run_status`) — no dead-letter count. There is no
+> depth only (`bot.py`'s `_run_status`). No dead-letter count. There is no
 > `@radar dead-letters` verb in `BotCommandType`. The real v1 way to inspect and
 > replay dead letters is the admin HTTP endpoints (`curl`) under
 > [Replay Mechanism](#replay-mechanism) below. A Slack-native dead-letter view is
@@ -198,12 +198,12 @@ POST /admin/dead-letter/{event_id}/discard
 
 ## Dead Letter Metrics and Alerting
 
-```
-radar_outbox_dead_letter_total          counter, increments each time an event dead-letters
-radar_outbox_dead_letter_depth          gauge, current count of dead_letter status events
-radar_outbox_replays_total              counter, increments each time an event is requeued
-radar_outbox_discards_total{reason}     counter, increments each time an event is discarded
-```
+| Metric | Description |
+|---|---|
+| `radar_outbox_dead_letter_total` | Counter. Increments each time an event dead-letters |
+| `radar_outbox_dead_letter_depth` | Gauge. Current count of dead_letter status events |
+| `radar_outbox_replays_total` | Counter. Increments each time an event is requeued |
+| `radar_outbox_discards_total{reason}` | Counter. Increments each time an event is discarded |
 
 The `dead_letter_depth` gauge should trend toward zero during normal operations.
 If it grows consistently, something structural is broken.

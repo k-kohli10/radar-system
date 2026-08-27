@@ -43,7 +43,7 @@ The flow in one breath:
 1. 📜 A category (`LLMProvider`, `NotificationBackend`, …) is defined **once** as a `Protocol`.
 2. 🧩 A vendor implements it in its own package under `plugins/<category>/<vendor>/`.
 3. 🚀 A service registers that implementation under a **name** at startup.
-4. ⚙️ It resolves the backend **from config** at runtime — never importing the vendor SDK.
+4. ⚙️ It resolves the backend **from config** at runtime.
 
 📄 The "why" lives in [ADR 0005](adr/0005-plugin-architecture.md).
 
@@ -61,11 +61,10 @@ The flow in one breath:
 | `MetricsBackend` | `radar_contracts.metrics` | `plugins/metrics/prometheus` |
 | `TracesBackend` | `radar_contracts.traces` | `plugins/traces/elastic` |
 
-✅ Every one is a method-only, `@runtime_checkable` `typing.Protocol` — **never an ABC.**
+✅ Every one is a method-only, `@runtime_checkable` `typing.Protocol`.
 
-💤 `LogsBackend`, `MetricsBackend`, and `TracesBackend` ship but have no service
-wired to them yet (see ADR 0005 for logs / metrics). That's a deliberate
-build-ahead, not a defect to route around.
+💤 `LogsBackend`, `MetricsBackend`, and `TracesBackend` ship with no service wired
+to them yet. That's deliberate build-ahead (see ADR 0005).
 
 ---
 

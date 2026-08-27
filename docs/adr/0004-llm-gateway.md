@@ -1,4 +1,4 @@
-# ADR 0004: A Single LLM Gateway, Not Direct SDK Calls Per Service
+# 🚪 ADR 0004: A Single LLM Gateway, Not Direct SDK Calls Per Service
 
 ## Status
 Accepted
