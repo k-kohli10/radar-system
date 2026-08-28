@@ -14,6 +14,7 @@
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant Prometheus
     participant ingestion
     participant watcher as watcher-agent
@@ -61,7 +62,9 @@ RCA's grounding state stays auditable.
 
 Every arrow labeled "via outbox-worker" is: agent commits state + outbox row in one
 transaction → outbox-worker polls, claims the row (`FOR UPDATE SKIP LOCKED`), and
-`POST /events` to the next agent. Agents never call each other directly.
+`POST /events` to the next agent. Pipeline agents never hand off to each other directly;
+the reasoner's calls to knowledge-service and llm-gateway are queries to supporting
+services, not pipeline handoffs.
 
 ## 1a. Full Pipeline Detail: outbox-worker, transactions, and fallback
 
@@ -71,6 +74,7 @@ atomicity and the correlation chain.
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant Prometheus
     participant ingestion
     participant Postgres
@@ -140,6 +144,7 @@ The second POST produces no pipeline work. The engineer sees one incident, not t
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant reasoner as reasoner-agent
     participant llm as llm-gateway
     participant feedback as feedback-service
@@ -168,6 +173,7 @@ the incident gets a real RCA that is merely ungrounded, not a template.
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant reasoner as reasoner-agent
     participant knowledge as knowledge-service
     participant llm as llm-gateway
@@ -197,6 +203,7 @@ below the outbox worker's dispatch timeout.
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor Engineer
     participant Slack
     participant feedback as feedback-service
@@ -210,6 +217,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor Engineer
     participant Slack
     participant feedback as feedback-service

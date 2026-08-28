@@ -72,7 +72,7 @@ flowchart TB
     watcher -- outbox-worker --> planner
     planner -- outbox-worker --> reasoner
     reasoner -- outbox-worker --> feedback
-    feedback -- Slack API --> oncall
+    feedback <-- Slack API --> oncall
 
     ing -. outbox .-> pg
     watcher -. outbox .-> pg
@@ -84,8 +84,8 @@ flowchart TB
     classDef agent fill:#eafaf6,stroke:#127d69,color:#0b3d33;
     classDef store fill:#eef1fb,stroke:#33418f,color:#1a2350;
 
-    class ext,feedback,oncall external
-    class ing,watcher,planner,reasoner agent
+    class ext,oncall external
+    class ing,watcher,planner,reasoner,feedback agent
     class pg store
 ```
 

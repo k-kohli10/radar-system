@@ -62,25 +62,57 @@ RADAR focuses on incident triage and keeps clear boundaries:
 ## 🔧 How It Works
 
 ```mermaid
-flowchart TD
-    P["Prometheus / Kibana Watcher"] -->|pre-fired alert| I[ingestion]
-    I -->|normalize, dedupe, outbox| W[watcher-agent]
-    W -->|correlate alerts into an incident| PL[planner-agent]
-    PL -->|build an investigation plan| R[reasoner-agent]
-    R -->|retrieve + grade runbook context| K[knowledge-service]
-    R -->|call LLM, produce RCA| F[feedback-service]
-    F -->|deliver Slack card, run Slack bot| S[("Slack")]
+flowchart TB
+    P["Prometheus / Kibana Watcher<br/><small>pre-fired alert</small>"]
+    I["ingestion<br/><small>normalize, dedupe, outbox</small>"]
+    W["watcher-agent<br/><small>correlate alerts into an incident</small>"]
+    PL["planner-agent<br/><small>build an investigation plan</small>"]
+    R["reasoner-agent<br/><small>produce the RCA</small>"]
+    K["knowledge-service<br/><small>retrieve + grade runbooks</small>"]
+    G["llm-gateway<br/><small>token IAM, routing, fallback</small>"]
+    LLM["LLM provider<br/><small>OpenAI / Anthropic</small>"]
+    F["feedback-service<br/><small>deliver Slack card, run bot</small>"]
+    S(["Slack / on-call engineer"])
+    DB[("Postgres<br/><small>transactional outbox<br/>all agent comms</small>")]
 
-    DB[("Postgres<br/>transactional outbox<br/>(all agent comms)")]
-    I -.-> DB
-    W -.-> DB
-    PL -.-> DB
-    R -.-> DB
+    P --> I
+    I -- outbox --> W
+    W -- outbox --> PL
+    PL -- outbox --> R
+    R <-- retrieve + grade --> K
+    R <-- complete --> G
+    G <-- provider API --> LLM
+    R -- outbox --> F
+    F <-- Slack API --> S
+
+    I -. outbox .-> DB
+    W -. outbox .-> DB
+    PL -. outbox .-> DB
+    R -. outbox .-> DB
+    F -. outbox .-> DB
+
+    classDef external fill:#eef3fc,stroke:#2f5fa8,color:#1a2b4a;
+    classDef agent fill:#eafaf6,stroke:#127d69,color:#0b3d33;
+    classDef store fill:#eef1fb,stroke:#33418f,color:#1a2350;
+
+    class P,LLM,S external
+    class I,W,PL,R,K,G,F agent
+    class DB store
 ```
 
-Agents coordinate through a Postgres outbox. Every handoff is a row a dedicated outbox
-worker picks up and dispatches with retries and idempotency guarantees. See
-[docs/architecture/agent-pipeline.md](docs/architecture/agent-pipeline.md).
+The pipeline runs top to bottom, starting when a pre-fired alert reaches ingestion. Each
+**solid one-way arrow** between agents is an asynchronous outbox handoff: the source agent
+commits its state change and an outbox row in one transaction, and a dedicated
+outbox-worker later picks up that row and dispatches it to the next agent, with retries
+and idempotency guarantees. Each **solid two-way arrow** is a synchronous request/response
+call — the reasoner querying knowledge-service and llm-gateway (which in turn calls the
+external provider), and feedback-service posting cards to Slack and taking the engineer's
+responses back. Each **dashed arrow** is that same outbox write landing durably in
+Postgres. Pipeline agents hand off to one another only through the outbox — never a direct
+call; the reasoner's synchronous calls to knowledge-service and llm-gateway are queries to
+supporting services, not pipeline handoffs.
+
+See [docs/architecture/agent-pipeline.md](docs/architecture/agent-pipeline.md).
 
 ---
 

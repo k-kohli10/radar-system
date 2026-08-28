@@ -15,6 +15,9 @@
 ```mermaid
 flowchart LR
     Watcher[watcher-agent] --> Planner[planner-agent] --> Reasoner[reasoner-agent]
+
+    classDef agent fill:#eafaf6,stroke:#127d69,color:#0b3d33;
+    class Watcher,Planner,Reasoner agent
 ```
 
 Fixed, linear, three stages. Not a graph, not a framework. Just a sequence of
@@ -29,8 +32,12 @@ for the reasoning. In short: the outbox makes "incident created but no plan requ
 and "plan requested but incident never created" structurally impossible, because the
 state change and the event write happen in the same database transaction.
 
-The one exception: reasoner-agent calls `llm-gateway` directly (synchronous request/response,
-not a fire-and-forget event), because the reasoner needs the LLM's answer to proceed.
+This rule governs pipeline handoffs — the state transitions between watcher-agent,
+planner-agent, and reasoner-agent. It is not violated by the reasoner's synchronous calls
+to `llm-gateway` and `knowledge-service`: those are supporting services, not stages in the
+pipeline (they consume no events and emit none), so a request/response call to one is not
+an agent-to-agent handoff and never was in scope for the rule. The reasoner needs the LLM's
+answer to proceed, so that call is a direct query, not a fire-and-forget event.
 
 ## POST /events Contract
 
@@ -62,7 +69,7 @@ flowchart TD
     A[event: alert.normalized] --> B{Seen in processed_events?}
     B -- yes --> R200[Return 200]
     B -- no --> C[Load correlation rules from YAML ConfigMap]
-    C --> D["fingerprint = sha256(service_name + alert_name + severity)"]
+    C --> D["fingerprint = sha256(service_name:alert_name:severity)"]
     D --> E[Fold grouped services into one fingerprint]
     E --> F{Open incident with same fingerprint in window?}
     F -- yes --> G{Suppressed by cooldown rule?}
@@ -72,6 +79,18 @@ flowchart TD
     H --> K[(One transaction: alert + incident + processed_events + audit_log)]
     I --> K
     J --> K
+
+    classDef event fill:#eef3fc,stroke:#2f5fa8,color:#1a2b4a;
+    classDef decision fill:#fef6e9,stroke:#b5761f,color:#5a3a0a;
+    classDef action fill:#eafaf6,stroke:#127d69,color:#0b3d33;
+    classDef terminal fill:#f0f0f0,stroke:#888888,color:#444444;
+    classDef commit fill:#eef1fb,stroke:#33418f,color:#1a2350;
+
+    class A event
+    class B,F,G decision
+    class C,D,E,I,J action
+    class R200,H terminal
+    class K commit
 ```
 
 Correlation rules (window overrides, service groups, suppression, escalation,
@@ -92,6 +111,18 @@ flowchart TD
     D -- no --> F[Use _default template]
     E --> G[(One transaction: investigation_plan + outbox: reasoning_requested + processed_events + audit_log)]
     F --> G
+
+    classDef event fill:#eef3fc,stroke:#2f5fa8,color:#1a2b4a;
+    classDef decision fill:#fef6e9,stroke:#b5761f,color:#5a3a0a;
+    classDef action fill:#eafaf6,stroke:#127d69,color:#0b3d33;
+    classDef terminal fill:#f0f0f0,stroke:#888888,color:#444444;
+    classDef commit fill:#eef1fb,stroke:#33418f,color:#1a2350;
+
+    class A event
+    class B,D decision
+    class C,E,F action
+    class R200 terminal
+    class G commit
 ```
 
 Templates live in `apps/planner-agent/config/plan-templates.yaml`.
@@ -111,6 +142,18 @@ flowchart TD
     E -- 200 --> G[Parse root_cause, confidence, recommended_actions]
     F --> H[(One transaction: recommendation + outbox: recommendation.created + processed_events + audit_log)]
     G --> H
+
+    classDef event fill:#eef3fc,stroke:#2f5fa8,color:#1a2b4a;
+    classDef decision fill:#fef6e9,stroke:#b5761f,color:#5a3a0a;
+    classDef action fill:#eafaf6,stroke:#127d69,color:#0b3d33;
+    classDef terminal fill:#f0f0f0,stroke:#888888,color:#444444;
+    classDef commit fill:#eef1fb,stroke:#33418f,color:#1a2350;
+
+    class A event
+    class B decision
+    class C,D,E,F,G action
+    class R200 terminal
+    class H commit
 ```
 
 The LLM call itself sits outside the transaction, since it's an external network call.
