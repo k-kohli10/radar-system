@@ -20,8 +20,8 @@ flowchart LR
     class Watcher,Planner,Reasoner agent
 ```
 
-Fixed, linear, three stages. Not a graph, not a framework. Just a sequence of
-purpose-built services that each do one job and hand off through the outbox.
+Three fixed, linear stages. Each is a purpose-built service that does one job and
+hands off to the next through the outbox.
 
 ## Why No Direct HTTP Between Agents
 
@@ -32,12 +32,12 @@ for the reasoning. In short: the outbox makes "incident created but no plan requ
 and "plan requested but incident never created" structurally impossible, because the
 state change and the event write happen in the same database transaction.
 
-This rule governs pipeline handoffs — the state transitions between watcher-agent,
-planner-agent, and reasoner-agent. It is not violated by the reasoner's synchronous calls
-to `llm-gateway` and `knowledge-service`: those are supporting services, not stages in the
-pipeline (they consume no events and emit none), so a request/response call to one is not
-an agent-to-agent handoff and never was in scope for the rule. The reasoner needs the LLM's
-answer to proceed, so that call is a direct query, not a fire-and-forget event.
+This rule governs pipeline handoffs: the state transitions between watcher-agent,
+planner-agent, and reasoner-agent. The reasoner also queries `llm-gateway` and
+`knowledge-service` synchronously. These are supporting services (they consume no
+events and emit none), so a request/response call to one is a query: the reasoner needs
+the answer to proceed. This is the canonical description of the boundary; other docs
+link here rather than restate it.
 
 ## POST /events Contract
 

@@ -42,11 +42,11 @@ sequenceDiagram
     feedback->>Slack: POST Slack card
 ```
 
-The knowledge call is a DIRECT HTTP call, not an outbox hop, and that is not an
-exception to the no-direct-HTTP rule: the rule governs AGENT-TO-AGENT handoffs,
-which are pipeline state transitions. The knowledge service is not an agent in
-the pipeline: it consumes no events and emits none. The reasoner queries it the
-same way it queries the llm-gateway.
+The knowledge call is a direct HTTP query to a supporting service, the same way the
+reasoner queries the llm-gateway. Supporting services sit outside the pipeline, so a
+request/response call to one is a query, not a handoff. See
+[agent-pipeline.md](agent-pipeline.md#why-no-direct-http-between-agents) for the
+canonical description of that boundary.
 
 **Retrieval has three outcomes, and the reasoner keeps them apart:**
 
@@ -62,9 +62,7 @@ RCA's grounding state stays auditable.
 
 Every arrow labeled "via outbox-worker" is: agent commits state + outbox row in one
 transaction → outbox-worker polls, claims the row (`FOR UPDATE SKIP LOCKED`), and
-`POST /events` to the next agent. Pipeline agents never hand off to each other directly;
-the reasoner's calls to knowledge-service and llm-gateway are queries to supporting
-services, not pipeline handoffs.
+`POST /events` to the next agent.
 
 ## 1a. Full Pipeline Detail: outbox-worker, transactions, and fallback
 

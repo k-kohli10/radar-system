@@ -92,8 +92,7 @@ flowchart TB
 Note: `reasoner-agent` also calls `llm-gateway` directly via `POST /v1/complete`
 (a direct call, not mediated by the outbox, omitted above for clarity).
 
-All agent-to-agent communication is mediated by the Postgres transactional outbox.
-There is never direct HTTP between agents. See
+All agent-to-agent communication is mediated by the Postgres transactional outbox. See
 [docs/architecture/agent-pipeline.md](agent-pipeline.md) and
 [docs/adr/0003-postgres-outbox.md](../adr/0003-postgres-outbox.md).
 
