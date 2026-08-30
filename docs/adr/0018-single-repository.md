@@ -26,9 +26,8 @@ end goal is an installable open-source product, and its Phase 14 done-when is a
 to clone two repositories and reason about which config lives where, at the exact
 moment adoption is won or lost.
 
-radar-infra was also never created. The plan has been referencing a repository
-that does not exist, and Phase 10 (the first phase whose deliverables actually
-land in it) is about to start.
+radar-infra was also never created. The plan referenced a repository that does
+not exist, so retiring it removes plan-versus-reality drift.
 
 ## Decision
 RADAR is a single repository: radar-system. The product-versus-platform-config

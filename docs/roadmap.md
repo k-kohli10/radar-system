@@ -27,7 +27,7 @@ is just the summary view.
 ## 📚 Contents
 
 - 📏 [The Proof-of-Concept Line](#the-proof-of-concept-line)
-- 🔒 [What Doesn't Move](#what-doesnt-move)
+- 🔒 [Fixed Decisions](#fixed-decisions)
 - 💳 [Carried Debt](#carried-debt)
 - 🗒️ [Development Notes](#development-notes)
 
@@ -39,17 +39,17 @@ proven by an end-to-end test with real OpenAI calls. Everything after it, meanin
 knowledge retrieval, Slack delivery, observability, CI/CD, Kubernetes, hardening,
 and polish, is improvement on top of a working core, not a prerequisite for it.
 
-## What Doesn't Move
+## Fixed Decisions
 
-The "Locked Decisions" in the implementation plan (no Redis, no Jaeger, no agent
-frameworks, Postgres-outbox-only agent comms, Slack-only notifications, Vault
-init-container-only secrets, etc.) hold for every milestone. A later milestone
-does not get to reintroduce something already ruled out.
+The "Locked Decisions" in the implementation plan hold for every milestone:
+Postgres-outbox-only agent comms, Slack-only notifications, Vault
+init-container-only secrets, and the stack constraints (no Redis, no Jaeger, no
+agent frameworks). These are settled for v1, and each milestone builds on them.
 
 ## Carried Debt
 
-Recorded when incurred, paid in the milestone named. A later milestone does not
-get to quietly inherit these.
+Each item is recorded in the milestone that incurs it and paid in the milestone
+named in the "Owed by" column.
 
 | Owed by | Item |
 |---|---|

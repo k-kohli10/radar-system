@@ -3,13 +3,10 @@
 Operational runbooks for the services simulated by `apps/platform-sim`. These are
 the corpus the knowledge-service indexes and the reasoner retrieves against.
 
-> **These are fixtures.** Every file here carries `status: fixture` in its
-> frontmatter. They are drafted to be structurally uniform and factually
-> plausible so retrieval and CRAG grading have real content to work
-> against, not to read as though a specific on-call engineer wrote them. A
-> hand-editing pass for voice is deferred until before this repo is
-> portfolio-facing. `status: fixture` is the machine-visible marker for that
-> outstanding work; a runbook that has had the voice pass becomes
+> **These are illustrative fixtures.** Every file here carries `status: fixture`
+> in its frontmatter. They are drafted to be structurally uniform and factually
+> plausible so retrieval and CRAG grading have real content to work against. A
+> runbook that has been through a voice-and-accuracy review becomes
 > `status: reviewed`.
 
 ## Contents

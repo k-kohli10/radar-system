@@ -1,5 +1,5 @@
 # 📋 RADAR Implementation Plan
-### Version 5.0 - Final. Feed to Claude Code phase by phase.
+### Version 5.0
 
 ---
 
@@ -2941,9 +2941,6 @@ Plugin development guide
 Performance benchmark
 Completed CHANGELOG and CONTRIBUTING
 ```
-
-SRE portfolio case study was dropped from scope: a separate, personal-narrative
-piece, not a repo document.
 
 Commits:
 ```

@@ -102,7 +102,7 @@ Grafana reads Prometheus and provisions five dashboards: `radar-overview`,
 > **Dev-stack note.** In compose, the Alertmanager webhook to ingestion currently 401s:
 > ingestion authenticates `/alerts/prometheus` with the `X-Radar-Webhook-Token` header
 > (ADR 0011), and Alertmanager v0.27 cannot send an arbitrary custom header. This is a
-> tracked Phase 12 item, not a misconfiguration. The scrape-to-fire-to-webhook path is
+> known limitation of the compose dev-stack. The scrape-to-fire-to-webhook path is
 > proven independently by `tests/e2e/test_real_prometheus_alert.py`.
 
 ## Traces
@@ -121,8 +121,7 @@ Each service therefore emits its own disconnected trace, joined only by the shar
 `correlation_id` attribute. So one incident is many `trace_id`s under one
 `correlation_id`. The APM Service Map draws edges from cross-service client spans, of
 which there are none, so it stays empty; the correlation-id filter in Discover is the
-supported trace view. (This is by design, and it is why RADAR joins on a correlation
-attribute rather than on propagated distributed-trace context.)
+supported trace view.
 
 ## Logs
 
