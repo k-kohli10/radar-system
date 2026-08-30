@@ -58,7 +58,7 @@ consumers per topic, long-term retention, or replay from any point in history.
 RADAR has none of those requirements in v1: one pipeline, three agents, each
 processing one event in sequence, at tens of incidents per hour.
 
-| | What it costs you | Why RADAR doesn't need it |
+| | What it costs you | Why RADAR skips it |
 |---|---|---|
 | **Kafka** | Another stateful system (brokers, ZooKeeper/KRaft, topic configs), schema versioning, consumer group coordination, a separate failure domain, real local-dev overhead | No high-throughput, multi-consumer, or replay requirement at this scale |
 | **NATS** | Still an external system to run and monitor; JetStream (for persistence) adds config; consumer-side idempotency is still required either way | "Simpler than Kafka" isn't the same as "simpler than the Postgres you already run" |
@@ -70,13 +70,11 @@ the operational surface area before a line of application code runs.
 
 ## Why the Outbox Pattern Works Here
 
-The critical property is atomicity. When ingestion creates an incident, the outbox
-event for the watcher must either both commit or both roll back. There is no world
-where the incident exists but the watcher never gets triggered, or vice versa.
-
-With an external broker you lose this guarantee unless you implement a two-phase
-commit or an outbox pattern anyway. So you end up building the outbox pattern on top
-of Kafka, which is strictly worse than just using the outbox pattern on Postgres.
+The critical property is atomicity. When ingestion creates an incident, the incident
+row and the watcher's outbox event commit in one transaction: the incident exists if
+and only if the watcher gets triggered. An external broker recovers this guarantee
+only by layering an outbox pattern on top of it, so Postgres delivers directly what
+Kafka would need extra machinery to match.
 
 The outbox pattern on Postgres gives you:
 - Atomicity between state change and event, guaranteed by the database

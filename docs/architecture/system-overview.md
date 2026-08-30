@@ -11,9 +11,9 @@
 
 ## Purpose
 
-RADAR is an Incident Intelligence Platform. It sits downstream of detection systems
+RADAR is a Reliability Intelligence Platform. It sits downstream of detection systems
 (Prometheus, Kibana Watcher) and upstream of the on-call engineer. Its job is
-correlation, reasoning, and delivery. Not detection.
+correlation, reasoning, and delivery.
 
 ## Domain
 

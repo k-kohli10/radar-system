@@ -74,7 +74,7 @@ does not need it. The config also contains an ambiguity that proves the feature 
 rather than defaulting: `order-service` belongs to *both* `order-stack` and
 `checkout-stack`, and nothing says which wins.
 
-### 4. `fingerprint_fields` is a declaration, not a knob (and it is enforced)
+### 4. `fingerprint_fields` is a validated declaration, enforced at startup
 
 Ingestion hashes the three fields in code. Rather than let the YAML *appear* to
 control something it does not, the watcher **refuses to start** if

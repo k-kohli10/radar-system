@@ -1,12 +1,12 @@
 # 🛰️ RADAR
 
-**Real-time Anomaly Detection and Automated Response**
+**Real-time Agents for Diagnostics, Analysis & Response**
 
 [![CI](https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml/badge.svg)](https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/)
 
-RADAR is an AI-powered incident intelligence platform for SRE workflows. It ingests
+RADAR is an AI-powered reliability intelligence platform for SRE workflows. It ingests
 pre-fired alerts from Prometheus and Kibana, correlates them into incidents using
 configurable rules, retrieves relevant runbooks, reasons over root causes with an LLM,
 delivers a structured root cause analysis (RCA) to the on-call engineer in Slack,
@@ -22,6 +22,7 @@ collects feedback on it, and answers status queries through a Slack bot.
 - [Stack](#-stack)
 - [Status](#-status)
 - [Documentation](#-documentation)
+- [FAQ](#-faq)
 - [Contributing](#-contributing)
 - [License](#-license)
 
@@ -81,6 +82,7 @@ flowchart TB
     PL -- outbox --> R
     R <-- retrieve + grade --> K
     R <-- complete --> G
+    K <-- embed + grade --> G
     G <-- provider API --> LLM
     R -- outbox --> F
     F <-- Slack API --> S
@@ -100,17 +102,27 @@ flowchart TB
     class DB store
 ```
 
-The pipeline runs top to bottom, starting when a pre-fired alert reaches ingestion. Each
-**solid one-way arrow** between agents is an asynchronous outbox handoff: the source agent
-commits its state change and an outbox row in one transaction, and a dedicated
-outbox-worker later picks up that row and dispatches it to the next agent, with retries
-and idempotency guarantees. Each **solid two-way arrow** is a synchronous request/response
-call — the reasoner querying knowledge-service and llm-gateway (which in turn calls the
-external provider), and feedback-service posting cards to Slack and taking the engineer's
-responses back. Each **dashed arrow** is that same outbox write landing durably in
-Postgres. Pipeline agents hand off to one another only through the outbox — never a direct
-call; the reasoner's synchronous calls to knowledge-service and llm-gateway are queries to
-supporting services, not pipeline handoffs.
+The pipeline runs top to bottom, starting when a pre-fired alert reaches ingestion. Three
+arrow types tell the whole story:
+
+1. **Solid one-way (agent → agent) — an asynchronous outbox handoff.** The source agent
+   commits its state change and an outbox row in a single transaction; a dedicated
+   outbox-worker later picks up that row and dispatches it to the next agent, with retries
+   and idempotency guarantees.
+2. **Solid two-way — a synchronous request/response call.** These are:
+   - reasoner ↔ knowledge-service — retrieve and grade runbook context
+   - reasoner ↔ llm-gateway — produce the RCA
+   - knowledge-service ↔ llm-gateway — embed queries and grade retrieved chunks
+   - feedback-service ↔ Slack — post cards and take the engineer's responses back
+3. **Dashed one-way — the outbox write** landing durably in Postgres.
+
+Two rules follow from this:
+
+- **Every LLM call flows through llm-gateway**, the single point of contact with the
+  external provider.
+- **Pipeline agents hand off only through the outbox, never a direct call.** The reasoner's
+  and knowledge-service's synchronous calls go to supporting services (knowledge-service,
+  llm-gateway), which are queries — not pipeline handoffs.
 
 See [docs/architecture/agent-pipeline.md](docs/architecture/agent-pipeline.md).
 
@@ -193,6 +205,125 @@ and release polish toward a v1.0 tag are in progress. See
 | [`docs/roadmap.md`](docs/roadmap.md) | What's shipped, what's next |
 | [`CHANGELOG.md`](CHANGELOG.md) | What shipped, milestone by milestone |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Ground rules, dev setup, and PR expectations |
+
+---
+
+## ❓ FAQ
+
+<details>
+<summary><b>1. Does RADAR take automated remediation action?</b></summary>
+
+> No. It produces an RCA and recommended actions; a human runs any change
+> against production.
+
+</details>
+
+<details>
+<summary><b>2. Do the agents call each other directly?</b></summary>
+
+> No. Pipeline handoffs (watcher → planner → reasoner → feedback) go only
+> through the Postgres transactional outbox. The reasoner's synchronous calls to
+> knowledge-service and llm-gateway are queries to supporting services, not
+> pipeline handoffs. See
+> [docs/architecture/agent-pipeline.md](docs/architecture/agent-pipeline.md).
+
+</details>
+
+<details>
+<summary><b>3. Why a Postgres outbox instead of Redis or Kafka?</b></summary>
+
+> The state change and its outbox event commit in one database transaction, so a
+> handoff can never be half-done — "incident created but no plan requested" is
+> structurally impossible. It also means no extra broker infrastructure. See
+> [docs/adr/0003-postgres-outbox.md](docs/adr/0003-postgres-outbox.md).
+
+</details>
+
+<details>
+<summary><b>4. What happens if the LLM provider is unavailable?</b></summary>
+
+> The reasoner falls back to a template RCA (`is_fallback=true`,
+> `confidence=low`) that explains the AI was unavailable and lists the
+> investigation steps. An incident is never left without a recommendation. See
+> [docs/adr/0004-llm-gateway.md](docs/adr/0004-llm-gateway.md).
+
+</details>
+
+<details>
+<summary><b>5. What happens if the knowledge service (retrieval) is down?</b></summary>
+
+> The reasoner proceeds with an empty context and still calls the LLM,
+> producing a genuine but ungrounded RCA — not a template. Losing retrieval
+> costs the incident its grounding, not its analysis. See
+> [docs/architecture/sequence-flows.md](docs/architecture/sequence-flows.md).
+
+</details>
+
+<details>
+<summary><b>6. Which LLM providers are supported?</b></summary>
+
+> OpenAI, Anthropic, and Gemini, via config-driven plugins behind the
+> llm-gateway, which owns per-mode routing and provider fallback. See
+> [docs/plugin-development.md](docs/plugin-development.md).
+
+</details>
+
+<details>
+<summary><b>7. Can I add my own backend (LLM, notification, logs, metrics, traces)?</b></summary>
+
+> Yes. Backends are plugins resolved at runtime against Protocol interfaces in
+> `radar_contracts`; nothing in `apps/` or `packages/` imports a vendor client
+> directly — vendor SDKs live behind `plugins/`. See
+> [docs/plugin-development.md](docs/plugin-development.md).
+
+</details>
+
+<details>
+<summary><b>8. How are secrets handled?</b></summary>
+
+> At runtime each service reads secret *files* that Vault mounts (default
+> `/vault/secrets`, overridable with `RADAR_SECRETS_DIR` for local dev) — secret
+> values never come from the service's own environment. External credentials like
+> your OpenAI and Slack keys are seeded into Vault first (locally from `.env`, in
+> CI/CD from GitHub Actions secrets) and materialized as those files. Each service
+> then authenticates with its own per-service token; there is no shared platform
+> token.
+
+</details>
+
+<details>
+<summary><b>9. Can I point RADAR at my own Vault, Postgres, or Elasticsearch?</b></summary>
+
+> Yes — that is the production pattern. Run RADAR's app chart against your own
+> managed backends and skip the bundled `platform-deps`: set `vault.addr` (in
+> the Helm values) to your own or HCP Vault, `RADAR_ELASTICSEARCH_URL` to your
+> Elasticsearch, and store your Postgres DSN at `secret/radar/postgres` (with
+> `vault.postgresHost` set to your database host). LLM routing lives in the
+> gateway config. See
+> [deploy/examples/bring-your-own-backends/README.md](deploy/examples/bring-your-own-backends/README.md)
+> and [docs/operations/secrets.md](docs/operations/secrets.md).
+
+</details>
+
+<details>
+<summary><b>10. Can I run it without Kubernetes?</b></summary>
+
+> Yes. The whole stack runs locally via Docker (two-stack) or natively for a
+> fast edit loop. See [docs/quickstart.md](docs/quickstart.md) for the Docker
+> path and [docs/local-development.md](docs/local-development.md) for native dev.
+
+</details>
+
+<details>
+<summary><b>11. How do I trace a single incident end to end?</b></summary>
+
+> Every log line and span carries a `correlation_id` minted at ingress; filter
+> Kibana Discover on that id to see one incident across logs and traces. (The
+> APM Service Map stays empty by design, because agents coordinate through the
+> outbox rather than calling each other.) See
+> [docs/architecture/observability.md](docs/architecture/observability.md).
+
+</details>
 
 ---
 

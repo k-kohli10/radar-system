@@ -29,5 +29,4 @@ only one implementation, `plugins/notifications/slack/`, exists today.
 - Adding a second channel later (e.g. PagerDuty for paging, if RADAR ever needs it)
   means writing a new `NotificationBackend` plugin, not restructuring feedback-service.
   That work is explicitly out of scope until there's a real need for it.
-- There is no ticketing system integration (Jira, ServiceNow). Incident state lives
-  entirely in Postgres and is surfaced entirely through Slack.
+- Incident state lives entirely in Postgres and is surfaced entirely through Slack.

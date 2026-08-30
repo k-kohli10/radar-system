@@ -50,7 +50,7 @@
 
 ## What RADAR Is
 
-RADAR is an AI-powered Incident Intelligence Platform for SRE workflows.
+RADAR is an AI-powered Reliability Intelligence Platform for SRE workflows.
 
 It ingests pre-fired alerts from Prometheus and Kibana, correlates them into incidents using
 configurable rules, retrieves relevant runbooks, reasons over root causes using an LLM, delivers
@@ -752,7 +752,6 @@ radar-system/
 │   │   ├── 0007-vault-init-container.md
 │   │   ├── 0008-otel-to-elasticsearch.md
 │   │   ├── 0009-slack-only-notifications.md
-│   │   ├── 0010-external-detection-not-radar.md
 │   │   ├── 0011-inbound-webhook-token.md
 │   │   ├── 0012-cd-approach.md
 │   │   ├── 0013-watcher-correlation-scope.md
