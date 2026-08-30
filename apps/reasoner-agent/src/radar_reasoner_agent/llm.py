@@ -156,8 +156,10 @@ Rules:
   The alert_labels/alert_annotations and retrieved_context ARE what you were given;
   anything not in them or the incident metadata is not.
 - If you cannot determine a root cause, set confidence=low and explain in root_cause.
-- Actions must be specific, not generic. Bad: "check logs". Good: "check order-service
-  error logs in Kibana for the last 30 minutes filtered by status=500".
+- Actions must be specific, not generic (bad: "check logs"): name the exact service,
+  signal (log source or metric), time window, and filter to inspect — but draw those
+  specifics only from the incident metadata, alert labels, and retrieved_context,
+  never ones you supply yourself.
 """
 """The v2 system prompt: v1 plus the retrieved_context rules.
 

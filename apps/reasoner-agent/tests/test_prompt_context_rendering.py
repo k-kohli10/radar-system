@@ -256,6 +256,29 @@ def test_the_system_prompt_says_nothing_about_grades() -> None:
     assert "ground your analysis" in prompt
 
 
+def test_the_system_prompt_supplies_no_concrete_example_to_parrot() -> None:
+    """The prompt must teach the SHAPE of a specific action, not hand the model one.
+
+    The "specific, not generic" rule used to carry a worked example — "check
+    order-service error logs in Kibana for the last 30 minutes filtered by
+    status=500". On an empty-context run, with no retrieved runbook and nothing else
+    concrete in the window, the model echoed that very action back as a
+    recommendation: the example was the most specific "action" text it had been
+    given. A prompt that names a service, a tool, and a query value hands the model a
+    citation to parrot. This pins that no such instance is present, while keeping the
+    rule that actions must be specific.
+    """
+    prompt = SYSTEM_PROMPT.lower()
+
+    for leaked in ("order-service", "kibana", "status=500"):
+        assert leaked not in prompt, (
+            f"the system prompt carries the concrete example token {leaked!r} again — "
+            "the model can echo it back as a recommended action on an empty-context run"
+        )
+    # And it must still teach specificity, not solve the leak by going vague.
+    assert "specific" in prompt
+
+
 def test_an_empty_context_still_renders_as_an_empty_slot() -> None:
     """The empty case must survive the projection unchanged.
 
