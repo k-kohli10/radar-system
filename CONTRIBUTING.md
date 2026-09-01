@@ -80,8 +80,15 @@ cover the three invariants from the plan:
 
 ## 🔀 Pull Requests
 
+Outside contributors work through a fork: fork the repo, create a branch on
+your fork, commit your change, then open a PR against the default branch. A
+maintainer reviews it and merges when it's ready.
+
 - 🏷️ Describe what the PR changes and why.
-- 🟢 CI (lint, typecheck, test, multi-arch build) must pass before merge.
+- 🟢 CI (lint, typecheck, test, multi-arch build) and the security scan
+  (OSV-Scanner) are required checks and must pass before merge.
+- 🔑 A first-time contributor's workflow runs wait for maintainer approval to
+  start — GitHub's default for fork PRs.
 - 📦 Keep the PR scoped to one logical change.
 
 ---
