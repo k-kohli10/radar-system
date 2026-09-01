@@ -4,6 +4,8 @@
 
 <p align="center">
   <a href="https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml"><img src="https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/k-kohli10/radar-system/actions/workflows/security.yml"><img src="https://github.com/k-kohli10/radar-system/actions/workflows/security.yml/badge.svg" alt="Security"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/k-kohli10/radar-system"><img src="https://api.scorecard.dev/projects/github.com/k-kohli10/radar-system/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://github.com/k-kohli10/radar-system/releases"><img src="https://img.shields.io/github/v/release/k-kohli10/radar-system?sort=semver" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.14-blue.svg" alt="Python 3.14"></a>
@@ -28,7 +30,7 @@ collects feedback on it, and answers status queries through a Slack bot.
 - [Scope](#-scope)
 - [How It Works](#-how-it-works)
 - [Run It](#-run-it)
-- [Domain](#-domain)
+- [Domain Illustration](#-domain-illustration)
 - [Stack](#-stack)
 - [Documentation](#-documentation)
 - [FAQ](#-faq)
@@ -172,7 +174,7 @@ Then fire an alert and watch the RCA land in Slack and Postgres. Full walkthroug
 
 ---
 
-## 🛒 Domain
+## 🛒 Domain Illustration
 
 The target system is a stubbed e-commerce `order-service`. Its realistic failure modes
 (order-processing failures, checkout timeouts, inventory latency, payment-gateway errors,

@@ -1,0 +1,21 @@
+name: security
+
+# Dependency vulnerability scanning with OSV-Scanner. Reads the uv.lock
+# workspace lockfile directly and reports advisories from the OSV database
+# (OSV + GitHub) to the Security tab as SARIF.
+on:
+  push:
+    branches: ["main", "Release*"]
+  pull_request:
+  schedule:
+    # Weekly full re-scan so newly disclosed advisories surface without a push.
+    - cron: "30 12 * * 1"
+
+permissions:
+  actions: read
+  security-events: write
+  contents: read
+
+jobs:
+  scan:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.5.0
