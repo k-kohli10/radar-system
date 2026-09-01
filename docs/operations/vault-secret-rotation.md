@@ -24,7 +24,7 @@ Rotate the secret, re-render it (`make rotate SERVICE=<svc>` then
 
 | Secret | Restart-set | If you miss a component |
 |---|---|---|
-| **Agent token** (service `X`'s inbound token) | `X` **and** `outbox-worker` (the worker presents *X's* token to dispatch to it) | worker keeps the old token → `401` dispatching to `X` → retries/dead-letter → **`OutboxBacklogHigh`** |
+| **Agent token** (service `X`'s inbound token) | `X` **and** `outbox-worker`, in any order — `make rotate` keeps the outgoing token accepted (`agent_token_previous`), so `X` honours both throughout the roll and nothing `401`s mid-restart. Then `make rotate-finalize SERVICE=X` and restart `X` once more to drop the retired token | skip **finalize** → the retired token stays accepted (a lingering credential, not an outage). Don't finalize until `outbox-worker` is on the new token, or its next dispatch `401`s once `X` drops the old one |
 | **Gateway token (reason mode)** | `llm-gateway` (its token→mode map) **and** `reasoner-agent` | reasoner's LLM calls `401` → **`LLMTemplateFallbackActive`** (`reason=rejected`) |
 | **Gateway token (embed mode)** (`gateway_token_embed`) | `llm-gateway` **and** `knowledge-service` | embedding/indexing calls `401` → retrieval silently degrades |
 | **`postgres_dsn`** (DB credential) | **all 7 DB services** (`ingestion`, `watcher-agent`, `planner-agent`, `reasoner-agent`, `feedback-service`, `outbox-worker`, `knowledge-service`); `llm-gateway` has no DB, so it's excluded | the missed service can't reach the DB → its `/readyz` 503, that pipeline stage stalls |
@@ -40,8 +40,10 @@ Rotate the secret, re-render it (`make rotate SERVICE=<svc>` then
 ## If recovery doesn't work / known limits / when to escalate
 - **Silent-failure signature:** the rotation "looked done," then minutes later
   `OutboxBacklogHigh` or `LLMTemplateFallbackActive` fires. You missed a component
-  in the restart-set. Re-check the table for that secret type (the two most-missed
-  are `outbox-worker` for agent tokens and the *external* source for webhook tokens).
+  in the restart-set. Re-check the table for that secret type — the most-missed is
+  the *external* source for webhook tokens. Agent-token rolls are order-safe now
+  (`X` accepts both tokens during the roll); their one loose end is skipping
+  `make rotate-finalize`, which lingers a retired token rather than raising an alert.
 - **Known limit (no hot-reload):** every rotation is a restart, so expect a brief
   `/readyz` 503 window. Kubernetes takes the pod out of rotation during it; delivery
   is at-least-once and retryable, so this costs latency, not data.

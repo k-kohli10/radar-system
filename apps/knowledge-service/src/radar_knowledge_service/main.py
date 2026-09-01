@@ -46,9 +46,8 @@ from radar_common import (
     AgentTokenAuth,
     ConfigurationError,
     bootstrap,
-    read_secret,
 )
-from radar_common.bootstrap import AGENT_TOKEN_SECRET
+from radar_common.bootstrap import load_agent_tokens
 from radar_plugin_knowledge_elastic import ElasticKnowledgeStore
 from radar_telemetry import (
     create_request_metrics,
@@ -106,11 +105,9 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         nonlocal store, gateway_client, agent_auth, retriever
         try:
-            agent_token = read_secret(AGENT_TOKEN_SECRET)
-            assert agent_token is not None  # required=True: raised if absent
             embed_token, reason_token = load_gateway_tokens()
 
-            agent_auth = AgentTokenAuth([agent_token])
+            agent_auth = AgentTokenAuth(load_agent_tokens())
             store = ElasticKnowledgeStore(
                 hosts=settings.elasticsearch_url,
                 dims=settings.embedding_dims,

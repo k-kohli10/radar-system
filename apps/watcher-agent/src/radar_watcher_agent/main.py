@@ -44,9 +44,8 @@ from radar_common import (
     EventsAuth,
     bootstrap,
     install_guarded_events_handler,
-    read_secret,
 )
-from radar_common.bootstrap import AGENT_TOKEN_SECRET
+from radar_common.bootstrap import load_agent_tokens
 from radar_database import Database
 from radar_telemetry import (
     create_request_metrics,
@@ -108,9 +107,7 @@ def create_app(
         nonlocal database, agent_auth, rules
         try:
             dsn = load_postgres_dsn()
-            agent_token = read_secret(AGENT_TOKEN_SECRET)
-            assert agent_token is not None  # required=True: raised if absent
-            agent_auth = AgentTokenAuth([agent_token])
+            agent_auth = AgentTokenAuth(load_agent_tokens())
             # A bad rules file is a startup failure, not a fallback to defaults: a
             # watcher running policy nobody configured looks fine and is not.
             rules = load_correlation_rules(settings.correlation_rules_path)

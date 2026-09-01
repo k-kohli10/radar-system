@@ -46,9 +46,8 @@ from radar_common import (
     EventsAuth,
     bootstrap,
     install_guarded_events_handler,
-    read_secret,
 )
-from radar_common.bootstrap import AGENT_TOKEN_SECRET
+from radar_common.bootstrap import load_agent_tokens
 from radar_contracts import NotificationBackend
 from radar_database import Database
 from radar_plugin_notifications_slack import (
@@ -163,9 +162,7 @@ def create_app(
         nonlocal database, agent_auth, notifier, interaction_source
         try:
             dsn = load_postgres_dsn()
-            agent_token = read_secret(AGENT_TOKEN_SECRET)
-            assert agent_token is not None  # required=True: raised if absent
-            agent_auth = AgentTokenAuth([agent_token])
+            agent_auth = AgentTokenAuth(load_agent_tokens())
             # The Slack backend is constructed from the Vault-mounted bot token,
             # required to go ready (see the module docstring). The handler depends
             # only on the NotificationBackend Protocol; this is the one place the

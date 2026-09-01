@@ -48,9 +48,8 @@ from radar_common import (
     EventsAuth,
     bootstrap,
     install_guarded_events_handler,
-    read_secret,
 )
-from radar_common.bootstrap import AGENT_TOKEN_SECRET
+from radar_common.bootstrap import load_agent_tokens
 from radar_database import Database
 from radar_telemetry import (
     create_reasoner_metrics,
@@ -125,9 +124,7 @@ def create_app(
         nonlocal knowledge_client, knowledge
         try:
             dsn = load_postgres_dsn()
-            agent_token = read_secret(AGENT_TOKEN_SECRET)
-            assert agent_token is not None  # required=True: raised if absent
-            agent_auth = AgentTokenAuth([agent_token])
+            agent_auth = AgentTokenAuth(load_agent_tokens())
             # OUTBOUND, and a different value from the inbound one above. Gated on
             # readiness: without it every LLM call is a 401 and every incident
             # silently takes the fallback path, which looks perfectly healthy.

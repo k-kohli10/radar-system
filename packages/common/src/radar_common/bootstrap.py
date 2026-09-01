@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pydantic import SecretStr
 from structlog.typing import FilteringBoundLogger
 
 from .auth import AgentTokenAuth
@@ -30,6 +31,30 @@ from .logging import configure_logging, get_logger
 
 AGENT_TOKEN_SECRET = "agent_token"
 """Vault secret filename holding a service's own agent token."""
+
+AGENT_TOKEN_PREVIOUS_SECRET = "agent_token_previous"
+"""Vault secret filename holding the immediately-prior agent token.
+
+Written only during a rotation (by ``make rotate``) and cleared once the roll has
+converged (by ``make rotate-finalize``). A service accepts both this and the current
+token so a hot rotation never rejects the still-in-flight one — closing the
+transient-401 window that used to dead-letter events mid-roll.
+"""
+
+
+def load_agent_tokens() -> list[SecretStr]:
+    """Return the agent token(s) a service accepts: current, plus previous if present.
+
+    The current ``agent_token`` is required — a missing file raises
+    :class:`~radar_common.config.SecretNotFoundError`, failing startup loudly, exactly
+    as before. ``agent_token_previous`` is optional, so in steady state this is a
+    single-element list; during a rotation it holds both. Both are accepted by
+    :class:`~radar_common.auth.AgentTokenAuth`.
+    """
+    current = read_secret(AGENT_TOKEN_SECRET)
+    assert current is not None  # required=True: read_secret raised if absent
+    previous = read_secret(AGENT_TOKEN_PREVIOUS_SECRET, required=False)
+    return [token for token in (current, previous) if token is not None]
 
 
 @dataclass(frozen=True)
@@ -64,9 +89,7 @@ def bootstrap[S: RadarSettings](
 
     auth: AgentTokenAuth | None = None
     if with_agent_auth:
-        token = read_secret(AGENT_TOKEN_SECRET)
-        assert token is not None  # required=True: read_secret raised if absent
-        auth = AgentTokenAuth([token])
+        auth = AgentTokenAuth(load_agent_tokens())
 
     log.info(
         "service.bootstrapped",

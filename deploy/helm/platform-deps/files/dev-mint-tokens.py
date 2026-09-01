@@ -44,10 +44,12 @@ code path happens to use that mode.
 
 Prints service names and 6-character prefixes. Never a token value.
 
-Note on the running system: rotation is not hot. Between the two pods restarting,
-the worker sends the old token and the target rejects it — and a 401 is permanent,
-so those events are dead-lettered rather than retried. Rotate on a drained
-pipeline (check outbox depth first). See docs/roadmap.md.
+Note on the running system: rotation is hot. ``--rotate`` keeps the outgoing token
+accepted — it is written to ``agent_token_previous``, which every service accepts
+alongside its current ``agent_token`` — so the target and worker pods can restart in
+any order without a mid-roll dispatch being rejected. Once both are back up,
+``--finalize SERVICE`` clears the previous token; restart the target once more to
+stop accepting it. See docs/roadmap.md.
 """
 
 from __future__ import annotations
@@ -203,12 +205,34 @@ def mint_agent_tokens(vault: Vault, *, rotate: str | None) -> dict[str, str]:
             print(f"  {service:<16} agent_token  kept    {brief(existing)}")
             continue
         token = new_token()
+        if existing and service == rotate:
+            # Two-phase rotation: keep the outgoing token accepted (every service
+            # accepts agent_token_previous alongside agent_token) while the target
+            # and worker restart, so an event dispatched mid-roll is never rejected
+            # — a 401 is permanent and would dead-letter it. Cleared by --finalize.
+            secret["agent_token_previous"] = existing
+            print(f"  {service:<16} agent_token_previous kept    {brief(existing)}")
         secret["agent_token"] = token
         vault.write(service_path(service), secret)
         tokens[service] = token
         verb = "ROTATED" if service == rotate else "minted "
         print(f"  {service:<16} agent_token  {verb} {brief(token)}")
     return tokens
+
+
+def finalize_agent_rotation(vault: Vault, service: str) -> None:
+    """Drop a service's ``agent_token_previous`` once a rotation has converged.
+
+    After ``--rotate`` and both the target and worker have restarted, the previous
+    token is no longer in flight — clearing it stops the retired credential from
+    being accepted. A no-op when there is no previous token (the steady state).
+    """
+    secret = vault.read(service_path(service))
+    if secret.pop("agent_token_previous", None) is None:
+        print(f"  {service:<16} agent_token_previous none    (already finalized)")
+        return
+    vault.write(service_path(service), secret)
+    print(f"  {service:<16} agent_token_previous CLEARED — restart {service}")
 
 
 def write_knowledge_grant(vault: Vault, agent_tokens: dict[str, str]) -> None:
@@ -353,7 +377,17 @@ def main() -> None:
         help=(
             "Replace this service's tokens with fresh ones. Rotates its agent "
             "token, its gateway token if it has one, and the worker's map entry "
-            "pointing at it. Rotate on a drained pipeline (see docs/roadmap.md)."
+            "pointing at it. The outgoing agent token stays accepted until "
+            "`--finalize` (see docs/roadmap.md)."
+        ),
+    )
+    parser.add_argument(
+        "--finalize",
+        metavar="SERVICE",
+        help=(
+            "Clear this service's agent_token_previous after a --rotate has "
+            "converged (target and worker restarted), so the retired token stops "
+            "being accepted. Restart the service once more afterward."
         ),
     )
     args = parser.parse_args()
@@ -363,6 +397,13 @@ def main() -> None:
         sys.exit(
             f"ERROR: unknown service {args.rotate!r}. Known: {', '.join(sorted(known))}"
         )
+    if args.finalize and args.finalize not in set(AGENT_SERVICES):
+        sys.exit(
+            f"ERROR: unknown service {args.finalize!r} for --finalize. "
+            f"Known: {', '.join(sorted(AGENT_SERVICES))}"
+        )
+    if args.rotate and args.finalize:
+        sys.exit("ERROR: pass --rotate or --finalize, not both.")
 
     env = read_env()
     addr = env.get("VAULT_ADDR", "http://localhost:8200")
@@ -375,9 +416,20 @@ def main() -> None:
             base_url=addr, headers={"X-Vault-Token": root}, timeout=10
         ) as client:
             vault = Vault(client)
+            if args.finalize:
+                print(f"finalizing rotation for {args.finalize} at {addr}\n")
+                finalize_agent_rotation(vault, args.finalize)
+                print(
+                    "\ndone — pull with `make agent-secrets`, then restart "
+                    f"{args.finalize}"
+                )
+                return
             print(f"minting into Vault at {addr}")
             if args.rotate:
-                print(f"ROTATING {args.rotate} — restart that pod and outbox-worker\n")
+                print(
+                    f"ROTATING {args.rotate} — restart it and outbox-worker (any "
+                    "order), then `make rotate-finalize`\n"
+                )
             agent_tokens = mint_agent_tokens(vault, rotate=args.rotate)
             rebuild_dispatch_map(vault, agent_tokens)
             write_knowledge_grant(vault, agent_tokens)
