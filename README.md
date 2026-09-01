@@ -3,14 +3,22 @@
 **Real-time Agents for Diagnostics, Analysis & Response**
 
 [![CI](https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml/badge.svg)](https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/k-kohli10/radar-system?sort=semver)](https://github.com/k-kohli10/radar-system/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.14](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/)
+[![Framework: FastAPI](https://img.shields.io/badge/Framework-FastAPI-teal.svg)](https://fastapi.tiangolo.com/)
+[![Database: PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-blue.svg)](https://www.postgresql.org/)
+[![Lint: Ruff](https://img.shields.io/badge/Lint-Ruff-orange.svg)](https://docs.astral.sh/ruff/)
+[![Orchestration: none](https://img.shields.io/badge/Orchestration-none-brightgreen.svg)](#-stack)
 
 RADAR is an AI-powered reliability intelligence platform for SRE workflows. It ingests
-pre-fired alerts from Prometheus and Kibana, correlates them into incidents using
+pre-fired alerts from your monitoring stack, correlates them into incidents using
 configurable rules, retrieves relevant runbooks, reasons over root causes with an LLM,
 delivers a structured root cause analysis (RCA) to the on-call engineer in Slack,
 collects feedback on it, and answers status queries through a Slack bot.
+
+> **No orchestration framework.** The agents, the Postgres outbox bus, and every
+> LLM call are written directly — no LangChain, LangGraph, or LiteLLM.
 
 ## Contents
 
@@ -20,7 +28,6 @@ collects feedback on it, and answers status queries through a Slack bot.
 - [Run It](#-run-it)
 - [Domain](#-domain)
 - [Stack](#-stack)
-- [Status](#-status)
 - [Documentation](#-documentation)
 - [FAQ](#-faq)
 - [Contributing](#-contributing)
@@ -166,7 +173,7 @@ SQLAlchemy async, with structlog for logging.
 
 | Role | Choice |
 |---|---|
-| **Inter-agent bus** | A Postgres transactional outbox: the only channel between agents. No Redis, no external message broker. |
+| **Inter-agent bus** | A Postgres transactional outbox: the only channel between agents. |
 | **Secrets** | HashiCorp Vault secret files, never environment variables. |
 | **LLM / agent code** | Written directly against the provider. No LangChain, LangGraph, LiteLLM, or other orchestration framework. |
 
@@ -174,17 +181,6 @@ The outbox keeps every handoff durable, atomic, and idempotent in the same
 database that holds incident state, so RADAR needs no separate broker to
 coordinate agents. Keeping the LLM and agent code framework-free keeps the
 control flow explicit and the dependency surface small.
-
----
-
-## 📍 Status
-
-RADAR is a working end-to-end system today: alert ingestion, incident
-correlation, investigation planning, LLM-grounded root cause analysis, Slack
-delivery, and feedback collection all run in production-shaped form, backed by
-CI, a Kubernetes deployment path, and a security hardening pass. Documentation
-and release polish toward a v1.0 tag are in progress. See
-[docs/roadmap.md](docs/roadmap.md) for what's shipped and what's next.
 
 ---
 
@@ -329,11 +325,17 @@ and release polish toward a v1.0 tag are in progress. See
 
 ## 🤝 Contributing
 
-RADAR is built against a locked architecture: no orchestration frameworks, no
-Redis, Postgres-outbox-only agent communication, Vault-only secrets.
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR, and check
-[docs/adr/](docs/adr/) for the reasoning behind a decision before proposing to
-change it. Found a bug or have a question? Open an issue.
+Contributions are welcome. A handful of architectural decisions are locked —
+settled, and best treated as fixed when you open a PR:
+
+- Agents are hand-written against the provider SDK.
+- Agents communicate through the Postgres transactional outbox.
+- Secrets come from HashiCorp Vault secret files, mounted at runtime.
+
+They're locked because they keep the system small and predictable, and each
+one's reasoning is written down: read [docs/adr/](docs/adr/) before proposing to
+change it, and read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. Found
+a bug or have a question? [Open an issue](../../issues).
 
 ---
 
