@@ -1,15 +1,17 @@
-# 🛰️ RADAR
+<p align="center">
+  <img src="docs/assets/RADAR_Logo.png" alt="RADAR — Real-time Agents for Diagnostics, Analysis & Response" width="820">
+</p>
 
-**Real-time Agents for Diagnostics, Analysis & Response**
-
-[![CI](https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml/badge.svg)](https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/k-kohli10/radar-system?sort=semver)](https://github.com/k-kohli10/radar-system/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python 3.14](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/)
-[![Framework: FastAPI](https://img.shields.io/badge/Framework-FastAPI-teal.svg)](https://fastapi.tiangolo.com/)
-[![Database: PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-blue.svg)](https://www.postgresql.org/)
-[![Lint: Ruff](https://img.shields.io/badge/Lint-Ruff-orange.svg)](https://docs.astral.sh/ruff/)
-[![Orchestration: none](https://img.shields.io/badge/Orchestration-none-brightgreen.svg)](#-stack)
+<p align="center">
+  <a href="https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml"><img src="https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/k-kohli10/radar-system/releases"><img src="https://img.shields.io/github/v/release/k-kohli10/radar-system?sort=semver" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.14-blue.svg" alt="Python 3.14"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/Framework-FastAPI-teal.svg" alt="Framework: FastAPI"></a>
+  <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/Database-PostgreSQL-blue.svg" alt="Database: PostgreSQL"></a>
+  <a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/Lint-Ruff-orange.svg" alt="Lint: Ruff"></a>
+  <a href="#-stack"><img src="https://img.shields.io/badge/Orchestration-none-brightgreen.svg" alt="Orchestration: none"></a>
+</p>
 
 RADAR is an AI-powered reliability intelligence platform for SRE workflows. It ingests
 pre-fired alerts from your monitoring stack, correlates them into incidents using
@@ -18,7 +20,7 @@ delivers a structured root cause analysis (RCA) to the on-call engineer in Slack
 collects feedback on it, and answers status queries through a Slack bot.
 
 > **No orchestration framework.** The agents, the Postgres outbox bus, and every
-> LLM call are written directly — no LangChain, LangGraph, or LiteLLM.
+> LLM call are written directly: No LangChain, LangGraph, or LiteLLM.
 
 ## Contents
 
@@ -69,6 +71,19 @@ RADAR focuses on incident triage and keeps clear boundaries:
 
 ## 🔧 How It Works
 
+The full system, top to bottom (click to zoom):
+
+<p align="center">
+  <img src="docs/architecture/radar-architecture-diagram.png" alt="RADAR system schematic: the ingestion → watcher → planner → reasoner pipeline over a Postgres transactional outbox, with the knowledge-service and llm-gateway, the logs/traces/metrics telemetry stack, and Vault-backed secrets" width="960">
+</p>
+
+<p align="center">
+  <a href="https://raw.githack.com/k-kohli10/radar-system/main/docs/architecture/radar-architecture-diagram.html"><strong>▶ Open the interactive schematic</strong></a><br>
+  <sub>Flip any service box to read what it does and jump to its source.</sub>
+</p>
+
+Zoomed in on the pipeline itself, labeled by arrow type:
+
 ```mermaid
 flowchart TB
     P["Prometheus / Kibana Watcher<br/><small>pre-fired alert</small>"]
@@ -110,7 +125,7 @@ flowchart TB
 ```
 
 The pipeline runs top to bottom, starting when a pre-fired alert reaches ingestion. Three
-arrow types tell the whole story:
+arrow types carry it:
 
 1. **Solid one-way (agent → agent) — an asynchronous outbox handoff.** The source agent
    commits its state change and an outbox row in a single transaction; a dedicated
@@ -127,9 +142,9 @@ Two rules follow from this:
 
 - **Every LLM call flows through llm-gateway**, the single point of contact with the
   external provider.
-- **Pipeline agents hand off only through the outbox, never a direct call.** The reasoner's
-  and knowledge-service's synchronous calls go to supporting services (knowledge-service,
-  llm-gateway), which are queries — not pipeline handoffs.
+- **The outbox is the sole handoff path between pipeline agents.** The reasoner's and
+  knowledge-service's synchronous calls target supporting services (knowledge-service,
+  llm-gateway) and are queries, not pipeline handoffs.
 
 See [docs/architecture/agent-pipeline.md](docs/architecture/agent-pipeline.md).
 
