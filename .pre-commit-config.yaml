@@ -12,6 +12,8 @@ repos:
         exclude: ^deploy/helm/.*/templates/.*\.ya?ml$
       - id: check-toml
       - id: check-added-large-files
+        # Branding PNGs (docs/assets/) are ~2 MB; raise the default 500 kB cap.
+        args: [--maxkb=2048]
       - id: check-merge-conflict
       - id: detect-private-key
 
