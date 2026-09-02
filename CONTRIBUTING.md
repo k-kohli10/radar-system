@@ -1,9 +1,14 @@
 # 🤝 Contributing to RADAR
 
-RADAR follows a locked architecture, recorded in
-[docs/implementation_plan.md](docs/implementation_plan.md) and the
-[ADRs](docs/adr/): the source of truth for scope and design decisions. 📖 **Read
-the relevant ADR before opening a PR that touches it.**
+RADAR has a documented architecture and a set of design decisions captured as
+[ADRs](docs/adr/), with the full picture in
+[docs/implementation_plan.md](docs/implementation_plan.md). ADRs are how the
+project records why things are built the way they are, and how that reasoning
+gets revisited as the project grows.
+
+📖 **Read the relevant ADR before opening a PR that touches an area it covers.**
+Want to change one of these decisions? Propose it through a new ADR or open a
+discussion/issue first, so the reasoning gets captured alongside the change.
 
 ---
 
@@ -22,9 +27,11 @@ the relevant ADR before opening a PR that touches it.**
 
 - 🎯 **One logical change, one PR.** Keep a PR to a single feature, fix, or
   cleanup. Don't bundle unrelated changes.
-- 🔒 **Locked decisions are locked.** No agent frameworks, no Redis, Postgres-outbox
-  for all agent comms, Slack-only notifications, Vault-only secrets. Change them
-  via a **new ADR**, not a silent deviation.
+- 🏛️ **Know the current architecture.** Agents talk to each other through a
+  Postgres transactional outbox, agent/LLM logic is built directly rather than
+  through an orchestration framework, notifications go out via Slack, and
+  secrets are sourced from Vault. Propose a change to any of these through a
+  **new ADR** and discussion, not a silent deviation in a PR.
 - 📝 **No dump commits.** History should read as a narrative: small, scoped,
   imperative commits (`feat(scope): …`, `test(scope): …`, `docs: …`), not an
   "add everything" commit.
