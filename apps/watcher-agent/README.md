@@ -1,4 +1,4 @@
-# radar-watcher-agent
+# 👁️ radar-watcher-agent
 
 The first stage of the RADAR incident pipeline.
 

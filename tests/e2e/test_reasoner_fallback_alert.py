@@ -415,6 +415,13 @@ async def _poll_until_firing(
         except httpx.HTTPError:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
             continue
+        except json.JSONDecodeError:
+            # A freshly-started Prometheus can answer /api/v1/rules with an empty or
+            # non-JSON body before it is fully up: the connection succeeds (no
+            # httpx.HTTPError) but .json() then raises. Treat that as not-ready-yet and
+            # retry — the deadline below still fails loud if it never serves JSON.
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            continue
 
         state, alerts = _find_alert(rules)
         if not seen_states or seen_states[-1] != state:

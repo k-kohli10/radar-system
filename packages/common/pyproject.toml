@@ -5,7 +5,7 @@ description = "RADAR shared runtime primitives: structured logging, config/secre
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.115.0",
+    "fastapi==0.141.1",
     "pydantic==2.13.4",
     "pydantic-settings==2.6.0",
     "structlog==24.4.0",
@@ -13,8 +13,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest==8.3.0",
-    "pytest-asyncio==0.24.0",
+    "pytest==9.0.3",
+    "pytest-asyncio==1.4.0",
     "httpx==0.28.0",
     "mypy==2.1.0",
 ]

@@ -13,10 +13,10 @@ verbatim from the spec:
 Everything roots in :class:`radar_common.UpstreamServiceError` so platform-wide
 handling and the ``radar_errors_total`` metric see gateway failures uniformly.
 
-Redaction rule for anyone raising these: build ``reason`` from metadata only —
-an HTTP status, a vendor exception *class name*, the word "timeout". Never pass
-a vendor exception's message: provider error bodies can echo request content,
-and these error strings end up in logs and 5xx details.
+Redaction rule for anyone raising these: build ``reason`` from metadata only,
+meaning an HTTP status, a vendor exception class name, or the word "timeout".
+Never pass a vendor exception's message: provider error bodies can echo request
+content, and these error strings end up in logs and 5xx details.
 """
 
 from __future__ import annotations
@@ -77,10 +77,10 @@ class ProviderError(UpstreamServiceError):
 class CircuitOpenError(ProviderError):
     """The binding's circuit breaker is open; the call was not attempted.
 
-    A :class:`ProviderError` subclass (never retryable) so it flows through the
-    same retry/fallback pipeline: the retry loop stops immediately and
-    ``run_with_fallback`` moves to the fallback binding — the whole point of
-    the breaker is to skip the network call and its backoff, not to retry it.
+    A :class:`ProviderError` subclass marked non-retryable so it flows through
+    the same retry/fallback pipeline: the retry loop stops immediately and
+    ``run_with_fallback`` moves to the fallback binding, skipping the network
+    call and its backoff.
     """
 
     def __init__(self, provider: str, model: str) -> None:

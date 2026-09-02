@@ -1,4 +1,4 @@
-# radar-planner-agent
+# 📋 radar-planner-agent
 
 The second stage of the RADAR incident pipeline.
 

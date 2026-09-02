@@ -1,0 +1,469 @@
+<title>RADAR Schematic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#0f1115; --stage:#14161c; --node:#1c2029; --node2:#181b22;
+    --ink:#ECEAE3; --mut:#868e9c; --hair:#333a46; --hair2:#252a33;
+    --accent:#F5502A; --accent-ink:#150a05;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#0a0b0e;color:var(--ink);
+    font-family:"Archivo",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+  .wrap{display:flex;justify-content:center;align-items:center;min-height:100vh;padding:16px 22px;overflow:hidden;}
+  .stage{position:relative;width:1920px;height:1180px;flex:0 0 auto;background:var(--stage);
+    border:1.6px solid var(--hair);box-shadow:0 50px 120px -50px #000;overflow:hidden;color:var(--ink);}
+  .stage::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+    background:radial-gradient(1100px 640px at 64% 34%, rgba(245,80,42,.045), rgba(0,0,0,0) 60%),
+      radial-gradient(900px 600px at 10% 10%, rgba(120,150,200,.04), rgba(0,0,0,0) 60%);}
+
+  .rule{position:absolute;background:var(--hair);z-index:3}
+  .tick{position:absolute;z-index:6;color:var(--mut);font:600 12px/1 "IBM Plex Mono"}
+  svg.edges{position:absolute;inset:0;width:1920px;height:1180px;z-index:2;pointer-events:none}
+
+  .topbar{position:absolute;z-index:5;left:0;right:0;top:0;height:64px;display:flex;align-items:center;
+    padding:0 26px;gap:30px;border-bottom:1.6px solid var(--hair);
+    font:600 12px/1 "IBM Plex Mono";letter-spacing:.14em;text-transform:uppercase}
+  .topbar .sep{color:var(--hair)}
+  .topbar nav{display:flex;gap:26px;margin:0 auto}
+  .topbar nav b{color:var(--ink);font-weight:600}
+  .topbar .right{color:var(--mut)}
+
+  .eyebrow{position:absolute;z-index:5;left:60px;top:102px;font:500 12px/1 "IBM Plex Mono";
+    letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+  .title{position:absolute;z-index:5;left:54px;top:128px;font-family:"Anton",Impact,sans-serif;
+    color:var(--ink);font-size:120px;line-height:.82;letter-spacing:.006em}
+  .fullform{position:absolute;z-index:5;left:60px;top:272px;width:410px;font:600 18px/1.35 "Archivo";
+    letter-spacing:.01em;color:#c9c5bb}
+  .fullform b{color:var(--accent);font-weight:800}
+
+  .specs{position:absolute;z-index:5;left:60px;top:360px;width:400px;display:flex;flex-direction:column;gap:13px}
+  .spec{display:grid;grid-template-columns:auto 1fr auto;align-items:end;gap:10px;
+    font:500 12.5px/1.2 "IBM Plex Mono";letter-spacing:.05em;text-transform:uppercase}
+  .spec .l{color:var(--mut)}
+  .spec .lead{border-bottom:1.4px dotted var(--hair);transform:translateY(-4px)}
+  .spec .v{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+
+  .lede{position:absolute;z-index:5;left:60px;top:648px;width:396px;font:500 14px/1.55 "Archivo";color:#b9b5ab}
+  .hint{position:absolute;z-index:5;left:62px;top:830px;width:392px;
+    font:500 11.5px/1.6 "IBM Plex Mono";letter-spacing:.02em;color:var(--mut);
+    display:flex;gap:10px;align-items:flex-start}
+  .hint .dmk{width:8px;height:8px;border:1.4px solid var(--accent);flex:0 0 auto;transform:rotate(45deg);margin-top:4px}
+
+  .vlabel{position:absolute;z-index:5;font:600 11px/1 "IBM Plex Mono";letter-spacing:.24em;
+    text-transform:uppercase;color:var(--mut);writing-mode:vertical-rl;transform:rotate(180deg)}
+
+  .maph{position:absolute;z-index:5;font-family:"Archivo";font-weight:800;text-transform:uppercase;color:var(--ink)}
+  .mref{position:absolute;z-index:5;text-align:right;font:500 12px/1.5 "IBM Plex Mono";
+    letter-spacing:.08em;color:var(--mut);text-transform:uppercase}
+
+  .n{position:absolute;z-index:4;border:1.5px solid var(--hair);background:var(--node);
+    padding:13px 14px;display:flex;flex-direction:column;gap:7px;justify-content:flex-start}
+  .n .hd{display:flex;align-items:center;gap:9px}
+  .n .lg{width:20px;height:20px;flex:0 0 auto;display:block}
+  .n .k{font:600 10px/1 "IBM Plex Mono";letter-spacing:.18em;color:var(--accent)}
+  .n .t{font:700 16px/1.02 "Archivo";letter-spacing:.03em;text-transform:uppercase;color:var(--ink)}
+  .n .d{font:500 10.5px/1.35 "IBM Plex Mono";letter-spacing:.02em;color:var(--mut);text-transform:uppercase}
+  .n.acc{background:var(--accent);border-color:var(--accent)}
+  .n.acc .t{color:#1a0a04} .n.acc .d{color:#5c2412} .n.acc .k{color:#5c2412}
+  .n.big .t{font-size:22px}
+  .srcrow{display:flex;align-items:center;gap:8px;font:700 13px/1 "Archivo";letter-spacing:.02em;text-transform:uppercase;color:var(--ink)}
+  .srcrow .lg{width:18px;height:18px}
+
+  .prov{position:absolute;z-index:4;border:1.5px solid var(--hair);background:var(--node);display:flex;flex-direction:column}
+  .prov .ph{font:600 10px/1 "IBM Plex Mono";letter-spacing:.18em;color:var(--accent);padding:11px 13px 9px;border-bottom:1.4px solid var(--hair2)}
+  .prov .pr{flex:1;padding:0 12px;font:700 13px/1 "Archivo";letter-spacing:.02em;text-transform:uppercase;
+    border-bottom:1.4px solid var(--hair2);display:flex;align-items:center;gap:9px;color:var(--ink);white-space:nowrap}
+  .prov .pr:last-child{border-bottom:none}
+  .prov .pr svg{width:18px;height:18px;flex:0 0 auto}
+
+  .el{position:absolute;z-index:5;transform:translate(-50%,-50%);
+    font:600 10.5px/1 "IBM Plex Mono";letter-spacing:.08em;text-transform:uppercase;
+    background:var(--node);color:var(--ink);padding:3px 7px;border:1.4px solid var(--hair)}
+
+  .band{position:absolute;z-index:4;border:1.5px solid var(--hair);background:var(--node)}
+  .band .bh{position:absolute;top:-1.5px;left:-1.5px;background:var(--accent);color:var(--accent-ink);
+    font:600 11px/1 "IBM Plex Mono";letter-spacing:.16em;text-transform:uppercase;padding:8px 14px}
+  .telrow{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-around;padding:16px 34px 0}
+  .telg{display:flex;align-items:center;gap:15px}
+  .telg .gl{font:600 11px/1 "IBM Plex Mono";letter-spacing:.14em;color:var(--accent);
+    writing-mode:vertical-rl;transform:rotate(180deg);text-transform:uppercase}
+  .cell{border:1.5px solid var(--hair);background:var(--node2);padding:12px 15px;min-width:122px;
+    display:flex;align-items:center;gap:9px;font:700 12.5px/1.1 "Archivo";letter-spacing:.03em;text-transform:uppercase;color:var(--ink)}
+  .cell svg{width:19px;height:19px;flex:0 0 auto}
+  .ar{font:400 20px/1 "IBM Plex Mono";color:var(--mut)}
+
+  /* interactive */
+  .n,.prov .pr,.cell{cursor:pointer;transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
+  .n:hover,.cell:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 12px 28px -14px rgba(245,80,42,.55)}
+  .n.acc:hover{filter:brightness(1.06);box-shadow:0 12px 30px -12px rgba(245,80,42,.7)}
+  .prov .pr:hover{background:var(--node2);color:var(--accent)}
+  /* click a node → the card flips in place to reveal its detail (replaces the side panel) */
+  .n,.prov{perspective:1100px}
+  .n .fx,.prov .fx{position:absolute;inset:0;transform-style:preserve-3d;
+    transition:transform .55s cubic-bezier(.4,.12,.2,1)}
+  .n.flipped .fx,.prov.flipped .fx{transform:rotateY(180deg)}
+  .n.flipped,.prov.flipped{border-color:var(--accent)}
+  .n .face,.prov .face{position:absolute;inset:0;overflow:hidden;
+    backface-visibility:hidden;-webkit-backface-visibility:hidden}
+  .n .face{display:flex;flex-direction:column;gap:7px;padding:13px 14px}
+  .n .face.front{justify-content:space-evenly;gap:0}
+  .prov .face.front{display:flex;flex-direction:column}
+  .n .face.back,.prov .face.back{transform:rotateY(180deg);display:flex;flex-direction:column;gap:5px;
+    background:var(--node2);padding:10px 12px;text-align:left}
+  .n.acc .face.back{background:#20100a}
+  .back .bt{font:800 11px/1.05 "Archivo";letter-spacing:.03em;text-transform:uppercase;color:var(--accent)}
+  .back .bd{font:500 8.2px/1.3 "IBM Plex Mono";letter-spacing:.01em;color:#cdc9bf;flex:1;overflow:hidden;text-transform:none}
+  .back .bl{font:600 8.5px/1 "IBM Plex Mono";letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
+    text-decoration:none;align-self:flex-start;margin-top:auto}
+  .back .bl:hover{color:var(--ink)}
+
+  /* the animated packet stays hidden until the viewer starts the walkthrough */
+  svg.ball{opacity:0;transition:opacity .4s ease}
+  svg.ball.live{opacity:1}
+
+  .controls{position:absolute;z-index:9;left:60px;top:744px;display:flex;gap:12px;align-items:stretch}
+  .playbtn,.stopbtn{font:800 15px/1 "Archivo";letter-spacing:.05em;text-transform:uppercase;
+    cursor:pointer;display:inline-flex;align-items:center;gap:12px;
+    transition:transform .14s ease,box-shadow .14s ease,background .14s ease,color .14s ease,border-color .14s ease}
+  .playbtn:focus-visible,.stopbtn:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(245,80,42,.5)}
+  .playbtn .ico,.stopbtn .ico{font-size:13px;line-height:1;transform:translateY(.5px)}
+
+  .playbtn{color:var(--accent-ink);background:var(--accent);border:none;padding:16px 28px;
+    box-shadow:0 12px 34px -10px rgba(245,80,42,.65)}
+  .playbtn:not(.playing){animation:ctaPulse 2.6s ease-in-out infinite}
+  @keyframes ctaPulse{0%,100%{box-shadow:0 12px 30px -12px rgba(245,80,42,.5)}
+    50%{box-shadow:0 14px 42px -8px rgba(245,80,42,.95)}}
+  .playbtn:hover{transform:translateY(-2px);box-shadow:0 18px 46px -8px rgba(245,80,42,.9);animation:none}
+  .playbtn.playing{background:var(--node2);color:var(--ink);border:1.5px solid var(--hair);
+    box-shadow:0 8px 24px -14px rgba(0,0,0,.9);padding:15px 27px}
+  .playbtn.playing:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-2px)}
+
+  .stopbtn{background:transparent;color:var(--mut);border:1.5px solid var(--hair);padding:15px 22px}
+  .stopbtn:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-2px)}
+  .stopbtn[hidden]{display:none}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="l-prom" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#E6522C"/><path fill="#fff" d="M12 4.2c1.5 1.9.4 3.3.4 4.7 0 .9.7 1.5 1.5 1.1.6-.3.7-1.2.4-1.8 1.5 1.1 2.2 2.8 1.5 4.5H7.7c-.9-1.8.2-3.3.9-3.9-.2.9.3 1.6.9 1.6 1.3 0 .9-1.8.1-2.9C10.7 6.4 11.1 5 12 4.2z"/><rect x="7.2" y="15.7" width="9.6" height="1.7" fill="#fff"/><rect x="8.4" y="18" width="7.2" height="1.7" rx=".6" fill="#fff"/></symbol>
+  <symbol id="l-pg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#336791"/><path fill="#fff" d="M6.6 9.2c-1 0-1.5 1-1.1 1.9.3.7 1.1.9 1.7.6M17.4 9.2c1 0 1.5 1 1.1 1.9-.3.7-1.1.9-1.7.6M8 7.9c1.6-1.4 6.4-1.4 8 0 1 1 1.2 2.7.8 4.1-.3 1.2-1 2.6-2 3.4l.4 2-1.8-.8c-.9.3-2.6.3-3.5 0l-1.8.8.4-2c-1-.8-1.7-2.2-2-3.4-.4-1.4-.1-3.1.8-4.1z"/><circle cx="13.3" cy="10.9" r="1" fill="#336791"/></symbol>
+  <symbol id="l-kib" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#E7478B"/><path fill="#fff" d="M8.8 6h2.4v5.2L15.2 6H18l-4.5 5.7L18 18h-2.9l-3.9-5.3V18H8.8z"/></symbol>
+  <symbol id="l-es" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="3.4" rx="1.7" fill="#00BFB3"/><rect x="4" y="10.3" width="16" height="3.4" rx="1.7" fill="#FEC514"/><rect x="4" y="15.6" width="11" height="3.4" rx="1.7" fill="#F04E98"/></symbol>
+  <symbol id="l-graf" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#F46800"/><path fill="#fff" d="M12 5c-.6 2 .4 2.7 1 3.6.6 1.1.3 2.5-.6 3.1.2-1-.3-1.7-.9-1.9.2 1.6-1.1 2-1.1 3.5 0 1.3 1 2.4 2.7 2.4 1.9 0 3.2-1.5 3.2-3.4C16.3 11.3 13.7 10.4 12 5zM9.1 12.6c-.9.8-1.2 2-.9 3.1H6.4c-.4-1.5.2-3.1 1.2-3.9.4.3.9.6 1.5.8z"/></symbol>
+  <symbol id="l-otel" viewBox="0 0 24 24"><path fill="#4255B0" d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/><circle cx="11.4" cy="12.4" r="3.2" fill="#F9A800"/><circle cx="16" cy="8.2" r="1.9" fill="#fff"/></symbol>
+  <symbol id="l-slack" viewBox="0 0 24 24"><rect x="10.4" y="3" width="3.2" height="8" rx="1.6" fill="#36C5F0"/><rect x="13" y="10.4" width="8" height="3.2" rx="1.6" fill="#2EB67D"/><rect x="10.4" y="13" width="3.2" height="8" rx="1.6" fill="#ECB22E"/><rect x="3" y="10.4" width="8" height="3.2" rx="1.6" fill="#E01E5A"/></symbol>
+  <symbol id="l-vault" viewBox="0 0 24 24"><path fill="#FFD814" d="M12 3l9 4v3.2c0 5.4-3.8 9.3-9 10.8-5.2-1.5-9-5.4-9-10.8V7z"/><path fill="#141414" d="M7.8 8l4.2 8.2L16.2 8H13.9L12 12.7 10.1 8z"/></symbol>
+  <symbol id="l-oai" viewBox="0 0 24 24"><path fill="none" stroke="#fff" stroke-width="1.6" d="M12 4a3.6 3.6 0 013.4 2.4 3.6 3.6 0 012.3 6 3.6 3.6 0 01-3.4 5.4 3.6 3.6 0 01-6.6-.6 3.6 3.6 0 01-2.3-6A3.6 3.6 0 019 5 3.6 3.6 0 0112 4z"/><path fill="none" stroke="#fff" stroke-width="1.4" d="M12 8.4v7.2M8.9 10.2l6.2 3.6M15.1 10.2l-6.2 3.6"/></symbol>
+  <symbol id="l-anth" viewBox="0 0 24 24"><path fill="#D97757" d="M9 4L3 20h3.4l1.2-3.4h5.2L14 20h3.4L11.4 4zM8.7 13.6L10 9.9l1.3 3.7z"/></symbol>
+  <symbol id="l-gem" viewBox="0 0 24 24"><defs><linearGradient id="gg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4989F5"/><stop offset="1" stop-color="#9B72CB"/></linearGradient></defs><path fill="url(#gg)" d="M12 2c.4 5.4 4.6 9.6 10 10-5.4.4-9.6 4.6-10 10-.4-5.4-4.6-9.6-10-10 5.4-.4 9.6-4.6 10-10z"/></symbol>
+  <symbol id="l-fb" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#12A9A0"/><path fill="#fff" d="M6 10.4c3-1 6 1 8 3 1-1 2.5-1.7 4-1.5-1 .8-1.4 2-1.4 3.4 0 .3-.3.6-.7.6-3.5 0-6.8-2-9.9-3.6-.4-.2-.4-.8 0-.9z"/></symbol>
+</defs></svg>
+
+<div class="wrap">
+<div class="stage">
+
+  <div class="tick" style="left:16px;top:74px">+</div>
+  <div class="tick" style="right:16px;top:74px">+</div>
+  <div class="tick" style="left:16px;bottom:14px">+</div>
+  <div class="tick" style="right:16px;bottom:14px">+</div>
+
+  <div class="topbar">
+    <span>ARCH_DOC // RADAR.SCHEMATIC.V1</span>
+    <nav><b>PIPELINE</b><span class="sep">/</span><b>OUTBOX</b><span class="sep">/</span><b>TELEMETRY</b><span class="sep">/</span><b>SECRETS</b></nav>
+    <span class="right">K-KOHLI // RADAR-SYSTEM</span>
+  </div>
+
+  <div class="rule" style="left:520px;top:64px;width:1.6px;height:896px"></div>
+  <div class="rule" style="left:0;top:960px;width:1920px;height:1.6px"></div>
+
+  <div class="vlabel" style="left:20px;top:96px">SYSTEM_FLOW_01</div>
+  <div class="vlabel" style="left:20px;bottom:30px;transform:rotate(180deg)">SERIAL_RDR_0991283-X</div>
+
+  <div class="eyebrow">RELIABILITY INTELLIGENCE PLATFORM</div>
+  <div class="title">RADAR</div>
+  <div class="fullform"><b>R</b>eal-time <b>A</b>gents for <b>D</b>iagnostics, <b>A</b>nalysis &amp; <b>R</b>esponse</div>
+
+  <div class="specs">
+    <div class="spec"><span class="l">NODE_COUNT</span><span class="lead"></span><span class="v">08 ACTIVE</span></div>
+    <div class="spec"><span class="l">TRANSPORT</span><span class="lead"></span><span class="v">PG_OUTBOX</span></div>
+    <div class="spec"><span class="l">LLM_MODES</span><span class="lead"></span><span class="v">04</span></div>
+    <div class="spec"><span class="l">PROVIDERS</span><span class="lead"></span><span class="v">03</span></div>
+    <div class="spec"><span class="l">SIGNALS</span><span class="lead"></span><span class="v">03 · OTEL</span></div>
+    <div class="spec"><span class="l">SECRETS</span><span class="lead"></span><span class="v">VAULT</span></div>
+    <div class="spec"><span class="l">DETECTION</span><span class="lead"></span><span class="v">UPSTREAM</span></div>
+    <div class="spec"><span class="l">REMEDIATION</span><span class="lead"></span><span class="v">HUMAN-RUN</span></div>
+  </div>
+
+  <div class="lede">Agents for diagnostics, analysis &amp; response. Every agent handoff is persisted in the Postgres transactional outbox; every LLM call flows through the gateway.</div>
+
+  <div class="maph" style="left:560px;top:96px;font-size:26px;letter-spacing:.02em">ARCHITECTURE</div>
+  <div class="mref" style="right:40px;top:96px">REF: RDR-449-ALPHA<br>LOC: OUTBOX-MESH</div>
+  <div style="position:absolute;z-index:5;left:560px;top:150px;display:flex;gap:34px;
+      font:600 11px/1 'IBM Plex Mono';letter-spacing:.08em;text-transform:uppercase;color:var(--ink)">
+    <span style="display:flex;align-items:center;gap:9px"><svg width="34" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="#ECEAE3" stroke-width="1.8"/><path d="M26 1L32 4L26 7z" fill="#ECEAE3"/></svg>Outbox handoff</span>
+    <span style="display:flex;align-items:center;gap:9px;color:var(--accent)"><svg width="34" height="8"><line x1="4" y1="4" x2="30" y2="4" stroke="#F5502A" stroke-width="1.8"/><path d="M6 1L0 4L6 7z" fill="#F5502A"/><path d="M26 1L32 4L26 7z" fill="#F5502A"/></svg>Synchronous call</span>
+    <span style="display:flex;align-items:center;gap:9px;color:var(--mut)"><svg width="34" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="#868e9c" stroke-width="1.8" stroke-dasharray="5 4"/><path d="M26 1L32 4L26 7z" fill="#868e9c"/></svg>Outbox write</span>
+  </div>
+
+  <div class="controls">
+    <button id="playbtn" class="playbtn" type="button" aria-pressed="false">
+      <span class="ico">▶</span><span class="lbl">See how it works</span>
+    </button>
+    <button id="stopbtn" class="stopbtn" type="button" hidden>
+      <span class="ico">■</span><span class="lbl">Stop</span>
+    </button>
+  </div>
+
+  <div class="hint"><span class="dmk"></span>Click any box to flip it — read what the service does and jump to its source.</div>
+
+  <!-- ===== EDGES + ANIMATED PACKETS ===== -->
+  <svg class="edges" viewBox="0 0 1920 1180">
+    <defs>
+      <marker id="i" markerWidth="10" markerHeight="10" refX="7" refY="3.4" orient="auto-start-reverse"><path d="M0 0L7.5 3.4L0 6.8z" fill="#ECEAE3"/></marker>
+      <marker id="m" markerWidth="10" markerHeight="10" refX="7" refY="3.4" orient="auto-start-reverse"><path d="M0 0L7.5 3.4L0 6.8z" fill="#868e9c"/></marker>
+      <marker id="a" markerWidth="10" markerHeight="10" refX="7" refY="3.4" orient="auto-start-reverse"><path d="M0 0L7.5 3.4L0 6.8z" fill="#F5502A"/></marker>
+      <marker id="as" markerWidth="7" markerHeight="7" refX="5" refY="2.4" orient="auto-start-reverse"><path d="M0 0L5.4 2.4L0 4.8z" fill="#F5502A"/></marker>
+      <filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+
+    <!-- pipeline (ink) -->
+    <g fill="none" stroke="#ECEAE3" stroke-width="1.8">
+      <path d="M690 352 H708" marker-end="url(#i)"/>
+      <path d="M872 352 H912" marker-end="url(#i)"/>
+      <path d="M1076 352 H1116" marker-end="url(#i)"/>
+      <path d="M1280 352 H1320" marker-end="url(#i)"/>
+      <path d="M1484 862 H1512 V716 H1536" marker-end="url(#i)"/>
+    </g>
+    <!-- outbox writes (dashed) -->
+    <g fill="none" stroke="#868e9c" stroke-width="1.8" stroke-dasharray="7 6">
+      <path d="M792 404 V656" marker-end="url(#m)"/>
+      <path d="M996 404 V656" marker-end="url(#m)"/>
+      <path d="M1200 404 V656" marker-end="url(#m)"/>
+      <path d="M1404 404 V656" marker-end="url(#m)"/>
+      <path d="M1540 688 H1488" marker-end="url(#m)"/>
+    </g>
+    <!-- synchronous calls (accent, two-way) -->
+    <g fill="none" stroke="#F5502A" stroke-width="1.8">
+      <path d="M1484 352 H1536" marker-start="url(#a)" marker-end="url(#a)"/>
+      <path d="M1484 388 H1512 V504 H1536" marker-start="url(#a)" marker-end="url(#a)"/>
+      <path d="M1640 405 V433" marker-start="url(#as)" marker-end="url(#as)"/>
+      <path d="M1741 504 H1769" marker-start="url(#as)" marker-end="url(#as)"/>
+      <path d="M1640 744 V816" marker-start="url(#a)" marker-end="url(#a)"/>
+    </g>
+
+  </svg>
+
+  <!-- single end-to-end flow packet, on a layer ABOVE the nodes so every stop is visible -->
+  <svg class="ball" viewBox="0 0 1920 1180" style="position:absolute;inset:0;width:1920px;height:1180px;z-index:8;pointer-events:none">
+    <defs><filter id="glow2" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="3.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+    <circle r="7.5" fill="#F5502A" filter="url(#glow2)" stroke="#fff2ec" stroke-width="1">
+      <animateMotion dur="20s" repeatCount="indefinite" calcMode="linear"
+        keyPoints="0;0;0.0432;0.0432;0.1183;0.1183;0.1637;0.2389;0.2389;0.3141;0.3141;0.3594;0.4346;0.4346;0.5098;0.5098;0.5552;0.6303;0.6303;0.7055;0.7055;0.7736;0.8132;0.8132;0.8990;0.9052;0.9391;0.9675;0.9675;1;1"
+        keyTimes="0;0.0235;0.0464;0.0699;0.1097;0.1332;0.1573;0.1970;0.2206;0.2603;0.2839;0.3079;0.3477;0.3712;0.4110;0.4346;0.4586;0.4984;0.7102;0.7500;0.7736;0.8095;0.8305;0.8540;0.8995;0.9028;0.9207;0.9357;0.9593;0.9765;1"
+        path="M608 352 H792 V690 H996 V352 V690 H1200 V352 V690 H1404 V352 V690 H1098 V868 H1484 H1512 V716 H1640 V862"/>
+    </circle>
+
+    <!-- sub-process dots: the reasoner's LLM sub-flow, round-trip while the ball waits at Reasoner -->
+    <circle r="3.6" fill="#ffb488" filter="url(#glow2)" opacity="0">
+      <animateMotion dur="20s" repeatCount="indefinite" calcMode="linear"
+        keyTimes="0;0.51;0.66;1" keyPoints="0;0;1;1"
+        path="M1484 352 H1640 V504 H1766 H1640 V352 H1484"/>
+      <animate attributeName="opacity" dur="20s" repeatCount="indefinite"
+        keyTimes="0;0.50;0.52;0.64;0.665;1" values="0;0;1;1;0;0"/>
+    </circle>
+    <circle r="3.6" fill="#ffb488" filter="url(#glow2)" opacity="0">
+      <animateMotion dur="20s" repeatCount="indefinite" calcMode="linear"
+        keyTimes="0;0.55;0.70;1" keyPoints="0;0;1;1"
+        path="M1484 388 H1512 V504 H1766 H1512 V388 H1484"/>
+      <animate attributeName="opacity" dur="20s" repeatCount="indefinite"
+        keyTimes="0;0.54;0.56;0.68;0.705;1" values="0;0;1;1;0;0"/>
+    </circle>
+  </svg>
+
+  <!-- sources -->
+  <div class="n" style="left:528px;top:300px;width:160px;height:104px;justify-content:center;gap:10px">
+    <div class="k">SRC · IN</div>
+    <div class="srcrow"><svg class="lg"><use href="#l-prom"/></svg>Prometheus</div>
+    <div class="srcrow"><svg class="lg"><use href="#l-kib"/></svg>Kibana</div>
+  </div>
+
+  <!-- pipeline -->
+  <div class="n" style="left:712px;top:300px;width:160px;height:104px"><div class="k">SVC_01</div><div class="t">Ingestion</div><div class="d">Normalize · dedupe · first outbox</div></div>
+  <div class="n" style="left:916px;top:300px;width:160px;height:104px"><div class="k">SVC_02</div><div class="t">Watcher</div><div class="d">Correlate alerts → incident</div></div>
+  <div class="n" style="left:1120px;top:300px;width:160px;height:104px"><div class="k">SVC_03</div><div class="t">Planner</div><div class="d">Build investigation plan</div></div>
+  <div class="n" style="left:1324px;top:300px;width:160px;height:104px"><div class="k">SVC_04</div><div class="t">Reasoner</div><div class="d">Produce RCA · gateway [extended]</div></div>
+
+  <!-- knowledge / gateway / providers (rail-aligned) -->
+  <div class="n" style="left:1540px;top:300px;width:200px;height:104px"><div class="k">KNW</div><div class="t">Knowledge</div><div class="d">Retrieve · grade · gateway [embed·reason]</div></div>
+  <div class="n acc" style="left:1540px;top:434px;width:200px;height:140px"><div class="k">GW</div><div class="t">LLM-Gateway</div><div class="d">Single LLM choke point<br>modes: fast·reason·extended·embed</div></div>
+  <div style="position:absolute;z-index:5;left:1771px;top:412px;font:600 10px/1 'IBM Plex Mono';letter-spacing:.2em;color:var(--accent);text-transform:uppercase">PRV · Providers</div>
+  <div class="prov" style="left:1770px;top:434px;width:138px;height:140px">
+    <div class="pr"><svg><use href="#l-oai"/></svg>OpenAI</div>
+    <div class="pr"><svg><use href="#l-anth"/></svg>Anthropic</div>
+    <div class="pr"><svg><use href="#l-gem"/></svg>Gemini</div>
+  </div>
+
+  <!-- outbox band -->
+  <div class="n big" style="left:712px;top:660px;width:772px;height:110px;padding:0;gap:0">
+    <div style="border-bottom:1.4px solid var(--accent);background:rgba(245,80,42,.08);padding:9px 15px;display:flex;align-items:center;gap:11px">
+      <span class="k">◇ OUTBOX_EVENTS</span>
+      <span class="d" style="color:#e6c2b2">the only channel between agents — written in the same transaction as the state change</span>
+    </div>
+    <div style="padding:12px 15px;display:flex;align-items:center;gap:11px;height:100%">
+      <svg class="lg" style="width:24px;height:24px"><use href="#l-pg"/></svg>
+      <span class="t" style="font-size:21px">Postgres</span>
+      <span class="d" style="margin-left:4px">incidents · investigation_plans · recommendations · audit_log</span>
+    </div>
+  </div>
+  <div class="n" style="left:712px;top:770px;width:772px;height:106px;border-top:1.5px dashed var(--accent);background:rgba(245,80,42,.035)">
+    <div class="hd"><span class="k">◇ DISPATCH LAYER — DRAINS THE OUTBOX</span></div>
+    <div class="t">Outbox-Worker</div>
+    <div class="d">POST /events → every pipeline agent (watcher · planner · reasoner · feedback) · retry · dead-letter</div>
+  </div>
+  <div class="n" style="left:1540px;top:660px;width:200px;height:84px"><div class="k">FBK</div><div class="t">Feedback</div><div class="d">RCA cards · feedback · Slack bot</div></div>
+  <div class="n" style="left:1590px;top:820px;width:100px;height:84px;gap:9px">
+    <div class="hd"><svg class="lg"><use href="#l-slack"/></svg><span class="k">EXT</span></div>
+    <div class="t" style="font-size:15px">Slack</div>
+  </div>
+
+  <!-- unique labels only -->
+  <div class="el" style="left:1512px;top:790px">POST /EVENTS</div>
+
+  <!-- telemetry -->
+  <div class="band" style="left:70px;top:1000px;width:1530px;height:148px">
+    <div class="bh">TELEMETRY // THREE SIGNALS</div>
+    <div class="telrow">
+      <div class="telg"><span class="gl">LOGS</span>
+        <div class="cell"><svg><use href="#l-fb"/></svg>Fluent Bit</div><span class="ar">→</span><div class="cell"><svg><use href="#l-es"/></svg>Elasticsearch</div>
+      </div>
+      <div class="telg"><span class="gl">TRACES</span>
+        <div class="cell"><svg><use href="#l-otel"/></svg>OTel Collector</div><span class="ar">→</span><div class="cell"><svg><use href="#l-es"/></svg>Elasticsearch</div><span class="ar">→</span><div class="cell"><svg><use href="#l-kib"/></svg>Kibana APM</div>
+      </div>
+      <div class="telg"><span class="gl">METRICS</span>
+        <div class="cell"><svg><use href="#l-prom"/></svg>Prometheus</div><span class="ar">→</span><div class="cell"><svg><use href="#l-graf"/></svg>Grafana</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- vault -->
+  <div class="band" style="left:1620px;top:1000px;width:230px;height:148px;border-color:var(--accent)">
+    <div class="bh">SECRETS</div>
+    <div style="padding:44px 18px 0;display:flex;gap:12px;align-items:flex-start">
+      <svg style="width:34px;height:34px;flex:0 0 auto"><use href="#l-vault"/></svg>
+      <div><div style="font:800 22px/1 'Archivo';letter-spacing:.03em">VAULT</div>
+        <div style="font:500 10.5px/1.4 'IBM Plex Mono';color:var(--mut);text-transform:uppercase;margin-top:9px;letter-spacing:.03em">Files only · per-service tokens · no shared platform token</div></div>
+    </div>
+  </div>
+
+
+  <script>
+  (function(){
+    var T="https://github.com/k-kohli10/radar-system/tree/main/",
+        B="https://github.com/k-kohli10/radar-system/blob/main/";
+    var M={
+      "ingestion":["Normalizes & dedupes fired alerts (5-min fingerprint window) and writes the first outbox event. The only service that creates incidents.",T+"apps/ingestion"],
+      "watcher":["Correlates alerts into incidents via YAML rules; applies suppression / escalation; emits plan_requested. Never creates incidents.",T+"apps/watcher-agent"],
+      "planner":["Builds an investigation plan from a matched template — no LLM call — then emits reasoning_requested.",T+"apps/planner-agent"],
+      "reasoner":["Queries knowledge + gateway (extended mode) to produce the RCA. Falls back to a template RCA if the LLM is unavailable.",T+"apps/reasoner-agent"],
+      "knowledge":["Retrieves runbook chunks (BM25 + kNN → RRF) and CRAG-grades them via the gateway. Serves the reasoner over /v1/context.",T+"apps/knowledge-service"],
+      "llm-gateway":["Single point of contact with LLM providers: per-mode routing (fast/reason/extended/embed), token IAM, retries, fallback.",T+"apps/llm-gateway"],
+      "postgres":["The transactional outbox — the only channel between agents. State change + outbox event commit in one transaction.",B+"docs/adr/0003-postgres-outbox.md"],
+      "outbox-worker":["Polls the outbox (FOR UPDATE SKIP LOCKED) and dispatches events to every pipeline agent, with retries and dead-lettering.",T+"apps/outbox-worker"],
+      "feedback":["Delivers RCA cards to Slack, collects feedback, runs the status bot.",T+"apps/feedback-service"],
+      "slack":["On-call gets the RCA card here and sends feedback back to RADAR.",T+"apps/feedback-service"],
+      "sources":["Upstream detection: Prometheus & Kibana Watcher flag problems; RADAR acts on the alerts they fire.",B+"docs/architecture/system-overview.md"],
+      "providers":["Vendor LLMs resolved at runtime as config-driven plugins behind the gateway; no vendor client imported outside plugins/.",B+"docs/plugin-development.md"],
+      "telemetry":["Three signals per service: structlog logs and OTel traces land in Elasticsearch (joined by correlation_id); metrics go to Prometheus and Grafana.",B+"docs/architecture/observability.md"]
+    };
+    function keyOf(n){
+      if(n.querySelector('.srcrow'))return['sources','Sources'];
+      var t=(n.querySelector('.t')||{}).textContent||'';t=t.trim();
+      return[t.toLowerCase(),t];
+    }
+    // wrap a card's content into a front face and build a detail back face it flips to
+    function buildFlip(el,key,title){
+      var e=M[key];if(!e)return;
+      var fx=document.createElement('div');fx.className='fx';
+      var front=document.createElement('div');front.className='face front';
+      while(el.firstChild)front.appendChild(el.firstChild);
+      var back=document.createElement('div');back.className='face back';
+      var bt=document.createElement('div');bt.className='bt';bt.textContent=title;
+      var bd=document.createElement('div');bd.className='bd';bd.textContent=e[0];
+      var bl=document.createElement('a');bl.className='bl';bl.href=e[1];
+      bl.target='_blank';bl.rel='noopener';bl.textContent='View source ↗';
+      back.appendChild(bt);back.appendChild(bd);back.appendChild(bl);
+      fx.appendChild(front);fx.appendChild(back);el.appendChild(fx);
+      el.addEventListener('click',function(ev){
+        if(ev.target.closest('.bl'))return;                 // let the source link open
+        var was=el.classList.contains('flipped');
+        document.querySelectorAll('.flipped').forEach(function(x){x.classList.remove('flipped');});
+        if(!was)el.classList.add('flipped');
+      });
+    }
+    document.querySelectorAll('.n').forEach(function(n){
+      if(n.classList.contains('big'))return;                // skip the composite outbox store box
+      if(n.querySelector('use[href="#l-slack"]'))return;    // Slack endpoint is too small to flip
+      var k=keyOf(n);buildFlip(n,k[0],k[1]);
+    });
+    document.querySelectorAll('.prov').forEach(function(p){
+      buildFlip(p,'providers','LLM Providers');
+    });
+    document.addEventListener('click',function(ev){         // click empty space → flip everything back
+      if(!ev.target.closest('.n,.prov'))
+        document.querySelectorAll('.flipped').forEach(function(x){x.classList.remove('flipped');});
+    });
+  })();
+  </script>
+
+  <script>
+  (function(){
+    var ball=document.querySelector('svg.ball'),
+        play=document.getElementById('playbtn'),
+        stop=document.getElementById('stopbtn');
+    if(!ball||!play||typeof ball.pauseAnimations!=='function')return;
+    var pIco=play.querySelector('.ico'),pLbl=play.querySelector('.lbl'),
+        playing=false,started=false;
+    ball.pauseAnimations();                 // start paused; the packet is hidden until played
+    function render(){
+      play.classList.toggle('playing',playing);
+      play.setAttribute('aria-pressed',String(playing));
+      pIco.textContent=playing?'❚❚':'▶';
+      pLbl.textContent=playing?'Pause':(started?'Resume':'See how it works');
+      stop.hidden=!started;
+    }
+    play.addEventListener('click',function(){
+      if(!started){started=true;ball.classList.add('live');}
+      playing=!playing;
+      if(playing)ball.unpauseAnimations();else ball.pauseAnimations();
+      render();
+    });
+    stop.addEventListener('click',function(){
+      ball.pauseAnimations();
+      try{ball.setCurrentTime(0);}catch(e){}   // rewind the packet to the start
+      ball.classList.remove('live');           // hide it again
+      playing=false;started=false;
+      render();
+    });
+    render();
+  })();
+  </script>
+
+  <script>
+  /* scale the fixed 1920×1180 canvas to fit entirely within the viewport — no scrolling */
+  (function(){
+    var stage=document.querySelector('.stage'),GUTX=44,GUTY=40;
+    if(!stage)return;
+    function fit(){
+      var vw=document.documentElement.clientWidth-GUTX,
+          vh=document.documentElement.clientHeight-GUTY,
+          s=Math.min(vw/1920,vh/1180);
+      stage.style.zoom=Math.max(s,0.15).toFixed(4);
+    }
+    fit();
+    window.addEventListener('resize',fit);
+  })();
+  </script>
+
+</div>
+</div>

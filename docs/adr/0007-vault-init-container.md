@@ -1,4 +1,4 @@
-# ADR 0007: Vault Secrets via Init-Container Only
+# 🔐 ADR 0007: Vault Secrets via Init-Container Only
 
 ## Status
 Accepted

@@ -1,24 +1,15 @@
 """The gateway orchestration service.
 
 :class:`GatewayService` is what the API routes call after security has run
-(steps 1-5 of the validation order live in ``core.security`` and the routes);
-it executes steps 7-11 — route to provider, per-mode timeout, retry, fallback
-— and owns the request-level observability:
+(steps 1-5 of the validation order live in ``core.security`` and the routes).
+It executes steps 7-11 (route to provider, per-mode timeout, retry, fallback)
+and owns the request-level observability: the ``radar_llm_*`` metric family,
+plus one ``llm.request`` log line per request carrying exactly the allowed
+fields (mode, provider, model, prompt_tokens, completion_tokens, latency_ms,
+status_code). Message content, keys, and raw responses never appear.
 
-- ``radar_llm_requests_total{mode, provider, status}`` and
-  ``radar_llm_duration_seconds{mode, provider}`` per request;
-- ``radar_llm_tokens_total{mode, provider, direction}`` from usage;
-- ``radar_llm_provider_errors_total{mode, provider, error}`` once per failing
-  provider call (every retry attempt counts);
-- ``radar_llm_fallback_total{from_provider, to_provider}`` on failover;
-- ``radar_llm_time_to_first_token_seconds{mode, provider}`` for streams;
-- one ``llm.request`` log line per request with exactly the allowed fields:
-  mode, provider, model, prompt_tokens, completion_tokens, latency_ms,
-  status_code. Message content, tokens, keys, and raw responses never appear.
-
-``latency_ms`` on the returned response is gateway-measured wall time
-including retries and fallback — what the caller actually experienced — and
-overrides the plugin's own call-local measurement.
+``latency_ms`` on the returned response is gateway-measured wall time including
+retries and fallback, and overrides the plugin's call-local measurement.
 
 Embeddings: the ``EmbeddingProvider`` contract returns only vectors, so the
 ``usage.prompt_tokens`` reported for ``/v1/embed`` is the gateway's own

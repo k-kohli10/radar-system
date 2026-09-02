@@ -1,42 +1,33 @@
 """Store the investigation plan, and ask the reasoner to reason over it.
 
 The planner's write path. Match a template, store the plan, emit
-``incident.reasoning_requested`` — all in ONE transaction with the caller's
-``processed_events`` marker, so a crash between them is impossible.
+``incident.reasoning_requested``, all in ONE transaction with the caller's
+``processed_events`` marker.
 
-TWO WAYS TO GET A SECOND PLAN, AND THEY NEED DIFFERENT DEFENCES
----------------------------------------------------------------
-``investigation_plans`` has a unique index on ``incident_id``: one plan per
-incident. The idempotency gate does NOT protect it, because the gate keys on
-``event_id`` and a *second, distinct* ``plan_requested`` for the same incident is a
-different event entirely.
+**Two ways to get a second plan, needing different defences.**
+``investigation_plans`` has a unique index on ``incident_id``: one plan per incident.
+The idempotency gate does not protect it, because the gate keys on ``event_id`` and a
+second, distinct ``plan_requested`` for the same incident is a different event.
 
 - **Sequentially** (a redelivered-then-re-emitted event, or an upstream bug): the
   pre-check ``SELECT`` finds the existing plan and the planner no-ops.
 - **Concurrently** (two deliveries interleaving between the pre-check and the
-  insert): both pre-checks see nothing, both insert, and the unique index rejects
-  the loser with ``IntegrityError``. That is the real backstop, and it is the only
-  thing standing between a race and two investigations for one incident.
-
-The concurrent path is easy to leave decorative — an assertion that a code branch
-exists, never actually exercised. It is exercised: the tests force the interleave
-with a barrier between the pre-check and the insert, and removing the ``try``
-around the insert makes them fail with an unhandled ``IntegrityError``.
+  insert): both pre-checks see nothing, both insert, and the unique index rejects the
+  loser with ``IntegrityError``. That is the real backstop. The tests force the
+  interleave with a barrier between pre-check and insert, so removing the ``try``
+  around the insert makes them fail with an unhandled ``IntegrityError``.
 
 Either way the answer is 200 with no second plan and no second
-``reasoning_requested`` — the incident IS planned, so re-planning is unnecessary
-rather than erroneous, and a 500 would have the worker retry a race it will simply
-lose again. But absorbing an upstream bug silently is how it stays a bug, so every
-duplicate is a named WARNING log, an ``audit_log`` row, and a counter.
+``reasoning_requested``: the incident IS planned, and a 500 would have the worker
+retry a race it will lose again. Every duplicate still gets a named WARNING log, an
+``audit_log`` row, and a counter, so an upstream bug is not absorbed silently.
 
-THE INCIDENT IS CHECKED FIRST, ON PURPOSE
------------------------------------------
+**The incident is checked first, on purpose.**
 ``investigation_plans.incident_id`` is a (deferrable) foreign key, so a plan for a
-nonexistent incident would ALSO fail at commit with ``IntegrityError`` — and the
-duplicate handler would then swallow a missing incident as if it were a race,
-answer 200, and lose the event forever. So the incident's existence is checked
-explicitly and raises :class:`IncidentNotFoundError` (→ 422, dead-lettered, visible
-to a human). After that check, the only ``IntegrityError`` left is a genuine race.
+nonexistent incident would also fail at commit with ``IntegrityError``, and the
+duplicate handler would swallow a missing incident as if it were a race, answer 200,
+and lose the event forever. The check raises :class:`IncidentNotFoundError` (422,
+dead-lettered), leaving a genuine race as the only ``IntegrityError`` that remains.
 """
 
 from __future__ import annotations
@@ -65,26 +56,24 @@ AUDIT_PLAN_CREATED = "planner.plan_created"
 AUDIT_DUPLICATE_IGNORED = "planner.duplicate_plan_ignored"
 
 PLAN_STATUS_PENDING = "pending"
-"""Every plan is stored ``'pending'`` — and, in the POC, stays there.
+"""Every plan is stored ``'pending'`` and, in the POC, stays there.
 
-The column exists (schema Phase 3) but NOTHING advances it: no code reads or updates
-plan status, so this is the only value it ever holds. The lifecycle it implies is
-deferred, not implemented — and "has this plan been reasoned over?" is already answered
-authoritatively by whether a ``recommendations`` row exists for the incident (one per
-incident, unique-indexed). A status column updated in the reasoner would be a
-denormalized copy of that fact, raising questions the spec does not answer (its value on
-a fallback, on the duplicate path). Tracked as carried debt in docs/roadmap.md."""
+The column exists (schema Phase 3) but nothing advances it: no code reads or updates
+plan status, so this is the only value it ever holds. "Has this plan been reasoned
+over?" is already answered authoritatively by whether a ``recommendations`` row exists
+for the incident (one per incident, unique-indexed); a status column updated in the
+reasoner would be a denormalized copy of that fact. Tracked as carried debt in
+docs/roadmap.md."""
 
 
 class IncidentNotFoundError(RadarError):
     """The incident named by the event payload does not exist.
 
-    Should be unreachable: the watcher writes its ``plan_requested`` event in the
-    same transaction as the incident state it describes, so an event that exists
-    implies an incident that exists. If it happens, the plan's foreign key would
-    fail at commit and be indistinguishable from a duplicate race — so it is caught
-    explicitly and mapped to 422 (permanent → dead-letter), surfacing to a human
-    rather than being silently absorbed.
+    The watcher writes its ``plan_requested`` event in the same transaction as the
+    incident state it describes, so this means the row was deleted. Left uncaught,
+    the plan's foreign key would fail at commit and be indistinguishable from a
+    duplicate race, so it is caught explicitly and mapped to 422 (permanent,
+    dead-lettered) rather than absorbed.
     """
 
 
@@ -125,9 +114,8 @@ async def plan_incident(
 
     existing = await _existing_plan_id(session, payload.incident_id)
     if existing is not None:
-        # The sequential duplicate. The incident is already planned and the reasoner
-        # already has it: a second plan would mean a second investigation, a second
-        # LLM call, and two RCA cards for one incident.
+        # The sequential duplicate. The reasoner already has this incident, so a
+        # second plan would mean a second LLM call and two RCA cards for one incident.
         session.add(
             _audit(
                 AUDIT_DUPLICATE_IGNORED,
@@ -164,8 +152,8 @@ async def plan_incident(
         event_type=REASONING_REQUESTED_EVENT,
         target_service=REASONER_TARGET,
         payload=body.model_dump(mode="json"),
-        # The ingress value, passed through — never a fresh UUID. This is the link
-        # in the chain the whole pipeline is traced by.
+        # The ingress value, passed through, never a fresh UUID: this is the link in
+        # the chain the whole pipeline is traced by.
         correlation_id=correlation_id,
     )
     session.add(
@@ -215,7 +203,7 @@ def _audit(
 
     Written for the duplicate case too. A silent no-op is indistinguishable from a
     bug when someone asks why an incident got two plan_requested events and only one
-    plan — the audit row is the answer.
+    plan; the audit row is the answer.
     """
     body: dict[str, Any] = {
         "service_name": payload.service_name,

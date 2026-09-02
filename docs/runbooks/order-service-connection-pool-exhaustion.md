@@ -12,7 +12,7 @@ status: fixture
 ## Summary
 
 `order-service` has run out of available database connections. Requests are not
-failing on any database error — they are queueing to acquire a connection and
+failing on any database error: they are queueing to acquire a connection and
 timing out before they get one. The database itself is typically healthy and
 underloaded throughout.
 
@@ -30,7 +30,7 @@ and doing the database-side one makes the application-side problem worse.
   the configured pool maximum rather than fluctuating below it.
 - Timeout errors mentioning connection acquisition or pool checkout rather than
   query execution or statement timeouts.
-- Database-side CPU, IO, and query latency all normal — often conspicuously
+- Database-side CPU, IO, and query latency all normal: often conspicuously
   idle, because the application is not sending it enough work.
 - The problem worsens with load in a step rather than a curve: below the pool
   ceiling everything is fine, above it everything queues at once.
@@ -46,8 +46,8 @@ request needs a connection, so no request can complete, and the service appears
 hung rather than degraded. Restarting clears it temporarily, which is what makes
 a leak easy to misread as a transient glitch.
 
-Under a leak the time-to-failure is predictable — the pool drains at a roughly
-constant rate — so a service that fails every few hours after a restart is
+Under a leak the time-to-failure is predictable: the pool drains at a roughly
+constant rate: so a service that fails every few hours after a restart is
 leaking, not overloaded.
 
 ## Likely Causes
@@ -58,7 +58,7 @@ leaking, not overloaded.
    including during traffic troughs, and the rise correlates with error volume
    rather than request volume. This is the most common cause.
 2. **Long-running transactions holding connections.** A transaction kept open
-   across slow work — an external call, a large computation — holds its
+   across slow work, an external call, a large computation, holds its
    connection for the duration. Distinguishing signal: few active queries but
    many open transactions, and connection hold time far exceeding query time.
 3. **Pool undersized for real concurrency.** The pool was sized for lower
@@ -84,7 +84,7 @@ leaking, not overloaded.
    recovery is cause 3. A step change is cause 2 or a deploy.
 3. **Correlate connection growth with error rate.** If active connections track
    cumulative *errors* rather than cumulative requests, the leak is on an error
-   path — which narrows the code search to exception handling around database
+   path: which narrows the code search to exception handling around database
    access.
 4. **Check for long-open transactions.** In the database, list transactions open
    longer than a few seconds. A transaction open for minutes is cause 2, and the
@@ -94,12 +94,12 @@ leaking, not overloaded.
    configured maximum connections. Exceeding it is cause 5 and gets worse every
    time the service scales out.
 6. **Check dependency alerts.** If a downstream alert fired first, treat this as
-   a secondary effect and work that runbook — enlarging the pool while a
+   a secondary effect and work that runbook: enlarging the pool while a
    dependency is slow just moves the queue.
 
 ## Resolution
 
-**Leak (cause 1):** the fix is in code — acquire connections with a construct
+**Leak (cause 1):** the fix is in code: acquire connections with a construct
 that releases on every path, including exceptions. As immediate relief, restart
 the affected replicas; this resets the pool and buys time proportional to the
 leak rate. Track that time, because it tells you how long you have before the
@@ -110,7 +110,7 @@ An external call inside a transaction is the usual culprit, and it holds a
 connection for the entire round trip. Shorten the transaction rather than
 enlarging the pool.
 
-**Undersized pool (cause 3):** raise the pool maximum, but check cause 5 first —
+**Undersized pool (cause 3):** raise the pool maximum, but check cause 5 first:
 raising it past the database's own limit converts queueing into connection
 errors, which is worse. Scale the database's connection capacity or introduce a
 connection proxy if the ceiling is genuinely reached.
@@ -121,13 +121,13 @@ its own once the dependency recovers.
 **Over-provisioned pool (cause 5):** reduce per-replica pool size so the product
 of pool size and replica count sits safely under the database limit, with
 headroom for maintenance connections. Recompute this whenever the replica count
-or HPA ceiling changes — it is a product, and it grows silently when either
+or HPA ceiling changes: it is a product, and it grows silently when either
 factor does.
 
 ## Escalation
 
 Page the order-service on-call if order processing is failing. If latency is
-elevated but orders still complete, this is urgent but not a page — the pool has
+elevated but orders still complete, this is urgent but not a page: the pool has
 not fully saturated yet.
 
 Escalate to the database on-call for cause 5, or if the database's own
@@ -141,13 +141,13 @@ decision someone should make deliberately, not a habit that forms by default.
 
 ## Related
 
-- `order-service-high-failure-rate` — the alert this usually surfaces as, where
+- `order-service-high-failure-rate`: the alert this usually surfaces as, where
   pool exhaustion is listed as cause 5. That runbook covers orders failing for
   any reason; this one covers the specific case where they fail waiting for a
   connection.
-- `order-service-high-memory` — the other resource-exhaustion failure in this
+- `order-service-high-memory`: the other resource-exhaustion failure in this
   service. Memory pressure produces GC pauses and OOM restarts; pool exhaustion
   produces acquisition timeouts with a healthy heap. Check which resource is
   actually exhausted before assuming.
-- `inventory-check-latency` — a common upstream trigger, since dependency
+- `inventory-check-latency`: a common upstream trigger, since dependency
   slowness holds request threads and their connections open.

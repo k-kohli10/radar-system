@@ -12,8 +12,8 @@ status: fixture
 ## Summary
 
 Customers are losing their cart or checkout progress partway through the flow
-and being returned to an earlier step or an empty basket. Nothing errors —
-`checkout-service` responds successfully to every request — but the session it
+and being returned to an earlier step or an empty basket. Nothing errors
+(`checkout-service` responds successfully to every request), but the session it
 responds about is not the one the customer had a moment ago.
 
 This is a state problem, not an availability problem, and that is why it hides.
@@ -26,7 +26,7 @@ through monitoring, which typically makes it hours old by the time anyone looks.
 - Customer reports of empty carts, lost addresses, or being sent back to the
   start of checkout after completing steps.
 - Cart abandonment elevated at a *specific* step rather than spread across the
-  funnel — the step where state is being lost.
+  funnel: the step where state is being lost.
 - Session lookups returning empty for sessions that should still be valid, and
   new session identifiers being issued more often than new visitors arrive. That
   ratio is the clearest quantitative signal.
@@ -39,7 +39,7 @@ through monitoring, which typically makes it hours old by the time anyone looks.
 
 Directly revenue-affecting and disproportionately damaging to trust: a customer
 who loses a filled cart usually does not rebuild it. Unlike a timeout, there is
-nothing to retry — the state is gone, and the work of re-entering it falls on
+nothing to retry: the state is gone, and the work of re-entering it falls on
 the customer.
 
 The impact is invisible to system monitoring, which means it can persist for
@@ -77,7 +77,7 @@ made a mistake.
 
 1. **Compare new-session rate against new-visitor rate.** If sessions are being
    created far faster than visitors arrive, existing customers are being issued
-   fresh sessions — which confirms state loss and separates it from ordinary
+   fresh sessions, which confirms state loss and separates it from ordinary
    abandonment. This is the measurement that turns anecdote into a finding.
 2. **Check session store memory and eviction counters.** Rising evictions is
    cause 1 and is confirmable in seconds.
@@ -101,7 +101,7 @@ without reducing size only delays recurrence.
 
 **Affinity (cause 2):** move session state out of pod-local memory into the
 shared store so any replica can serve any request. Affinity is a workaround, not
-a design — it fails at every rollout by construction, and rollouts are routine.
+a design: it fails at every rollout by construction, and rollouts are routine.
 
 **TTL (cause 3):** raise the TTL above realistic checkout duration with margin,
 and consider extending it on activity rather than issuing it once at session
@@ -113,7 +113,7 @@ handling and verify across the browsers and domains actually in use. This is a
 frontend fix even though the symptom appears in checkout metrics.
 
 **Store failover (cause 5):** restore the store and accept that in-flight
-sessions are lost. If this recurs, session state needs replication — an
+sessions are lost. If this recurs, session state needs replication: an
 architectural change rather than an incident response.
 
 **After any fix**, verify with the new-session-to-new-visitor ratio rather than
@@ -122,7 +122,7 @@ it reports.
 
 ## Escalation
 
-Page the checkout-service on-call if session loss is widespread — a cliff-shaped
+Page the checkout-service on-call if session loss is widespread: a cliff-shaped
 onset affecting many customers is an incident even without an alert firing.
 
 For a low steady rate, this is a working-hours investigation, but it should not
@@ -137,10 +137,10 @@ live, not purely a technical one.
 
 ## Related
 
-- `checkout-timeout-rate` — the other major checkout failure, and distinguishable
+- `checkout-timeout-rate`: the other major checkout failure, and distinguishable
   by whether anything errors. Timeouts are loud and alert; session loss is silent
   and returns successful responses about the wrong state.
-- `checkout-cart-abandonment-spike` — the metric that often surfaces this
+- `checkout-cart-abandonment-spike`: the metric that often surfaces this
   problem. Rule out session loss before concluding an abandonment spike is a
   business or pricing issue, because this is the technical cause that most
   resembles one.

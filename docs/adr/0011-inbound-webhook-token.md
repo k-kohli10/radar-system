@@ -1,4 +1,4 @@
-# ADR 0011: Separate Webhook Token for External Inbound Alerts
+# 🪝 ADR 0011: Separate Webhook Token for External Inbound Alerts
 
 ## Status
 Accepted

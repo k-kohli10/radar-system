@@ -13,7 +13,7 @@ status: fixture
 ## Summary
 
 Inventory availability checks are taking more than 500ms at p95. The service is
-answering — this is a latency alert, not an error alert — but slowly enough that
+answering (this is a latency alert, not an error alert), but slowly enough that
 callers blocking on it are affected.
 
 `inventory-service` sits on the synchronous checkout path, so its latency is
@@ -26,14 +26,14 @@ failing, is the difference between a latency blip and lost revenue.
 
 - `InventoryCheckLatency` firing, `service=inventory-service`, `severity=high`.
 - `inventory_check_p95_seconds` above 0.5. Read p95 against p50 deliberately: p95
-  elevated while p50 stays flat means a *subset* of requests is slow — a hot SKU,
-  a lock, a cold cache path — whereas both rising together means the service is
+  elevated while p50 stays flat means a *subset* of requests is slow (a hot SKU,
+  a lock, a cold cache path), whereas both rising together means the service is
   uniformly saturated. The two lead to different causes and different fixes.
 - `CheckoutTimeoutRate` firing shortly afterwards, as checkout's budget is
   consumed by this call.
 - Elevated database query time on the inventory tables, often concentrated in
   one query shape rather than spread across many.
-- In the lock-contention case, active queries pile up while CPU stays low — the
+- In the lock-contention case, active queries pile up while CPU stays low: the
   service is waiting, not working, which is the clearest signal that adding
   replicas will not help.
 
@@ -79,7 +79,7 @@ timeouts begin in volume and this becomes revenue-affecting.
    database console.
 2. **Check for lock waits.** In the database, look at active queries waiting on
    locks against the inventory tables. Sustained waiters with low CPU is cause 1
-   and means scaling replicas will not help — the bottleneck is a row, not a CPU.
+   and means scaling replicas will not help: the bottleneck is a row, not a CPU.
 3. **Find the dominant query shape.** Aggregate database time by normalised
    query over the last 30 minutes. One shape dominating points at cause 2; a
    sudden shift in which shape dominates suggests a plan change.
@@ -95,8 +95,8 @@ timeouts begin in volume and this becomes revenue-affecting.
 
 ## Resolution
 
-**Lock contention (cause 1):** shorten the transaction holding the stock row —
-move non-essential work out of it — and reduce the window between read and
+**Lock contention (cause 1):** shorten the transaction holding the stock row
+(move non-essential work out of it) and reduce the window between read and
 update. Where the product allows, switch hot SKUs to an optimistic reservation
 scheme rather than a pessimistic row lock. Adding replicas does not help
 contention and will make it slightly worse by adding connections.
@@ -107,7 +107,7 @@ execution plan rather than by watching the latency graph, so the fix is
 attributable.
 
 **Cache miss storm (cause 3):** let it refill if it is decaying on its own. If
-it is not, find what is invalidating continuously — a deploy loop, a cache
+it is not, find what is invalidating continuously: a deploy loop, a cache
 key change, an unbounded TTL jitter. Stagger expiry so mass simultaneous
 invalidation cannot recur.
 
@@ -117,7 +117,7 @@ before assuming the application is at fault.
 
 **Capacity (cause 5):** scale replicas and, if the load is expected to persist,
 raise the provisioned capacity permanently. Real traffic exceeding provisioning
-is a planning outcome, not a bug — record it so the next promotion is sized for.
+is a planning outcome, not a bug: record it so the next promotion is sized for.
 
 **In all cases**, confirm recovery on `inventory_check_p95_seconds` and then
 verify `CheckoutTimeoutRate` clears. This alert clearing while checkout still
@@ -126,11 +126,11 @@ times out means there is a second cause downstream.
 ## Escalation
 
 Page the inventory-service on-call at `severity=high`, and do so even if
-checkout has not started failing yet — this alert exists to be acted on before
+checkout has not started failing yet: this alert exists to be acted on before
 that happens.
 
 Escalate to an incident if p95 exceeds 1s, if `CheckoutTimeoutRate` begins
-firing, or if the cause is lock contention during an active promotion — that
+firing, or if the cause is lock contention during an active promotion: that
 combination will not resolve on its own and typically worsens as the promotion
 drives more concurrent traffic to the same SKUs.
 
@@ -140,12 +140,12 @@ diagnostics directly.
 
 ## Related
 
-- `checkout-timeout-rate` — the downstream symptom. Checkout blocks on this
+- `checkout-timeout-rate`: the downstream symptom. Checkout blocks on this
   call, so this runbook is usually the root incident when both are firing. Work
   this one first.
-- `order-service-high-failure-rate` — order processing reserves stock through
+- `order-service-high-failure-rate`: order processing reserves stock through
   this service, so prolonged latency here surfaces there as failed orders.
-- `order-service-high-memory` — unrelated cause, occasionally confused because
+- `order-service-high-memory`: unrelated cause, occasionally confused because
   both present as "a service is slow." Memory pressure produces GC pauses across
   all requests uniformly; this runbook covers latency concentrated in inventory
   lookups specifically.

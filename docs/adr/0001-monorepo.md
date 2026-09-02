@@ -1,4 +1,4 @@
-# ADR 0001: Monorepo for radar-system
+# 🗂️ ADR 0001: Monorepo for radar-system
 
 ## Status
 Superseded by ADR 0018 (2026-08-05)

@@ -1,52 +1,109 @@
-# Contributing to RADAR
+# 🤝 Contributing to RADAR
 
-RADAR is built phase by phase against
-[docs/implementation_plan.md](docs/implementation_plan.md). That document is the source
-of truth for scope, locked decisions, and per-phase deliverables. Read it before opening
-a PR.
+RADAR has a documented architecture and a set of design decisions captured as
+[ADRs](docs/adr/), with the full picture in
+[docs/implementation_plan.md](docs/implementation_plan.md). ADRs are how the
+project records why things are built the way they are, and how that reasoning
+gets revisited as the project grows.
 
-## Ground Rules
+📖 **Read the relevant ADR before opening a PR that touches an area it covers.**
+Want to change one of these decisions? Propose it through a new ADR or open a
+discussion/issue first, so the reasoning gets captured alongside the change.
 
-- **One phase, one PR.** Each phase in the implementation plan has a defined milestone
-  and a defined set of deliverables. Do not mix work from two phases in one PR, and do
-  not build ahead of the current phase.
-- **Locked decisions are locked.** The "Locked Decisions" section of the implementation
-  plan (agent frameworks, notification channel, secrets handling, etc.) is not up for
-  revisiting mid-implementation. Propose changes via a new ADR, not a silent deviation.
-- **No dump commits.** Commit history should read as a narrative of how the system grew.
-  Keep commits small, scoped, and imperative mood (`feat(scope): ...`,
-  `test(scope): ...`, `docs: ...`) instead of "add everything" commits.
-- **Config, not code, for anything domain-tunable.** Correlation rules and plan templates
-  are YAML, mounted as ConfigMaps. Don't hardcode what the plan says is config.
+---
 
-## Development Setup
+## 📚 Contents
 
-See [docs/implementation_plan.md](docs/implementation_plan.md), Phase 1, for the full
-local environment spec (`make setup`, `make dev-infra-up`, Docker Compose stack, `.env.example`).
+- [🧭 Ground Rules](#-ground-rules)
+- [🛠️ Development Setup](#-development-setup)
+- [✅ Code Standards](#-code-standards)
+- [🧪 Testing Expectations](#-testing-expectations)
+- [🔀 Pull Requests](#-pull-requests)
+- [🐛 Reporting Issues](#-reporting-issues)
 
-## Code Standards
+---
 
-- Python 3.12+, `uv` for dependency management.
-- `ruff check .` and `mypy .` must pass (`make lint`).
-- `pytest` must pass (`make test`).
-- Every service exposes `GET /healthz`, `GET /readyz`, `GET /metrics`, structured JSON
-  logs via `structlog` with a `correlation_id` on every line, and an OTel span per
-  request. See "Every Service Must Have" in the implementation plan.
-- Every outbound HTTP call has a timeout and bounded retries.
+## 🧭 Ground Rules
 
-## Testing Expectations
+- 🎯 **One logical change, one PR.** Keep a PR to a single feature, fix, or
+  cleanup. Don't bundle unrelated changes.
+- 🏛️ **Know the current architecture.** Agents talk to each other through a
+  Postgres transactional outbox, agent/LLM logic is built directly rather than
+  through an orchestration framework, notifications go out via Slack, and
+  secrets are sourced from Vault. Propose a change to any of these through a
+  **new ADR** and discussion, not a silent deviation in a PR.
+- 📝 **No dump commits.** History should read as a narrative: small, scoped,
+  imperative commits (`feat(scope): …`, `test(scope): …`, `docs: …`), not an
+  "add everything" commit.
+- ⚙️ **Config, not code, for anything tunable.** Correlation rules and plan
+  templates are YAML mounted as ConfigMaps. Don't hardcode what the plan says is config.
 
-New logic ships with tests in the same PR. Agent logic in particular must cover the
-three invariants called out in the plan: outbox atomicity (no incident without its
-outbox event, or vice versa), concurrent poller isolation (no double-processing), and
-idempotency (replays of the same event are no-ops).
+---
 
-## Pull Requests
+## 🛠️ Development Setup
 
-- Reference the phase and milestone the PR completes.
-- Use the PR template in `.github/PULL_REQUEST_TEMPLATE.md`.
-- CI (lint, typecheck, test, multi-arch build) must pass before merge.
+Full spec: [docs/implementation_plan.md](docs/implementation_plan.md). The short
+version:
 
-## Reporting Issues
+```bash
+scripts/bootstrap.sh     # generates .env with per-machine credentials, installs uv
+make setup               # prepare the uv workspace
+make dev-infra-up        # bring up the local infra stack
+```
 
-Use the templates in `.github/ISSUE_TEMPLATE/`.
+> 🔑 `bootstrap.sh` fills the generated secrets; you still set the ones it can't
+> invent (e.g. `OPENAI_API_KEY`) in `.env` yourself.
+
+🚀 New to the project? The [15-minute quickstart](docs/quickstart.md) is the
+fastest way to a running system.
+
+---
+
+## ✅ Code Standards
+
+| Rule | Detail |
+|---|---|
+| 🐍 **Language** | Python 3.14 target (3.12+ minimum), `uv` for dependencies |
+| 🎨 **Lint + types** | `ruff check .` and `mypy .` must pass (`make lint`) |
+| 🧪 **Tests** | `pytest` must pass (`make test`) |
+| ❤️ **Every service** | exposes `/healthz`, `/readyz`, `/metrics`; JSON logs via `structlog` with a `correlation_id` on every line; one OTel span per request |
+| ⏳ **Every outbound call** | has a timeout and bounded retries |
+
+---
+
+## 🧪 Testing Expectations
+
+New logic ships with tests **in the same PR.** Agent logic in particular must
+cover the three invariants from the plan:
+
+- ⚛️ **Outbox atomicity**: no incident without its outbox event, or vice versa.
+- 🔐 **Poller isolation**: two pollers never double-process an event (`SKIP LOCKED`).
+- 🔁 **Idempotency**: replaying an already-processed event is a no-op.
+
+> 💡 Where a guarantee is critical, prove it mutation-style: the test must **fail**
+> if the guarantee is removed.
+
+---
+
+## 🔀 Pull Requests
+
+Outside contributors work through a fork: fork the repo, create a branch on
+your fork, commit your change, then open a PR against the default branch. A
+maintainer reviews it and merges when it's ready.
+
+- 🏷️ Describe what the PR changes and why.
+- 🟢 CI (lint, typecheck, test, multi-arch build) and the security scan
+  (OSV-Scanner) are required checks and must pass before merge.
+- 🔑 A first-time contributor's workflow runs wait for maintainer approval to
+  start (GitHub's default for fork PRs).
+- 📦 Keep the PR scoped to one logical change.
+
+---
+
+## 🐛 Reporting Issues
+
+Open a **GitHub issue** with:
+
+- what you expected vs. what happened,
+- the service involved, and
+- steps to reproduce (an alert payload, a `make` command, logs).

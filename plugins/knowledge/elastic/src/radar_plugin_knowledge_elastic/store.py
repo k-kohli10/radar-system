@@ -1,47 +1,30 @@
 """Elasticsearch implementation of the RADAR knowledge store contract.
 
-Portable by design: depends on ``radar-contracts`` and the ``elasticsearch`` SDK
-only, never on the plugin-sdk or any RADAR service. The consuming application
-registers this class with its own plugin registry and constructs it from config.
-
 This class provides the index's **storage and search primitives**: the mapping,
 upserts, the two operations incremental indexing needs to reconcile a runbook's
-chunks, and the two searches hybrid retrieval fuses — :meth:`search_bm25` and
-:meth:`search_knn`. Each search method is exactly one Elasticsearch call and
+chunks, and the two searches hybrid retrieval fuses (:meth:`search_bm25` and
+:meth:`search_knn`). Each search method is exactly one Elasticsearch call and
 makes no decisions.
 
-WHERE ``KnowledgeStore.retrieve`` CONFORMANCE LIVES — AND WHY NOT HERE
-----------------------------------------------------------------------
-An earlier version of this docstring said hybrid retrieval would land here and
-complete ``KnowledgeStore`` conformance. That was not achievable, and the reason
-is structural rather than a matter of effort: ``retrieve`` takes a query STRING,
-so something must embed it, and this plugin holds no embedding client — by
-design, since the gateway is the only component with provider keys and a plugin
-depends on no RADAR service.
-
-So ``retrieve`` conformance lives on the knowledge service's retrieval layer,
-which has the embedder and composes these primitives: embed the query, run both
-searches, fuse the rankings in the service's pure ``fusion`` module. That also
-keeps the fusion DECISION out of the vendor shell, matching how chunking and
-reconciliation are pure while this class stays dumb.
-
-This is the same judgement that previously left ``retrieve`` unimplemented here
-rather than stubbed: a ``NotImplementedError`` stub would satisfy ``isinstance``
-against the Protocol while failing at runtime, and conformance that lies is worse
-than conformance that is absent. Claiming it in a docstring was the same lie one
-step removed.
+``KnowledgeStore.retrieve`` is deliberately absent here. It takes a query STRING,
+so something must embed it, and this plugin holds no embedding client: the
+gateway is the only component with provider keys, and a plugin depends on no
+RADAR service. Conformance therefore lives on the knowledge service's retrieval
+layer, which has the embedder and composes these primitives (embed the query, run
+both searches, fuse the rankings in the service's pure ``fusion`` module). That
+keeps the fusion decision out of the vendor shell.
 
 **The vector dimension is the one real coupling to the embedding model.** It is
 baked into the ``dense_vector`` mapping at index-creation time and cannot be
 changed in place: a model with different dimensions means creating a new index
 and re-embedding the whole corpus. It is therefore a required constructor
-argument with no default — the caller must state it, so switching models is a
-config change plus a re-index, never a silent mismatch between what the mapping
-expects and what the gateway returns.
+argument with no default, so switching models is a config change plus a re-index
+rather than a silent mismatch between what the mapping expects and what the
+gateway returns.
 
 Documents are keyed by ``chunk_id``, which is a content hash (see the knowledge
-service's ``chunking`` module). Indexing the same chunk twice is therefore an
-idempotent overwrite rather than a duplicate.
+service's ``chunking`` module), so indexing the same chunk twice is an idempotent
+overwrite.
 """
 
 from __future__ import annotations
@@ -61,8 +44,8 @@ _VECTOR_FIELD = "embedding"
 _INDEXED_AT_FIELD = "indexed_at"
 
 #: Fields returned by the search methods. ``embedding`` is deliberately absent:
-#: it is 1536 floats per hit, the caller already has the query vector, and
-#: shipping it back would dominate the response for no reader.
+#: it is 1536 floats per hit that no reader consumes, and shipping it back would
+#: dominate the response.
 _RETRIEVAL_SOURCE = [
     "runbook_id",
     "title",
@@ -89,20 +72,13 @@ def build_mapping(dims: int, *, similarity: str = "cosine") -> dict[str, Any]:
     filtered on exactly (``services`` pre-filters retrieval to one service) and
     must not be analysed into tokens.
 
-    ``indexed_at`` records when a chunk was written. It is NOT for staleness
-    detection — chunk ids are content hashes and superseded chunks are deleted,
-    so a chunk in the index necessarily matches the current file and cannot be
-    stale.
-
-    It is stamped **per indexing run**, not per runbook: every chunk a run writes
-    carries one identical value. Per-runbook would only restate
-    ``runbook_documents.indexed_at``, which Postgres already answers; per-run
-    answers what Postgres cannot — "which chunks did run N write" — as a single
-    term query rather than a reconstructed range. That also makes incremental
-    indexing *visible*: after a run that edited one section, exactly one document
-    carries the newest timestamp, observable in Kibana rather than only in logs
-    and tests. It is deliberately absent from the chunk id, so it can never cause
-    churn.
+    ``indexed_at`` records when a chunk was written, and is stamped **per indexing
+    run**: every chunk a run writes carries one identical value. That answers
+    "which chunks did run N write" as a single term query, which Postgres cannot
+    (``runbook_documents.indexed_at`` is per-runbook), and makes incremental
+    indexing visible in Kibana: after a run that edited one section, exactly one
+    document carries the newest timestamp. It is deliberately absent from the
+    chunk id, so it can never cause churn.
     """
     return {
         "properties": {
@@ -167,10 +143,9 @@ class ElasticKnowledgeStore:
 
         Idempotent: an existing index is left exactly as it is, never patched.
         A ``dense_vector`` dimension cannot be changed on a live mapping, so
-        silently attempting to reconcile one would either fail or, worse, appear
-        to succeed while leaving the old dimension in place. Changing dimension
-        is a new index plus a re-index, and this method does not pretend
-        otherwise — see :meth:`verify_dims`.
+        attempting to reconcile one would either fail or appear to succeed while
+        leaving the old dimension in place. Changing dimension is a new index plus
+        a re-index; see :meth:`verify_dims`.
         """
         if await self._client.indices.exists(index=self._index):
             return False
@@ -183,10 +158,10 @@ class ElasticKnowledgeStore:
     async def verify_dims(self) -> int:
         """Return the dimension the live index was actually created with.
 
-        The check that catches a model swap that changed dimensions without a
-        re-index. The caller compares this against the dimension it expects and
-        refuses to index on a mismatch, rather than discovering it one rejected
-        bulk request at a time.
+        Catches a model swap that changed dimensions without a re-index: the
+        caller compares this against the dimension it expects and refuses to index
+        on a mismatch, rather than discovering it one rejected bulk request at a
+        time.
         """
         mapping = await self._client.indices.get_mapping(index=self._index)
         properties = mapping[self._index]["mappings"]["properties"]
@@ -233,7 +208,7 @@ class ElasticKnowledgeStore:
         One of the two legs hybrid retrieval fuses. It contributes what vector
         search structurally cannot: exact term matching. An embedding places a
         query near text with similar MEANING, which is why it confuses runbooks
-        describing opposite conditions in the same vocabulary — BM25 keys on the
+        describing opposite conditions in the same vocabulary; BM25 keys on the
         distinguishing words themselves.
 
         ``service_name`` applies the pre-filter as a ``filter`` clause rather
@@ -266,12 +241,12 @@ class ElasticKnowledgeStore:
         explored and defaults to ``10 * size``, Elasticsearch's own guidance: the
         graph is approximate, and too few candidates makes results depend on
         which nodes the traversal happened to visit. The retrieval baseline sets
-        it to the whole corpus precisely to remove that variable from a
-        measurement — see ``scripts/measure-retrieval-baseline.py``.
+        it to the whole corpus to remove that variable from a measurement (see
+        ``scripts/measure-retrieval-baseline.py``).
 
-        The service pre-filter is passed inside the ``knn`` clause, not applied
-        afterwards. Filtering after the fact would search the whole corpus and
-        then discard non-matching hits, returning FEWER than ``size`` results
+        The service pre-filter is passed inside the ``knn`` clause rather than
+        applied afterwards. Filtering after the fact would search the whole corpus
+        and then discard non-matching hits, returning FEWER than ``size`` results
         from a search that had no idea it was being narrowed.
         """
         knn: dict[str, Any] = {
@@ -310,8 +285,8 @@ class ElasticKnowledgeStore:
         """Delete chunks by id. Returns the count requested.
 
         Used to remove sections that no longer exist after a runbook was edited.
-        Deleting an id that is already gone is not an error — the desired end
-        state is the same either way.
+        Deleting an id that is already gone is not an error; the desired end state
+        is the same either way.
         """
         if not chunk_ids:
             return 0
@@ -345,7 +320,7 @@ def _with_service_filter(
 def _hits(response: Any) -> list[dict[str, Any]]:
     """Flatten an Elasticsearch response into chunk dicts carrying their score.
 
-    ``chunk_id`` is taken from ``_id`` rather than from ``_source``: they are the
+    ``chunk_id`` is taken from ``_id`` rather than from ``_source``: they hold the
     same value (documents are keyed by it), and reading the one Elasticsearch
     ranked guarantees the score and the id describe the same document even if a
     source field were ever to drift.

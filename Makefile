@@ -7,7 +7,7 @@ SERVICES := postgres elasticsearch kibana prometheus grafana vault
 .PHONY: setup lint test clean env-check svc-check start stop-one restart \
 	migrate migrate-check migrate-down revision gateway gateway-check gateway-secrets index \
 	kubeconform helm-validate \
-	seed tokens rotate agent-secrets \
+	seed tokens rotate rotate-finalize agent-secrets \
 	dev-infra-up dev-infra-stop dev-infra-ps dev-infra-logs \
 	dev-apps-up dev-apps-stop dev-apps-ps dev-apps-logs apps-check \
 	docker-infra-up docker-apps-build docker-apps-up docker-apps-restart \
@@ -131,16 +131,26 @@ tokens: env-check
 # it has one, and — the second write, without which the first is useless — the
 # outbox worker's dispatch_tokens entry pointing at it.
 #
-# NOT a hot operation. Between the two pods restarting, the worker sends the old
-# token and the target rejects it; a 401 is classified permanent, so those events
-# are dead-lettered rather than retried. Rotate on a drained pipeline: check
-# outbox depth first. See the carried-debt note in docs/roadmap.md.
+# HOT: the outgoing agent token is kept accepted (written to agent_token_previous,
+# which every service accepts alongside its current token) while the target and
+# worker restart in any order, so no mid-roll dispatch is rejected. Once both are
+# back up, `make rotate-finalize SERVICE=<service>` drops the old token. See the
+# carried-debt note in docs/roadmap.md.
 #
 #   make rotate SERVICE=reasoner-agent
 rotate: env-check
 	@test -n "$(SERVICE)" || { echo 'usage: make rotate SERVICE=<service>'; exit 1; }
 	uv run python scripts/dev-mint-tokens.py --rotate $(SERVICE)
 	@echo "--> now: make agent-secrets, then restart $(SERVICE) AND outbox-worker"
+	@echo "--> when both are up: make rotate-finalize SERVICE=$(SERVICE)"
+
+# Finalize a rotation: drop the retired agent_token_previous so the old token stops
+# being accepted. Run only after `make rotate` has converged (both pods restarted),
+# then restart the service once more.
+rotate-finalize: env-check
+	@test -n "$(SERVICE)" || { echo 'usage: make rotate-finalize SERVICE=<service>'; exit 1; }
+	uv run python scripts/dev-mint-tokens.py --finalize $(SERVICE)
+	@echo "--> now: make agent-secrets, then restart $(SERVICE)"
 
 # Pull each agent's secrets into its OWN directory ($(AGENT_SECRETS_DIR)/<service>/).
 # One directory per service, not one shared: every service reads its token from a

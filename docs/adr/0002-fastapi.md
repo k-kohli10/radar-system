@@ -1,4 +1,4 @@
-# ADR 0002: FastAPI for All Services
+# 🚀 ADR 0002: FastAPI for All Services
 
 ## Status
 Accepted
@@ -7,7 +7,7 @@ Accepted
 Every RADAR service is an async HTTP service exposing a small, consistent surface:
 `GET /healthz`, `GET /readyz`, `GET /metrics`, and either `POST /events` (agents) or a
 domain-specific API (ingestion's `/alerts/*`, llm-gateway's `/v1/complete` and
-`/v1/embed`, feedback-service's Slack webhooks). All services are Python 3.12, all
+`/v1/embed`, feedback-service's Slack webhooks). All services are Python 3.14, all
 database access is async (SQLAlchemy 2.0 + asyncpg), and all outbound LLM/HTTP calls
 need to be non-blocking so a single service instance can handle concurrent work
 without one slow call stalling everything else.

@@ -1,4 +1,4 @@
-# ADR 0005: Plugin Architecture for Backends
+# 🔌 ADR 0005: Plugin Architecture for Backends
 
 ## Status
 Accepted

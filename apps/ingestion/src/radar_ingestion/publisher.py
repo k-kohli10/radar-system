@@ -1,70 +1,39 @@
 """Transactional incident creation, resolution, and outbox publish.
 
-The heart of ingestion's write path. Given a normalized alert, :func:`persist_alert`
-branches on FIRING vs RESOLVED first, then does its work in a single transaction the
-caller commits, so each unit is all-or-nothing.
+Ingestion's write path. :func:`persist_alert` branches on FIRING vs RESOLVED, then
+does its work in a single transaction the caller commits:
 
-Firing — new incident (no open match within the dedup window):
+- **Firing, new incident** — INSERT incident + alert + one ``alert.normalized``
+  outbox event for the watcher.
+- **Firing, duplicate** (open incident matched within the dedup window) — INSERT
+  the alert on that incident, bump ``alert_count``/``updated_at``, and INSERT an
+  ``alert.normalized`` event **as well**.
+- **Resolved, matched a live incident** — flip that incident's still-firing alert
+  rows to ``resolved`` at the webhook time, and nothing else: no new alert row, no
+  ``alert_count`` bump, no outbox event. A resolve is the firing alert(s)
+  transitioning in place, not a new firing, so the watcher (which escalates on
+  arrival rate) must not see it and the counter feeding escalation must not move.
+- **Resolved, matched nothing** — one ``audit_log`` row and nothing else. This
+  branch exists because a ``resolved`` payload used to fall through to the create
+  path and open a brand-new incident for an alert already over. The receipt is an
+  audit row rather than an ``alerts`` row with a NULL ``incident_id``, so ``alerts``
+  keeps meaning *alerts that belong to an incident*; ``entity_id`` is the
+  normalized alert's id, which never became a row (``audit_log`` has no FK).
 
-- INSERT incident, INSERT alert (linked to it), and — reusing the shared outbox
-  writer — INSERT one ``alert.normalized`` outbox event targeting the watcher
-  agent, all in one transaction.
+Resolution matching is deliberately NOT dedup's windowed, open-only lookup — see
+:func:`resolver.find_resolvable_incident` for why the two must not share a predicate.
 
-Firing — duplicate (an open incident matched within the window):
+**Every firing alert produces an event, duplicates included.** The watcher owns
+suppression and escalation policy, and escalation is a claim about arrival rate
+("3 alerts within 2 minutes") it cannot enforce against alerts it never sees.
+The payload carries the two facts only ingestion knows — ``incident_id`` and
+``deduplicated`` — so the event is self-describing.
 
-- INSERT the alert linked to that incident, bump its ``alert_count`` /
-  ``updated_at``, and INSERT an ``alert.normalized`` outbox event **as well**.
-
-Resolved — matched a live incident (``{open, investigating}``, unwindowed):
-
-- UPDATE that incident's still-firing alert rows to ``resolved`` with the webhook
-  time, and NOTHING ELSE: no new alert row, no ``alert_count`` bump, no outbox
-  event, and the incident row untouched. A resolve is the firing alert(s)
-  transitioning in place, not a new firing — so the watcher (which escalates on
-  arrival rate) must not see it, and the counter that feeds escalation must not move.
-  Whether the INCIDENT then transitions to ``resolved`` is the next commit's gate.
-
-Resolved — matched no live incident:
-
-- INSERT one ``audit_log`` row and NOTHING ELSE. No incident, no alert, no event.
-
-That last branch exists because a ``resolved`` payload used to fall through to the
-create path and **open a brand-new incident** in ``open`` for an alert already over,
-handing the watcher a plan request for it. The receipt is recorded in ``audit_log``
-rather than as an ``alerts`` row with a NULL ``incident_id``: "we received X and did
-Y" is what an audit log is for, and it keeps ``alerts`` meaning *alerts that belong
-to an incident* — an invariant every future join and bot query would otherwise have
-to remember the exceptions to. The audit row's ``entity_id`` is the normalized
-alert's id, which never became a row: a log referring to an event, not a foreign key,
-and ``audit_log`` has no FK to hold it to one.
-
-Resolution matching is deliberately NOT dedup's windowed, open-only lookup — it is
-:func:`resolver.find_resolvable_incident`. See that module for why the two questions
-must not share a predicate.
-
-**Every alert produces an event, duplicates included.** Ingestion owns incident
-identity (it opens the incident and dedups on the fingerprint); the watcher owns
-correlation *policy* — suppression and escalation — and it cannot enforce either
-against alerts it never sees. Escalation in particular is a statement about
-arrival rate ("3 alerts within 2 minutes"), so a watcher fed only first-of-kind
-alerts could never observe the condition and the rule would be dead by
-construction. Duplicates therefore reach the watcher too, tagged as such.
-
-The payload is the normalized alert plus the two facts only ingestion knows —
-``incident_id`` (which incident this alert landed on) and ``deduplicated``
-(whether that incident already existed). Carrying them makes the event
-self-describing: the watcher branches on ``deduplicated`` rather than inferring
-"was this new?" from a correlation-id comparison, and it resolves the incident by
-id rather than re-querying the alerts table on the strength of an implicit
-guarantee about what this transaction wrote.
-
-This module does not flush for ordering and does not commit: it adds the rows and
-the route owns the ``commit()`` boundary, so the incident, alert, and outbox event
-are issued and FK-checked as one atomic unit (a failure rolls the whole unit
-back). That holds on the duplicate path too — the alert and its event commit
-together or not at all. No manual flush ordering is needed: the parent->child FKs
-are deferrable (checked at commit), so the alert may be written before its
-incident within the transaction.
+This module does not commit: it adds rows and the route owns the ``commit()``
+boundary, so the incident, alert, and outbox event are one atomic unit (a failure
+rolls the whole unit back), duplicate path included. No flush ordering is needed —
+the parent->child FKs are deferrable (checked at commit), so the alert may be
+written before its incident within the transaction.
 """
 
 from __future__ import annotations
@@ -105,21 +74,18 @@ ALERT_ATTACHED_AUDIT_EVENT = "ingestion.alert_attached"
 
 @dataclass(frozen=True)
 class PublishResult:
-    """Outcome of persisting one alert.
+    """Outcome of persisting one alert. Three disjoint shapes:
 
-    Three shapes, disjoint:
-
-    - a firing alert that opened or attached to an incident — ``incident_id`` set,
+    - firing alert that opened or attached to an incident — ``incident_id`` set,
       ``alerts_resolved`` ``None``;
-    - a resolve that matched a live incident — ``incident_id`` set,
-      ``alerts_resolved`` the number of firing alert rows it flipped (0 on a
-      duplicate delivery), and ``incident_resolved`` whether that cleared the last
-      firing alert and so transitioned the incident to ``resolved``;
-    - a resolve that matched nothing — ``ignored`` true, ``incident_id`` ``None``.
+    - resolve that matched a live incident — ``incident_id`` set,
+      ``alerts_resolved`` the number of firing alert rows flipped (0 on a duplicate
+      delivery), ``incident_resolved`` whether that cleared the last firing alert
+      and so transitioned the incident;
+    - resolve that matched nothing — ``ignored`` true, ``incident_id`` ``None``.
 
-    ``alerts_resolved is None`` distinguishes the firing path from the resolve
-    path; the caller reads it to answer "resolved N alerts" vs "accepted" without
-    re-inspecting the alert.
+    ``alerts_resolved is None`` is what distinguishes the firing path from the
+    resolve path for the caller.
     """
 
     incident_id: UUID | None
@@ -138,20 +104,17 @@ async def persist_alert(
     """Attach a firing alert to an incident, open one, or resolve — transactionally.
 
     ``as_of`` is the dedup reference time (defaults to the alert's ``received_at``).
-    Adds rows but does not commit — the caller commits so each unit is atomic.
+    Adds rows but does not commit — the caller commits so each unit is atomic; insert
+    order is irrelevant because the FKs are deferrable.
 
-    A ``resolved`` alert takes the resolution path, NOT dedup: resolution matching
-    is unwindowed and spans ``{open, investigating}`` (see :mod:`resolver`), because
-    an alert usually clears long after — and while the incident is already
-    ``investigating`` — so a windowed, open-only lookup would miss almost every real
-    resolve. It flips the matched incident's firing alert rows to ``resolved`` and
-    otherwise leaves the incident untouched (whether the incident itself transitions
-    is the next commit's gate). A resolve matching no live incident is recorded in
+    A ``resolved`` alert takes the resolution path, NOT dedup: resolution matching is
+    unwindowed and spans ``{open, investigating}`` (see :mod:`resolver`), because an
+    alert usually clears long after the dedup window and while the incident is
+    already ``investigating``. A resolve matching no live incident is recorded in
     ``audit_log`` and ignored: it opens nothing and wakes nobody.
 
-    A firing alert always publishes an ``alert.normalized`` event so the watcher
-    sees every one; the incident, alert, and event are one atomic unit and insert
-    order is irrelevant because the FKs are deferrable.
+    A firing alert always publishes an ``alert.normalized`` event so the watcher sees
+    every one.
     """
     if alert.status == ALERT_STATUS_RESOLVED:
         return await _resolve(session, alert)
@@ -184,19 +147,16 @@ async def _resolve(session: AsyncSession, alert: NormalizedAlert) -> PublishResu
     investigating}``, unwindowed, under a row lock), flips that incident's still-
     firing alert rows to ``resolved`` at the webhook time, then transitions the
     incident to ``resolved`` — but ONLY if no firing alert remains on it (the gate).
-    No ``alert_count`` bump, no ``alert.normalized`` event (a resolve is not a new
-    firing and the watcher must not escalate on it), no new alert row.
+    No ``alert_count`` bump, no ``alert.normalized`` event, no new alert row.
 
     The alert flips and the incident transition are one transaction (the caller
     commits), so an incident never ends up ``resolved`` while a firing alert of its
     own is still on the table within the same unit of work.
 
     A resolve matching no live incident is recorded once in ``audit_log`` and
-    otherwise ignored — the receipt-not-row treatment from commit 1, keyed on the
-    unwindowed lookup so a resolve for an incident that opened long ago (the common
-    case) resolves it rather than being mistaken for "no incident." A concurrent
-    duplicate whose incident was resolved by the winner also lands here: the locked
-    lookup returns ``None`` once the winner commits.
+    otherwise ignored. A concurrent duplicate whose incident the winner already
+    resolved also lands here: the locked lookup returns ``None`` once the winner
+    commits.
     """
     incident = await find_resolvable_incident(session, fingerprint=alert.fingerprint)
     if incident is None:
@@ -232,15 +192,11 @@ async def _publish(
 ) -> None:
     """Add the ``alert.normalized`` outbox event for ``alert`` (no commit).
 
-    The payload is the shared :class:`~radar_contracts.AlertNormalizedPayload` — the
-    normalized alert plus ``incident_id`` and ``deduplicated``, the two facts the
-    watcher needs and only ingestion knows. It is *constructed*, not hand-assembled
-    into a dict: the watcher parses the same model, so producer and consumer cannot
-    drift into disagreeing about the shape.
-
-    Both branches publish the same event type. The watcher's idempotency is keyed on
-    ``event_id``, and ``deduplicated`` is a property of the alert, not a different
-    kind of thing happening.
+    The payload is the shared :class:`~radar_contracts.AlertNormalizedPayload`,
+    *constructed* rather than hand-built as a dict, so producer and consumer cannot
+    drift on shape. Both the new-incident and duplicate branches publish the same
+    event type; ``deduplicated`` is a property of the alert, not a different kind of
+    event, and the watcher's idempotency is keyed on ``event_id``.
     """
     payload = AlertNormalizedPayload(
         **alert.model_dump(),
@@ -272,8 +228,8 @@ def _alert_facts(alert: NormalizedAlert) -> dict[str, object | None]:
 def _incident_opened_audit(alert: NormalizedAlert, incident_id: UUID) -> AuditLog:
     """Build the audit record for a firing alert that opened a new incident.
 
-    Ingestion owns incident creation, so this is the birth record of the incident
-    in the audit trail — the transition helper only logs *later* status changes.
+    The incident's birth record: the transition helper only logs *later* status
+    changes.
     """
     return AuditLog(
         event_type=INCIDENT_OPENED_AUDIT_EVENT,
@@ -290,9 +246,8 @@ def _alert_attached_audit(
 ) -> AuditLog:
     """Build the audit record for a firing alert deduplicated onto an open incident.
 
-    Records the attach that bumped ``alert_count`` — the event escalation is driven
-    off — so the audit trail shows every alert that joined an incident, not only the
-    one that opened it.
+    Records the attach that bumped ``alert_count`` (the counter escalation runs off),
+    so the trail shows every alert that joined an incident, not only the first.
     """
     return AuditLog(
         event_type=ALERT_ATTACHED_AUDIT_EVENT,
@@ -307,14 +262,10 @@ def _alert_attached_audit(
 def _resolve_ignored_audit(alert: NormalizedAlert) -> AuditLog:
     """Build the audit record for a resolved alert that matched no open incident.
 
-    The only trace this alert leaves. It carries the facts an engineer asking "did
-    RADAR ever receive the resolve for X?" needs to answer the question — the
-    fingerprint that was searched, and the identity of the alert that carried it —
-    without an ``alerts`` row existing to hold them.
-
-    ``entity_type`` is ``"alert"`` rather than ``"incident"`` because there is no
-    incident: naming one here would mean inventing an id or pointing at an
-    unrelated row.
+    The only trace this alert leaves — it carries the fingerprint searched and the
+    identity of the alert that carried it, since no ``alerts`` row exists to hold
+    them. ``entity_type`` is ``"alert"``, not ``"incident"``: there is no incident to
+    name without inventing an id.
     """
     return AuditLog(
         event_type=RESOLVE_IGNORED_AUDIT_EVENT,

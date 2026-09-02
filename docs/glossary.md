@@ -2,8 +2,8 @@
 
 **Agent**: One of the three pipeline services (watcher-agent, planner-agent,
 reasoner-agent) that processes a single stage of incident handling and hands off via
-the outbox. Not an autonomous LLM agent in the LangChain sense. RADAR uses no agent
-framework.
+the outbox. Each is a plain Python service; see [ADR 0019](adr/0019-no-llm-frameworks.md)
+for why RADAR uses no agent framework.
 
 **Alert**: A single fired notification from Prometheus alertmanager or Kibana Watcher,
 normalized into RADAR's schema on ingest.

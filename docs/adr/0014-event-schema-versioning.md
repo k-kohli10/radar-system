@@ -1,8 +1,21 @@
-# ADR 0014: Event Schema Versioning Rules
+# 🏷️ ADR 0014: Event Schema Versioning Rules
 
 **Status**: Accepted
 **Date**: 2025-01-15
-**Author**: Kashyap
+**Author**: Kashyap Kohli
+
+---
+
+## Contents
+
+- [Context](#context)
+- [Event Structure](#event-structure)
+- [Versioning Scheme](#versioning-scheme)
+- [What Is a Breaking Change](#what-is-a-breaking-change)
+- [Rules](#rules)
+- [Current Event Types and Versions](#current-event-types-and-versions)
+- [Payload Schemas (v1)](#payload-schemas-v1)
+- [Decision Record](#decision-record)
 
 ---
 
@@ -56,16 +69,12 @@ No semver. No minor versions. No patch versions. One number. Breaking or not bre
 A breaking change is anything that requires the consumer to update its parsing code
 to avoid a runtime error or silent data corruption.
 
-Breaking changes:
-- Removing a field the consumer reads
-- Renaming a field the consumer reads
-- Changing the type of a field (string to integer, object to array)
-- Changing the semantic meaning of a field value (status codes, enum values)
-
-Not breaking changes:
-- Adding a new optional field the consumer does not need to read
-- Adding a new enum value the consumer handles with a default case
-- Adding fields to a nested object the consumer ignores
+| Breaking | Not breaking |
+|---|---|
+| Removing a field the consumer reads | Adding a new optional field the consumer does not need to read |
+| Renaming a field the consumer reads | Adding a new enum value the consumer handles with a default case |
+| Changing the type of a field (string to integer, object to array) | Adding fields to a nested object the consumer ignores |
+| Changing the semantic meaning of a field value (status codes, enum values) | |
 
 ---
 

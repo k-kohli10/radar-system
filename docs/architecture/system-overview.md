@@ -8,13 +8,12 @@
 - 🔀 [Data and Control Flow](#data-and-control-flow)
 - 🧵 [Cross-Cutting Concerns](#cross-cutting-concerns)
 - 🚀 [Deployment Target](#deployment-target)
-- 🚫 [Non-Goals](#non-goals)
 
 ## Purpose
 
-RADAR is an Incident Intelligence Platform. It sits downstream of detection systems
+RADAR is a Reliability Intelligence Platform. It sits downstream of detection systems
 (Prometheus, Kibana Watcher) and upstream of the on-call engineer. Its job is
-correlation, reasoning, and delivery. Not detection.
+correlation, reasoning, and delivery.
 
 ## Domain
 
@@ -48,7 +47,7 @@ watcher-agent        Correlates alerts into incidents using configurable rules.
 planner-agent        Builds an investigation plan from a template.
 reasoner-agent        Calls the LLM gateway to produce a root cause analysis, or
                      falls back to a template-based RCA if the LLM is unavailable.
-knowledge-service     Indexes runbooks and serves retrieval to the reasoner (Phase 8+).
+knowledge-service     Indexes runbooks and serves retrieval to the reasoner.
 feedback-service      Delivers RCA cards to Slack, collects feedback, and runs the
                      Slack bot that answers status queries.
 ```
@@ -59,21 +58,21 @@ Detection is external. RADAR's flow starts at ingestion:
 
 ```mermaid
 flowchart TB
-    ext["Prometheus / Kibana Watcher<br/><small>pre-fired alert</small>"]
-    ing["ingestion<br/><small>normalize, dedupe, outbox</small>"]
-    watcher["watcher-agent<br/><small>correlate alerts into an incident</small>"]
-    planner["planner-agent<br/><small>build an investigation plan</small>"]
-    reasoner["reasoner-agent<br/><small>call LLM, produce RCA</small>"]
-    feedback["feedback-service<br/><small>deliver Slack card, run Slack bot</small>"]
+    ext["Prometheus / Kibana Watcher<br/>pre-fired alert"]
+    ing["INGESTION<br/>normalize, dedupe, outbox"]
+    watcher["WATCHER-AGENT<br/>correlate alerts into an incident"]
+    planner["PLANNER-AGENT<br/>build an investigation plan"]
+    reasoner["REASONER-AGENT<br/>call LLM, produce RCA"]
+    feedback["FEEDBACK-SERVICE<br/>deliver Slack card, run Slack bot"]
     oncall(["On-call engineer"])
-    pg[("Postgres<br/><small>transactional outbox<br/>all agent comms</small>")]
+    pg[("Postgres<br/>transactional<br/>outbox<br/>all agent comms")]
 
     ext --> ing
     ing -- outbox-worker --> watcher
     watcher -- outbox-worker --> planner
     planner -- outbox-worker --> reasoner
     reasoner -- outbox-worker --> feedback
-    feedback -- Slack API --> oncall
+    feedback <-- Slack API --> oncall
 
     ing -. outbox .-> pg
     watcher -. outbox .-> pg
@@ -85,16 +84,19 @@ flowchart TB
     classDef agent fill:#eafaf6,stroke:#127d69,color:#0b3d33;
     classDef store fill:#eef1fb,stroke:#33418f,color:#1a2350;
 
-    class ext,feedback,oncall external
-    class ing,watcher,planner,reasoner agent
+    class ext,oncall external
+    class ing,watcher,planner,reasoner,feedback agent
     class pg store
 ```
 
-Note: `reasoner-agent` also calls `llm-gateway` directly via `POST /v1/complete` — that hop is a
-direct call, not mediated by the outbox, and is omitted above for clarity.
+Note: `reasoner-agent` also calls `knowledge-service` (retrieve + grade runbooks) and
+`llm-gateway` (produce the RCA) directly, and `knowledge-service` in turn calls
+`llm-gateway` (embed + grade). These are synchronous request/response calls, not
+mediated by the outbox, and are omitted above for clarity. See
+[agent-pipeline.md](agent-pipeline.md#why-no-direct-http-between-agents) for why they
+are queries rather than pipeline handoffs.
 
-All agent-to-agent communication is mediated by the Postgres transactional outbox.
-There is never direct HTTP between agents. See
+All agent-to-agent communication is mediated by the Postgres transactional outbox. See
 [docs/architecture/agent-pipeline.md](agent-pipeline.md) and
 [docs/adr/0003-postgres-outbox.md](../adr/0003-postgres-outbox.md).
 
@@ -120,12 +122,5 @@ shop versus watching RADAR itself) is drawn in
 
 Two targets, from the same multi-arch images: the two-stack Docker deployment
 (`radar-infra` + `radar-apps`) for local end-to-end runs, and an ephemeral managed
-Kubernetes (K3s) cluster for the k8s path (Phase 12). Images build for `linux/amd64`
+Kubernetes (K3s) cluster for the k8s path. Images build for `linux/amd64`
 (the cluster, x86 CI) and `linux/arm64` (local Docker on Apple Silicon) via `docker buildx`.
-
-## Non-Goals
-
-- RADAR does not detect anomalies. Prometheus and Kibana own that.
-- RADAR does not remediate automatically. It recommends.
-- RADAR does not create tickets. Incident state lives entirely in Postgres.
-- RADAR does not adopt an agent framework. The three stage pipeline is hand rolled.

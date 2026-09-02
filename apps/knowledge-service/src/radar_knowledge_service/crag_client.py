@@ -1,32 +1,25 @@
 """The CRAG grading call: the I/O half.
 
 Calls ``POST /v1/complete`` in ``reason`` mode with the knowledge service's
-second gateway token — the one originally granted for reranking, which was
-measured and removed; this stage is what it now serves. The decisions live in
-:mod:`radar_knowledge_service.crag`.
+second gateway token, originally granted for the reranking stage that was
+measured and removed. The decisions live in :mod:`radar_knowledge_service.crag`.
 
 DEGRADES TO UNGRADED RETRIEVAL, WHICH IS THE CONSERVATIVE DIRECTION
 --------------------------------------------------------------------
-Every failure returns the chunks unchanged and ungraded, and logs why. The
-alternative directions are both worse:
+Every failure returns the chunks unchanged and ungraded, and logs why. Failing
+the retrieval would let a flaky LLM call cost an incident its context entirely
+when retrieval had already produced a usable answer. Returning empty would be
+worse still: empty context is a CLAIM that the corpus has nothing for this
+incident, and a transport error is no evidence for it.
 
-- **Failing the retrieval** would let a flaky LLM call cost an incident its
-  context entirely, when retrieval had already produced a usable answer.
-- **Returning empty** — treating "could not grade" as "nothing is relevant" —
-  would be the dangerous one. Empty context is a CLAIM: it tells the reasoner the
-  corpus has nothing for this incident. A transport error is not evidence for
-  that claim, and manufacturing it from a failure would make the stage's one
-  meaningful output untrustworthy.
-
-So an ungraded chunk is one nobody vouched for, which is exactly what it is. The
-caller can tell the difference: a graded result carries ``grade`` on every chunk,
-an ungraded one carries none.
+The caller can tell the difference: a graded result carries ``grade`` on every
+chunk, an ungraded one carries none.
 
 ONE CLOCK
 ---------
 ``asyncio.timeout`` is the only bound, httpx is built with ``timeout=None``, and
-the constructor refuses a client whose own timeout could fire first — the same
-guard as the embedding client, for the same reason.
+the constructor refuses a client whose own timeout could fire first, the same
+guard as the embedding client.
 """
 
 from __future__ import annotations
@@ -86,9 +79,9 @@ class GatewayGrader:
     ) -> list[dict[str, Any]]:
         """Return the usable chunks, each carrying its grade. Never raises.
 
-        An EMPTY list means the model judged every chunk insufficient — the
-        stage's whole purpose. It never means the call failed; failures return
-        the chunks ungraded.
+        An EMPTY list means the model judged every chunk insufficient, which is
+        the stage's whole purpose. It never means the call failed; failures
+        return the chunks ungraded.
         """
         if not chunks:
             return []

@@ -1,0 +1,50 @@
+name: scorecard
+
+# OpenSSF Scorecard: supply-chain health checks (branch protection, pinned
+# dependencies, token permissions, dangerous workflows, and more). Publishes
+# the score so the README badge can render it, and uploads SARIF to the
+# Security tab. Runs on the default branch only.
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: "0 0 * * 0"
+  push:
+    branches: ["main", "Release*"]
+
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    name: scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to upload the results SARIF to the code-scanning dashboard.
+      security-events: write
+      # Needed for the OIDC token that verifies published results (publish_results).
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run OpenSSF Scorecard
+        uses: ossf/scorecard-action@v2
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish results to the OpenSSF API so the README badge can read them.
+          publish_results: true
+
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

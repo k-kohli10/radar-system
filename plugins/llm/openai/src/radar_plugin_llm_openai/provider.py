@@ -1,14 +1,12 @@
 """OpenAI implementations of the RADAR LLM provider contracts.
 
 Structural implementations of ``radar_contracts.LLMProvider`` and
-``radar_contracts.EmbeddingProvider`` over the ``openai`` SDK. This package
-is portable by design: it depends on ``radar-contracts`` and the vendor SDK
-only, and never imports gateway internals. Vendor exceptions propagate
-unwrapped — classification, redaction, timeouts, and retries are the
+``radar_contracts.EmbeddingProvider`` over the ``openai`` SDK. Vendor exceptions
+propagate unwrapped: classification, redaction, timeouts, and retries are the
 caller's job (in RADAR, the llm-gateway's provider layer).
 
-Each instance is bound to one concrete model at construction; the gateway
-builds one instance per configured mode. SDK-internal retries are disabled
+Each instance is bound to one concrete model at construction; the gateway builds
+one instance per configured mode. SDK-internal retries are disabled
 (``max_retries=0``) so the caller's retry policy is the only one in play.
 """
 

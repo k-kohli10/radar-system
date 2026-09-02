@@ -5,36 +5,32 @@ Slack's echoed ``(action_id, value)`` into a validated :class:`ParsedCallback`; 
 module is what that validated intent DOES. Two intents, one entry point:
 
 - **👍 / 👎** (``feedback.up`` / ``feedback.down``) writes one ``feedback`` row against
-  the recommendation the callback names — sentiment ``helpful`` / ``not_helpful``,
+  the recommendation the callback names: sentiment ``helpful`` / ``not_helpful``,
   stamped with the acting Slack user. Provider and model alias are copied from the
   recommendation being rated so downstream quality analysis can group feedback by
   model without a join back to ``recommendations``.
 - **Resolve** (``incident.resolve``) moves the incident the recommendation belongs to
   ``-> resolved`` through the one validated entry point, :meth:`transition_status`,
   which locks the incident row, checks the edge, and writes the ``incident.resolved``
-  audit — the same path every status change in RADAR takes (ADR 0016). There is no
-  incident id on the callback by design; it is derived from the recommendation, so a
-  resolve can never target a mismatched incident.
+  audit (ADR 0016). The callback carries no incident id; it is derived from the
+  recommendation, so a resolve can never target a mismatched incident.
 
 **The resolve loser path.** Two engineers can click Resolve on the same card, or one
 can click it on an incident stage 1 already resolved from an Alertmanager webhook. The
 second attempt is ``resolved -> resolved``, which :meth:`transition_status` rejects by
-raising :class:`InvalidStateTransitionError` having written nothing. That is not an
-error to surface — the incident IS resolved, which is what the click asked for — so it
-is a benign :attr:`CallbackOutcome.ALREADY_RESOLVED`. But the rejected ATTEMPT is
-forensic and the executor deliberately does not record it (recording the attempt is the
-caller's job — ADR 0016, :data:`INVALID_TRANSITION_AUDIT_EVENT`), so this handler writes
-the ``incident.invalid_transition`` row itself. Safe in the same transaction: the
-executor raised BEFORE it flushed anything, so nothing of the winner's is entangled.
+raising :class:`InvalidStateTransitionError` having written nothing. The incident IS
+resolved, which is what the click asked for, so that is a benign
+:attr:`CallbackOutcome.ALREADY_RESOLVED`. The rejected ATTEMPT is still forensic, and
+recording it is the caller's job (ADR 0016, :data:`INVALID_TRANSITION_AUDIT_EVENT`), so
+this handler writes the ``incident.invalid_transition`` row itself. Safe in the same
+transaction: the executor raised BEFORE it flushed anything.
 
 **Card reflection is best-effort, and strictly after the commit.** The database row is
-the truth; the card footer only mirrors it. So the ``feedback`` row / the resolution
+the truth; the card footer only mirrors it. The ``feedback`` row or the resolution
 commits FIRST, and only then is the card re-rendered in place (``chat.update``) with a
-one-line acknowledgement. A failed update is logged and swallowed — the feedback is
-recorded whether or not the mirror caught up, and losing a footer edit must never roll
-back a recorded rating or a real resolution. This is the reverse of RCA delivery, where
-the Slack post IS the delivery and the row follows it; here the row is the point and the
-card only reflects it.
+one-line acknowledgement. A failed update is logged and swallowed: losing a footer edit
+must never roll back a recorded rating or a real resolution. This is the reverse of RCA
+delivery, where the Slack post IS the delivery and the row follows it.
 """
 
 from __future__ import annotations
@@ -70,19 +66,19 @@ from radar_feedback_service.cards import RcaCardData, format_rca_card
 from radar_feedback_service.delivery import card_data_from_rows
 
 InteractionHandler = Callable[[NotificationInteraction], Awaitable[None]]
-"""What the Socket Mode source dispatches to: one translated interaction in, no result
-— the outcome is recorded in the database and reflected on the card, not returned."""
+"""What the Socket Mode source dispatches to: one translated interaction in, no result.
+The outcome is recorded in the database and reflected on the card."""
 
 MentionHandler = Callable[[BotMention], Awaitable[None]]
 """What the source dispatches an ``@radar`` mention to: parse, query, and reply
-in-thread. Like the interaction handler, it returns nothing — the reply is posted."""
+in-thread. Like the interaction handler it returns nothing; the reply is posted."""
 
 
 class InteractionSource(Protocol):
     """The receive-side connection the app owns in its lifespan: start, then close.
 
     Structural, so the concrete ``SlackSocketSource`` satisfies it without an import
-    here — and a test can inject a fake that opens no socket. Constructing a source
+    here and a test can inject a fake that opens no socket. Constructing a source
     binds the handlers; :meth:`start` connects and :meth:`close` disconnects.
     """
 
@@ -102,7 +98,7 @@ log = get_logger("feedback.interactions")
 
 
 class CallbackOutcome(StrEnum):
-    """What handling a callback did — the handler's report to its caller."""
+    """What handling a callback did: the handler's report to its caller."""
 
     FEEDBACK_RECORDED = "feedback_recorded"
     RESOLVED = "resolved"
@@ -130,28 +126,24 @@ def build_interaction_handler(
 ) -> InteractionHandler:
     """The adapter the wired Socket Mode listener dispatches each button click to.
 
-    Bridges the plugin's vendor-neutral :class:`NotificationInteraction` to the parse →
-    handle path, closing over the live database and notifier. It is the caller
-    :func:`parse_callback` was written FOR: the parser rejects a malformed click by
-    RAISING :class:`CallbackParseError`, and the whole point of that strict parse is
-    undone if the caller swallows the raise silently — a listener that no-ops on a parse
-    failure makes a bad click look handled and quietly discards the deep-treatment
-    validation. So the reject is SURFACED here, loudly, in the log. The envelope is
-    already acked by the time this runs (the listener acks first, no redelivery), so the
-    log is the right surface: nothing to retry, but the reject is never invisible.
+    Bridges the plugin's vendor-neutral :class:`NotificationInteraction` to the parse
+    then handle path, closing over the live database and notifier. The parser rejects a
+    malformed click by RAISING :class:`CallbackParseError`, and a caller that swallows
+    that raise makes a bad click look handled. So the reject is SURFACED here, in the
+    log. The envelope is already acked by the time this runs (the listener acks first,
+    no redelivery), so there is nothing to retry and the log is the right surface.
 
-    A missing recommendation (:class:`~radar_common.NotFoundError`) is likewise logged,
-    not raised on: the card was delivered, so a missing row is corruption, and there is
-    no redelivery to gain by propagating — an operator needs to see it, which the log
-    gives them.
+    A missing recommendation (:class:`~radar_common.NotFoundError`) is likewise logged
+    rather than raised on: the card was delivered, so a missing row is corruption, and
+    propagating gains no redelivery.
     """
 
     async def handle(interaction: NotificationInteraction) -> None:
         try:
             parsed = parse_callback(interaction)
         except CallbackParseError as exc:
-            # SURFACE, never swallow. See the docstring: a silent no-op here undoes the
-            # parser. The envelope is already acked, so logging is the surface.
+            # SURFACE, never swallow: a silent no-op here undoes the parser. The
+            # envelope is already acked, so logging is the surface.
             log.warning(
                 "interaction.rejected",
                 action_id=interaction.action_id,
@@ -187,16 +179,16 @@ async def handle_callback(
     *,
     metrics: FeedbackMetrics,
 ) -> CallbackOutcome:
-    """Apply ``parsed`` — record feedback or resolve the incident — and reflect it.
+    """Apply ``parsed`` (record feedback or resolve the incident) and reflect it.
 
     Records the database change first (the truth), commits, then re-renders the card
     best-effort. Raises :class:`~radar_common.NotFoundError` if the recommendation the
-    callback names — or its incident — is missing: the card was delivered, so a missing
-    row is corruption, not a race, and is rejected loudly rather than acted on blindly.
+    callback names, or its incident, is missing: the card was delivered, so a missing
+    row is corruption and is rejected loudly rather than acted on blindly.
 
     ``metrics`` carries ``feedback_total``; only the vote path ticks it, and only after
-    the row commits (see :func:`_record_feedback`). Resolve does not — the counter is
-    scoped by sentiment, and a resolve has none.
+    the row commits (see :func:`_record_feedback`). The counter is scoped by sentiment,
+    which a resolve has none of.
     """
     if parsed.action is InteractionAction.RESOLVE:
         return await _resolve(database, notifier, parsed)
@@ -229,11 +221,9 @@ async def _record_feedback(
             )
         )
         await session.commit()
-        # AFTER the commit, never before: the counter must count RECORDED feedback, not
-        # attempted. A commit that raised never reaches this line, so a rolled-back
-        # write leaves the counter untouched — a dashboard reading radar_feedback_total
-        # sees only feedback that actually landed. Same after-the-guarantee ordering as
-        # delivery's ts-after-post and the transition-in-the-commit.
+        # AFTER the commit, never before: the counter must count RECORDED feedback. A
+        # commit that raised never reaches this line, so a dashboard reading
+        # radar_feedback_total sees only feedback that actually landed.
         metrics.feedback_total.labels(sentiment).inc()
         log.info(
             "feedback.recorded",
@@ -272,8 +262,8 @@ async def _resolve(
         except InvalidStateTransitionError as exc:
             # The loser path: the incident is already resolved (a concurrent click, or
             # stage 1 resolved it first). Benign for the user, but the rejected attempt
-            # is forensic — the executor wrote nothing, so record it here. Safe in this
-            # transaction: the raise happened before any flush.
+            # is forensic and the executor wrote nothing, so record it here. Safe in
+            # this transaction: the raise happened before any flush.
             session.add(_invalid_transition_audit(exc, recommendation, parsed))
             incident = await _load_incident(session, recommendation.incident_id)
             await session.commit()
@@ -312,7 +302,7 @@ def _invalid_transition_audit(
     recommendation: Recommendation,
     parsed: ParsedCallback,
 ) -> AuditLog:
-    """The forensic row for a rejected resolve — the attempt the executor won't file."""
+    """The forensic row for a rejected resolve: the attempt the executor won't file."""
     return AuditLog(
         event_type=INVALID_TRANSITION_AUDIT_EVENT,
         entity_type="incident",
@@ -339,10 +329,10 @@ async def _reflect(
     """Re-render the card in place with ``ack``, best-effort.
 
     Runs AFTER the commit, so the database already holds the truth. A failed update is
-    logged and swallowed — the footer is a mirror, and losing the mirror must not undo a
-    recorded rating or a real resolution. The broad ``except`` keeps the vendor's error
-    type behind the plugin (nothing in ``apps/`` imports the Slack SDK) while still
-    failing visibly in the log; the class name is logged, never a vendor message.
+    logged and swallowed: the footer is a mirror, and losing it must not undo a recorded
+    rating or a real resolution. The broad ``except`` keeps the vendor's error type
+    behind the plugin (nothing in ``apps/`` imports the Slack SDK) while still failing
+    visibly in the log; the class name is logged, never a vendor message.
     """
     text, blocks = format_rca_card(card, ack=ack)
     try:

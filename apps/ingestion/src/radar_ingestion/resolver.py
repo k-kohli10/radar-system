@@ -1,39 +1,30 @@
 """Resolution matching — the alert-level state machine.
 
-Deliberately separate from :mod:`radar_ingestion.deduper`, because dedup and
-resolution answer two different questions and must not drift into sharing a
-predicate:
+Deliberately separate from :mod:`radar_ingestion.deduper`: the two answer different
+questions and must not drift into sharing a predicate.
 
-- **Dedup** (deduper) asks "is this firing alert a recurrence or the same
-  episode?" — a question about FIRING alerts, bounded by the 5-minute window. A
-  second firing outside the window is a NEW episode.
-- **Resolution** (here) asks "which incident is this ending signal for?" — no time
-  bound at all. An alert usually clears minutes or hours after it opened, well past
-  the dedup window, so a windowed lookup would miss almost every real resolve. And
-  by the time it clears the incident is usually ``investigating`` (the RCA card was
-  sent), not ``open``.
+- **Dedup** asks "is this firing alert the same episode?" — about FIRING alerts,
+  bounded by the 5-minute window; a second firing outside it is a NEW episode.
+- **Resolution** (here) asks "which incident is this ending signal for?" — NO time
+  bound. An alert usually clears well past the dedup window, by which time the
+  incident is usually ``investigating``, not ``open``, so a windowed open-only
+  lookup would miss almost every real resolve.
 
-So resolution matches an incident that shares the fingerprint and is in a
-NON-TERMINAL state — ``open`` or ``investigating``, exactly ADR 0016 Amendment 2's
-``{open, investigating} -> resolved`` authority — with NO window. See D1 in the
-Phase 9 working notes.
+Resolution therefore matches a same-fingerprint incident in a NON-TERMINAL state
+(``open`` or ``investigating``) with no window — ADR 0016 Amendment 2's
+``{open, investigating} -> resolved`` authority; see D1 in the Phase 9 notes.
 
-This module owns three operations: finding the incident a resolve pertains to
-(under a row lock), flipping that incident's still-firing alert rows to
-``resolved``, and — gated on no firing alert remaining — transitioning the incident
-itself. That last step is the KEY point of ADR 0016's "Multiple Alerts on One
-Incident": a resolved incident is a CONSEQUENCE of its alerts clearing, so the
-incident moves only when the LAST firing alert on it resolves, never on the first.
+Three operations: find the incident a resolve pertains to (under a row lock), flip
+its still-firing alert rows to ``resolved``, and — gated on no firing alert
+remaining — transition the incident itself. That gate is ADR 0016's "Multiple
+Alerts on One Incident": a resolved incident is a CONSEQUENCE of its alerts
+clearing, so it moves only when the LAST firing alert resolves, never the first.
 
-Today every alert on an incident shares one fingerprint (dedup attaches only
-same-fingerprint alerts and the incident's fingerprint is frozen at the first),
-so a single resolve clears them all and the gate always finds zero firing left —
-the incident resolves on that one resolve. The gate is therefore a FORWARD-GUARD:
-it earns its keep only in a future where an incident could hold alerts of several
-conditions, where a resolve for one must not resolve the incident while another
-still fires. Its "hold back while a firing alert remains" branch is unreachable by
-today's pipeline and is proven synthetically; its "resolve when none remain" branch
-is the live path.
+Today every alert on an incident shares one fingerprint, so one resolve clears them
+all and the gate always finds zero firing left. The gate is a FORWARD-GUARD for a
+future where an incident holds alerts of several conditions; its "hold back while a
+firing alert remains" branch is unreachable by today's pipeline and is proven
+synthetically.
 """
 
 from __future__ import annotations
@@ -79,25 +70,16 @@ async def find_resolvable_incident(
     resolve as received-and-ignored.
 
     If more than one non-terminal incident shares the fingerprint the most recently
-    opened one wins (D3). This should not happen in normal operation: dedup keeps
-    one open incident per fingerprint within the window, so a second only appears
-    when an older incident stayed open PAST the window and a newer one opened for
-    the same condition. When it does, the older incident is effectively stale —
-    abandoned past its window — and resolving the NEWEST matches the ending signal
-    to the episode it belongs to. The stale one is deliberately left open and
-    visible, so a lingering open incident is the symptom rather than a mystery; over-
-    resolving would both close an incident on evidence that isn't about it and erase
-    that signal.
+    opened one wins (D3) — that only happens when an older incident stayed open past
+    the dedup window and a newer one opened for the same condition, and the ending
+    signal belongs to the newer episode. The stale one is deliberately left open and
+    visible rather than over-resolved on evidence that isn't about it.
 
-    The incident is returned under a row lock (``FOR UPDATE``). Resolving is a
-    read-modify-write on the incident — read status, flip alerts, transition if
-    quiet — so the whole path holds the lock: two concurrent resolves for the same
-    incident serialise, and the loser re-evaluates the ``status IN {open,
-    investigating}`` predicate after the winner commits. Because the winner moved the
-    incident to ``resolved`` (terminal), the row no longer matches and the loser gets
-    ``None`` — recorded as an ignored duplicate rather than fighting to resolve an
-    incident that already is. (This closes concurrent DUPLICATE resolves; a firing
-    webhook racing a resolve is discussed in the commit's scope notes.)
+    The incident is returned under a row lock (``FOR UPDATE``) held for the whole
+    read-modify-write (read status, flip alerts, transition if quiet). Two concurrent
+    resolves therefore serialise: the loser re-evaluates the ``status IN {open,
+    investigating}`` predicate after the winner commits, finds the row now terminal,
+    and gets ``None`` — recorded as an ignored duplicate.
     """
     stmt = (
         select(Incident)
@@ -122,18 +104,14 @@ async def mark_incident_alerts_resolved(
     ``firing``, setting ``status = 'resolved'`` and ``resolved_at`` to the webhook
     time. Returns how many rows changed.
 
-    The ``status = 'firing'`` predicate is load-bearing and does double duty as the
-    redelivery short-circuit: Alertmanager retries, so the same resolve arrives more
-    than once. On the second delivery every row is already ``resolved``, so the
-    UPDATE matches nothing, changes nothing, and — crucially — does NOT re-stamp
-    ``resolved_at`` to the later webhook time. Idempotency falls out of the predicate;
-    there is no separate "have we seen this?" bookkeeping. Drop the predicate and a
-    duplicate resolve moves ``resolved_at`` forward — the mutation the redelivery test
-    guards.
+    The ``status = 'firing'`` predicate is load-bearing: it doubles as the redelivery
+    short-circuit. Alertmanager retries, and on the second delivery every row is
+    already ``resolved``, so the UPDATE matches nothing and does NOT re-stamp
+    ``resolved_at`` to the later webhook time. Drop the predicate and a duplicate
+    resolve moves ``resolved_at`` forward — the mutation the redelivery test guards.
 
-    Adds no new alert row: a resolve is the firing alert(s) transitioning
-    ``firing -> resolved``, not a new alert. Does not commit — the caller owns the
-    transaction boundary, as everywhere else in ingestion's write path.
+    Adds no new alert row (a resolve is a transition in place) and does not commit —
+    the caller owns the transaction boundary, as everywhere in ingestion's write path.
     """
     stmt = (
         update(Alert)
@@ -167,22 +145,19 @@ async def resolve_incident_if_quiet(
 ) -> bool:
     """Transition the incident to ``resolved`` iff no firing alert remains.
 
-    THE GATE. Counts the incident's still-firing alert rows; if any remain it does
-    NOTHING and returns ``False`` — the incident is not resolved until its LAST alert
-    clears (ADR 0016, "partial resolution does not change incident status"). If none
-    remain it drives ``IncidentRepository.transition_status`` to ``resolved``, actor
-    ``ingestion``, ``resolved_by: alert_resolution``, stamped with the webhook time,
-    and returns ``True``.
+    THE GATE. If any firing alert row remains it does NOTHING and returns ``False`` —
+    the incident is not resolved until its LAST alert clears (ADR 0016, "partial
+    resolution does not change incident status"). If none remain it drives
+    ``IncidentRepository.transition_status`` to ``resolved``, actor ``ingestion``,
+    ``resolved_by: alert_resolution``, stamped with the webhook time.
 
-    The transition reloads the incident under its own ``FOR UPDATE`` and validates
-    the edge, so it also serialises against a concurrent transition and rejects an
-    illegal one. This method does not commit — the caller owns the boundary, so the
-    alert flips and the incident transition commit as one unit.
+    The transition reloads the incident under its own ``FOR UPDATE`` and validates the
+    edge, so it serialises against a concurrent transition and rejects an illegal one.
+    Does not commit — the caller owns the boundary, so the alert flips and the
+    incident transition commit as one unit.
 
-    Removing the firing-count guard (always transitioning) is the mutation the
-    synthetic gate test catches: with a firing alert still present it would resolve
-    the incident anyway, producing a resolved incident that still contains a firing
-    alert.
+    Removing the firing-count guard is the mutation the synthetic gate test catches:
+    it would produce a resolved incident that still contains a firing alert.
     """
     if await count_firing_alerts(session, incident_id=incident_id) > 0:
         return False

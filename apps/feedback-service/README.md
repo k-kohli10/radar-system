@@ -1,4 +1,4 @@
-# radar-feedback-service
+# 💬 radar-feedback-service
 
 The last stage of the RADAR incident pipeline, and the only one an engineer sees.
 
@@ -10,7 +10,12 @@ See the module docstring in `src/radar_feedback_service/__init__.py` for the
 layout, and `docs/architecture/agent-pipeline.md` for where it sits in the
 pipeline.
 
-## RCA card buttons
+## 📚 Contents
+
+- [🃏 RCA card buttons](#-rca-card-buttons)
+- [🤖 `@radar` bot commands](#-radar-bot-commands)
+
+## 🃏 RCA card buttons
 
 Each delivered card carries three interactive buttons (`cards.py`):
 
@@ -25,7 +30,7 @@ Block Kit has no disabled-button state, so there is nothing to grey out; the
 button is removed and a static "✅ Resolved" line takes its place. 👍/👎 stay,
 since rating the RCA's usefulness remains meaningful after resolution.
 
-## `@radar` bot commands
+## 🤖 `@radar` bot commands
 
 Read-only: no `@radar` command mutates state (that's what the card buttons are
 for). The full reference is the bot's own `_HELP` text (`bot.py`), reproduced here:

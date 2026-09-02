@@ -1,4 +1,12 @@
-# ADR 0003: Postgres Transactional Outbox for All Agent Communication
+# 📮 ADR 0003: Postgres Transactional Outbox for All Agent Communication
+
+## Contents
+
+- [Status](#status) · [Context](#context) · [Decision](#decision) · [Consequences](#consequences)
+- [Why Not Kafka or NATS](#why-not-kafka-or-nats)
+- [Why the Outbox Pattern Works Here](#why-the-outbox-pattern-works-here)
+- [Tradeoffs Accepted](#tradeoffs-accepted)
+- [Migration Path If You Outgrow This](#migration-path-if-you-outgrow-this)
 
 ## Status
 Accepted
@@ -43,60 +51,30 @@ a fire-and-forget event.
   push-based broker. Acceptable for an incident-response pipeline where end-to-end
   latency is measured in seconds, not microseconds.
 
-## Extended rationale
-
-Moved out of `docs/implementation_plan.md`, which carried a second, longer
-write-up of this same decision. The Context and Decision above are canonical;
-what follows is the comparison and trade-off detail that write-up added.
-
-## Why Not Kafka
+## Why Not Kafka or NATS
 
 Kafka is the right choice when you need high throughput, multiple independent
-consumers per topic, long-term event retention, or replay from any point in history.
+consumers per topic, long-term retention, or replay from any point in history.
+RADAR has none of those requirements in v1: one pipeline, three agents, each
+processing one event in sequence, at tens of incidents per hour.
 
-RADAR has none of those requirements in v1. You have one pipeline with three agents
-processing one event each in sequence. Peak load is tens of incidents per hour, not
-millions of events per second.
+| | What it costs you | Why RADAR skips it |
+|---|---|---|
+| **Kafka** | Another stateful system (brokers, ZooKeeper/KRaft, topic configs), schema versioning, consumer group coordination, a separate failure domain, real local-dev overhead | No high-throughput, multi-consumer, or replay requirement at this scale |
+| **NATS** | Still an external system to run and monitor; JetStream (for persistence) adds config; consumer-side idempotency is still required either way | "Simpler than Kafka" isn't the same as "simpler than the Postgres you already run" |
 
-What Kafka adds for this use case:
-
-- Another stateful system to operate (brokers, ZooKeeper or KRaft, topic configs)
-- Schema registry or manual schema versioning per topic
-- Consumer group coordination complexity
-- A completely separate failure domain to monitor and alert on
-- Significant local dev overhead (Kafka is not trivial to run in docker compose)
-- Steeper debugging curve: when something goes wrong, you are now debugging
-  two systems instead of one
-
-This is a solo project on a small self-hosted cluster. Adding Kafka would double the
-operational surface area before a single line of application code runs.
-
----
-
-## Why Not NATS
-
-NATS is lighter than Kafka and fits smaller deployments better. But:
-
-- It is still an external system to run, monitor, and understand
-- NATS JetStream (needed for persistence) adds configuration complexity
-- At-least-once delivery still requires consumer-side idempotency, which you need
-  to build anyway
-- Debugging a NATS consumer failure is harder than debugging a Postgres row
-
-The argument for NATS is usually "it is simpler than Kafka." That is true. But
-"simpler than Kafka" is not the same as "simpler than Postgres you already have."
+This is a solo project on a small self-hosted cluster. Either option would double
+the operational surface area before a line of application code runs.
 
 ---
 
 ## Why the Outbox Pattern Works Here
 
-The critical property is atomicity. When ingestion creates an incident, the outbox
-event for the watcher must either both commit or both roll back. There is no world
-where the incident exists but the watcher never gets triggered, or vice versa.
-
-With an external broker you lose this guarantee unless you implement a two-phase
-commit or an outbox pattern anyway. So you end up building the outbox pattern on top
-of Kafka, which is strictly worse than just using the outbox pattern on Postgres.
+The critical property is atomicity. When ingestion creates an incident, the incident
+row and the watcher's outbox event commit in one transaction: the incident exists if
+and only if the watcher gets triggered. An external broker recovers this guarantee
+only by layering an outbox pattern on top of it, so Postgres delivers directly what
+Kafka would need extra machinery to match.
 
 The outbox pattern on Postgres gives you:
 - Atomicity between state change and event, guaranteed by the database
@@ -111,24 +89,14 @@ The outbox pattern on Postgres gives you:
 
 ## Tradeoffs Accepted
 
-This approach has real limitations that are acceptable for v1 but worth knowing:
+Real limitations, acceptable for v1:
 
-**Single worker bottleneck**: the outbox-worker is a single process. If it crashes,
-the pipeline stops until it restarts. Kubernetes restarts it automatically but there
-is a gap. Kafka would give you consumer group redundancy. Accept this for v1.
-
-**Polling overhead**: the worker polls every 2 seconds. This is 2 seconds of added
-latency per hop in the pipeline. With three agents that is up to 6 seconds of
-dispatch latency on top of LLM call time. Acceptable for an incident response
-platform where end-to-end latency is measured in minutes, not milliseconds.
-
-**Postgres under load**: if incident volume spikes significantly, the outbox table
-becomes a hot write path. At homelab scale this is not a concern. At production
-scale with thousands of incidents per hour, you would revisit this.
-
-**No fan-out**: one event goes to one target service. If you ever need multiple
-consumers for the same event you need to write multiple outbox rows. Kafka handles
-fan-out natively. This is not a v1 requirement.
+| Tradeoff | Cost | Why it's acceptable now |
+|---|---|---|
+| **Single worker bottleneck** | If outbox-worker crashes, the pipeline stops until Kubernetes restarts it | No consumer-group redundancy needed yet |
+| **Polling overhead** | 2s per hop; up to 6s across three agents, on top of LLM call time | End-to-end latency is measured in minutes, not milliseconds |
+| **Postgres under load** | The outbox table becomes a hot write path at high volume | Not a concern at homelab scale; revisit past thousands of incidents/hour |
+| **No fan-out** | One event goes to one target; multiple consumers need multiple rows | Not a v1 requirement |
 
 ---
 

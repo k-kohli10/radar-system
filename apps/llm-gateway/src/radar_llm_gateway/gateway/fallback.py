@@ -1,13 +1,13 @@
 """Provider fallback: the second half of the failure policy.
 
-Runs an operation against the mode's primary binding under the retry policy;
-when the primary is exhausted (or fails non-retryably — a 400/401 on one
-vendor can still succeed on the fallback's vendor or model), the configured
-fallback binding gets its own full retry cycle. When both are spent — or the
-primary fails with no fallback configured — :class:`AllProvidersFailedError`
-raises, which the API layer answers with 503. The caller then degrades per
-the platform policy (the Reasoner writes a template RCA with
-``is_fallback=true``); the gateway itself never fabricates a completion.
+Runs an operation against the mode's primary binding under the retry policy.
+When the primary is exhausted, or fails non-retryably (a 400/401 on one vendor
+can still succeed on the fallback's vendor or model), the configured fallback
+binding gets its own full retry cycle. When both are spent, or the primary
+fails with no fallback configured, :class:`AllProvidersFailedError` raises and
+the API layer answers 503. The caller then degrades per the platform policy
+(the Reasoner writes a template RCA with ``is_fallback=true``); the gateway
+itself never fabricates a completion.
 
 The fallback transition is logged with metadata only and reported through
 ``on_fallback`` so the service layer can count

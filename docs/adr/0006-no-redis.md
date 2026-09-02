@@ -1,4 +1,4 @@
-# ADR 0006: No Redis
+# 🚫 ADR 0006: No Redis
 
 ## Status
 Accepted

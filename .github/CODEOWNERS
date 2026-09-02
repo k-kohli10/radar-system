@@ -1,0 +1,7 @@
+# Code owners for RADAR.
+# Every PR automatically requests a review from the owner(s) listed here.
+# The last matching pattern wins. See:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repo.
+* @k-kohli10

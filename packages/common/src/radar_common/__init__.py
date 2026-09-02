@@ -14,10 +14,7 @@ beyond FastAPI:
 - ``ids`` — UUID helpers for event and correlation ids.
 - ``time`` — timezone-aware UTC helpers.
 
-Every public symbol is re-exported here, so consumers import from the top
-level::
-
-    from radar_common import configure_logging, RadarError, new_correlation_id
+Every public symbol is re-exported here, so consumers import from the top level.
 """
 
 from __future__ import annotations

@@ -2,8 +2,8 @@
 
 ``make index``, or ``python -m radar_knowledge_service.index``.
 
-Composes the proven parts — the store, the embedding client, the incremental
-indexer — from the same settings and Vault-mounted secrets the service uses.
+Composes the proven parts (the store, the embedding client, the incremental
+indexer) from the same settings and Vault-mounted secrets the service uses.
 Failures are loud: a missing secret, an unreachable cluster, or an embedding
 failure raises and exits non-zero, because a cron job that swallows its own
 failure is an index that quietly stops updating.

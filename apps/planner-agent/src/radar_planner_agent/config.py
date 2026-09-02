@@ -11,7 +11,7 @@ The same strict split every RADAR service keeps (ADR 0007):
 ``service_name`` is ``planner-agent``, and that string is load-bearing in three
 places that must agree: the ``target_service`` the watcher writes on its outbox
 events, the ``processed_by`` column this service writes in ``processed_events``,
-and the Vault path its secrets come from. It is not cosmetic.
+and the Vault path its secrets come from.
 """
 
 from __future__ import annotations

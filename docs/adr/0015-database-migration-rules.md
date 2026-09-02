@@ -1,8 +1,27 @@
-# ADR 0015: Database Migration Rules
+# 🗄️ ADR 0015: Database Migration Rules
 
 **Status**: Accepted
 **Date**: 2025-01-15
-**Author**: Kashyap
+**Author**: Kashyap Kohli
+
+---
+
+## Contents
+
+- [Context](#context)
+- [Tooling](#tooling)
+- [Rule 1: Every migration must be reversible](#rule-1-every-migration-must-be-reversible)
+- [Rule 2: Migrations must be backward compatible with the running service version](#rule-2-migrations-must-be-backward-compatible-with-the-running-service-version)
+- [Rule 3: Non-null columns require a two-step migration](#rule-3-non-null-columns-require-a-two-step-migration)
+- [Rule 4: Never use Alembic autogenerate blindly](#rule-4-never-use-alembic-autogenerate-blindly)
+- [Rule 5: Migrations run once and never get edited after merge](#rule-5-migrations-run-once-and-never-get-edited-after-merge)
+- [Rule 6: Migration filenames must be descriptive](#rule-6-migration-filenames-must-be-descriptive)
+- [Rule 7: Every migration is tested in CI against a real Postgres instance](#rule-7-every-migration-is-tested-in-ci-against-a-real-postgres-instance)
+- [Rule 8: Production migrations run before code deployment](#rule-8-production-migrations-run-before-code-deployment)
+- [Rule 9: Long-running migrations must be done with care](#rule-9-long-running-migrations-must-be-done-with-care)
+- [Rule 10: The audit_log table never gets a destructive migration](#rule-10-the-audit_log-table-never-gets-a-destructive-migration)
+- [Migration Checklist](#migration-checklist)
+- [Decision Record](#decision-record)
 
 ---
 
@@ -41,27 +60,26 @@ def downgrade() -> None:
     op.drop_column("incidents", "severity_score")
 ```
 
-### Rule 2: Migrations must be backward compatible with the running service version
+## Rule 2: Migrations must be backward compatible with the running service version
 
 The database schema after a migration must work with the previous version of the
 application code. This is because in a rolling deployment, new pods come up before
 old pods come down. During the transition, both the old code and the new code are
 running against the same database.
 
-Concretely:
-- Adding a nullable column is backward compatible. Old code ignores it.
-- Adding a NOT NULL column without a default is not backward compatible. Old code
-  cannot insert rows because it does not know to supply the new column.
-- Renaming a column is not backward compatible. Old code reads the old name.
-- Dropping a column is not backward compatible. Old code reads a column that does
-  not exist anymore.
+| Change | Backward compatible? | Why |
+|---|---|---|
+| Adding a nullable column | Yes | Old code ignores it |
+| Adding a NOT NULL column without a default | No | Old code cannot insert rows because it does not know to supply the new column |
+| Renaming a column | No | Old code reads the old name |
+| Dropping a column | No | Old code reads a column that does not exist anymore |
 
 The deploy sequence is always: run migration first, then deploy new application code.
 This means the new schema must work with old code.
 
 ---
 
-### Rule 3: Non-null columns require a two-step migration
+## Rule 3: Non-null columns require a two-step migration
 
 If you need a NOT NULL column without a default:
 
@@ -82,7 +100,7 @@ Never combine these into one migration. The gap between them is intentional.
 
 ---
 
-### Rule 4: Never use Alembic autogenerate blindly
+## Rule 4: Never use Alembic autogenerate blindly
 
 `alembic revision --autogenerate` is useful for detecting what changed but its
 output must be reviewed and cleaned up before committing. Autogenerate frequently:
@@ -96,7 +114,7 @@ Always read the generated migration before committing it. If it looks wrong, it 
 
 ---
 
-### Rule 5: Migrations run once and never get edited after merge
+## Rule 5: Migrations run once and never get edited after merge
 
 Once a migration is merged to main, it is immutable. If you made a mistake in a
 migration, write a new migration that corrects it. Never edit the existing file.
@@ -107,7 +125,7 @@ revision ID. That is not a debugging problem you want.
 
 ---
 
-### Rule 6: Migration filenames must be descriptive
+## Rule 6: Migration filenames must be descriptive
 
 Alembic generates revision IDs like `ae1027a6acf`. The filename also needs a
 description:
@@ -122,7 +140,7 @@ alembic revision --autogenerate -m "add_severity_score_to_incidents"
 
 ---
 
-### Rule 7: Every migration is tested in CI against a real Postgres instance
+## Rule 7: Every migration is tested in CI against a real Postgres instance
 
 The CI pipeline runs `alembic upgrade head` and then `alembic downgrade -1` on a
 fresh Postgres container. If either direction fails, the PR does not merge.
@@ -136,7 +154,7 @@ This catches:
 
 ---
 
-### Rule 8: Production migrations run before code deployment
+## Rule 8: Production migrations run before code deployment
 
 The deploy order is always:
 
@@ -149,7 +167,7 @@ Never deploy new code first and run the migration after. See Rule 2 for why.
 
 ---
 
-### Rule 9: Long-running migrations must be done with care
+## Rule 9: Long-running migrations must be done with care
 
 Adding an index on a large table takes a lock and can block writes for minutes.
 In Postgres you can create indexes concurrently to avoid this:
@@ -172,7 +190,7 @@ it when RADAR has real traffic.
 
 ---
 
-### Rule 10: The audit_log table never gets a destructive migration
+## Rule 10: The audit_log table never gets a destructive migration
 
 `audit_log` is append-only by design. Migrations on this table may only:
 - Add new columns (nullable)

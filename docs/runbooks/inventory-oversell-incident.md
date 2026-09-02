@@ -27,7 +27,7 @@ first action, ahead of understanding why it happened.
 
 ## Symptoms
 
-- Available stock negative for one or more products — the unambiguous signal,
+- Available stock negative for one or more products: the unambiguous signal,
   and one that should never occur under correct behaviour.
 - Fulfilment reporting orders for items with no physical stock, usually the way
   this is discovered.
@@ -35,7 +35,7 @@ first action, ahead of understanding why it happened.
   window, for a specific product.
 - Reservation count lower than the number of live checkouts, indicating
   reservations are being released or skipped when they should be held.
-- Frequently correlated with a flash sale, promotion, or launch — high
+- Frequently correlated with a flash sale, promotion, or launch: high
   concurrency on a small number of products is the condition under which this
   failure mode appears.
 
@@ -47,7 +47,7 @@ refund, and an apology. Unlike a decline or a timeout, the customer completed
 the purchase successfully and has every reason to expect it.
 
 The damage is worst on promotional launches, which is precisely when this failure
-is most likely — high concurrency on limited stock is both the trigger condition
+is most likely: high concurrency on limited stock is both the trigger condition
 and the moment with the most customer attention.
 
 Fulfilment cost compounds if shipping begins before the discrepancy is caught:
@@ -64,7 +64,7 @@ diagnosis.
    scaling with concurrency. The most common cause by a wide margin.
 2. **Reservation released prematurely.** Stock is freed while a checkout is
    still live, so another customer takes it. Distinguishing signal: the mirror of
-   `inventory-stock-reservation-leak` — expiry too aggressive, or a release
+   `inventory-stock-reservation-leak`: expiry too aggressive, or a release
    firing on the wrong event.
 3. **Stock level corrected upward in error.** A manual adjustment, a bad import,
    or a sync from an upstream system set availability above physical stock.
@@ -76,7 +76,7 @@ diagnosis.
    route.
 5. **Stale cache serving old availability.** Availability answered from a cache
    showing stock that has since been committed. Distinguishing signal: oversell
-   with correct database state — the database was right and the answer came from
+   with correct database state: the database was right and the answer came from
    somewhere else.
 
 ## Investigation
@@ -105,7 +105,7 @@ diagnosis.
 fulfilment for them. Recovering an oversold order is far cheaper before it ships
 than after.
 
-**Race condition (cause 1):** reservation must be atomic — a conditional
+**Race condition (cause 1):** reservation must be atomic: a conditional
 decrement that fails when insufficient stock remains, rather than a read
 followed by a write. Optimistic concurrency with a retry is acceptable;
 read-then-write is not, and no amount of narrowing the window makes it correct.
@@ -128,7 +128,7 @@ drift from the first.
 not come from cache. Cache the product catalogue, not the commitment decision.
 
 **Recovery, in every case:** reconcile oversold orders against physical stock,
-decide allocation deliberately — order time is the defensible rule — then cancel
+decide allocation deliberately (order time is the defensible rule), then cancel
 and refund the remainder with proactive communication. Do not let affected
 customers discover it from a delivery date that silently slips.
 
@@ -142,19 +142,19 @@ Notify fulfilment and customer service at once, ahead of root cause. Fulfilment
 must stop shipping affected items and customer service will start receiving
 contacts as soon as cancellations go out.
 
-Escalate to business and finance for any material exposure — refunds, goodwill
+Escalate to business and finance for any material exposure: refunds, goodwill
 compensation, and the decision about which customers are cancelled are not
 engineering calls. Engineering's job is the accurate list and the stopped
 bleeding.
 
 ## Related
 
-- `inventory-stock-reservation-leak` — the mirror failure. That one holds stock
+- `inventory-stock-reservation-leak`: the mirror failure. That one holds stock
   that should be free and costs sales; this one frees stock that should be held
   and costs orders. Same subsystem, opposite direction, and the expiry window is
   the shared dial that trades one against the other.
-- `inventory-check-latency` — a performance problem, not a correctness one. A
+- `inventory-check-latency`: a performance problem, not a correctness one. A
   slow inventory check delays a customer; this one makes a promise that cannot
   be kept.
-- `inventory-cache-invalidation-storm` — relevant via cause 5, since serving
+- `inventory-cache-invalidation-storm`: relevant via cause 5, since serving
   availability from cache is what makes stale reads possible in the first place.

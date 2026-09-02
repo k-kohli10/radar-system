@@ -1,32 +1,28 @@
 """The RCA card: a recommendation and its incident, rendered to Slack blocks.
 
 A pure function. It takes the fields the caller has already read from the
-``recommendations`` and ``incidents`` rows and returns a Block Kit ``blocks`` list
-plus the fallback ``text``. No database, no Slack client, no I/O — so it is
-trivially testable and the delivery path (which does the I/O) stays thin.
+``recommendations`` and ``incidents`` rows and returns a Block Kit ``blocks`` list plus
+the fallback ``text``. No database, no Slack client, no I/O, so it is trivially
+testable and the delivery path (which does the I/O) stays thin.
 
-Rendered from ROWS, never from the event payload: an incident keeps moving after
-the RCA is written (severity escalates, the incident resolves) and a
-recommendation is the one row a human can later correct, so the card must show
-what the incident IS now, not a frozen copy from when the event was emitted. The
+Rendered from ROWS, never from the event payload: an incident keeps moving after the
+RCA is written (severity escalates, the incident resolves) and a recommendation is the
+one row a human can later correct, so the card must show what the incident IS now. The
 caller passes current values; this function only lays them out.
 
 Two variants, keyed on ``is_fallback``:
 
-- **AI analysis** — the reasoner's LLM produced the RCA.
-- **AI Unavailable** — the gateway was down, so the RCA is the planner's own
-  investigation steps (``is_fallback=True``, ``confidence=low``). The header says
-  so plainly: an engineer must not read a template checklist as a model's
-  diagnosis. The row carries the distinction; the card surfaces it.
+- **AI analysis**: the reasoner's LLM produced the RCA.
+- **AI Unavailable**: the gateway was down, so the RCA is the planner's own
+  investigation steps (``is_fallback=True``, ``confidence=low``). The header says so
+  plainly, because an engineer must not read a template checklist as a model's
+  diagnosis.
 
 The interactive controls (👍 / 👎 / Resolve) live in the actions block. Each button
-carries a RADAR ``action_id`` from the closed :class:`InteractionAction` set — the SAME
-enum the callback parser reads — and the recommendation id as its ``value``. So the
-formatter that WRITES a button and the parser that READS the click back share one
-definition and cannot drift; this is the send half of that contract. The buttons landed
-with their handler (not before): a button Slack renders but nothing handles would fail
-on click, so the click path — parser, handler, and the wired Socket Mode listener —
-exists before these are shown.
+carries a RADAR ``action_id`` from the closed :class:`InteractionAction` set, the same
+enum the callback parser reads, and the recommendation id as its ``value``, so the
+formatter that writes a button and the parser that reads the click back share one
+definition and cannot drift. This is the send half of that contract.
 """
 
 from __future__ import annotations
@@ -47,15 +43,14 @@ _SECTION_TEXT_LIMIT = 2900
 
 _TRUNCATION_MARKER = "… (truncated)"
 
-#: Mirrors ``radar_database.lifecycle.STATUS_RESOLVED``. Not imported directly — this
-#: module is deliberately database-free (see the module docstring) — but the two must
-#: agree, since this is what decides whether the Resolve button still renders.
+#: Mirrors ``radar_database.lifecycle.STATUS_RESOLVED``, not imported directly because
+#: this module is database-free. The two must agree: this decides whether the Resolve
+#: button still renders.
 _STATUS_RESOLVED = "resolved"
 
-#: Severity is ingestion's vocabulary (``radar_ingestion.normalizer``), not this
-#: module's — a value outside this set is a contract slip upstream, so it falls back
-#: to a neutral dot rather than raising: the card must still deliver (same "visible,
-#: not silent" rule as ``_format_actions``'s empty-list placeholder).
+#: Severity is ingestion's vocabulary (``radar_ingestion.normalizer``). A value outside
+#: this set is a contract slip upstream, so it falls back to a neutral dot rather than
+#: raising: the card must still deliver.
 _SEVERITY_ICON = {
     "critical": "🔴",
     "high": "🟠",
@@ -63,9 +58,9 @@ _SEVERITY_ICON = {
     "low": "🟢",
 }
 
-#: Confidence is the reasoner's self-rating of its own RCA — inverted from severity
+#: Confidence is the reasoner's self-rating of its own RCA, inverted from severity
 #: (low confidence is the warning sign here), so it gets its own map rather than
-#: reusing ``_SEVERITY_ICON`` by accident.
+#: reusing ``_SEVERITY_ICON``.
 _CONFIDENCE_ICON = {
     "high": "🟢",
     "medium": "🟡",
@@ -101,16 +96,14 @@ def format_rca_card(
 ) -> tuple[str, list[dict[str, object]]]:
     """Render ``data`` to ``(fallback_text, blocks)`` for a Slack notification.
 
-    ``fallback_text`` is the notification/preview string Slack shows where blocks
-    do not render (push notifications, the sidebar) — always meaningful, never
-    empty. ``blocks`` is the card layout.
+    ``fallback_text`` is the notification/preview string Slack shows where blocks do
+    not render (push notifications, the sidebar). ``blocks`` is the card layout.
 
-    ``ack`` appends one context line acknowledging an interaction (a 👍/👎 recorded,
-    or the incident resolved) when the callback handler re-renders the card in place.
-    It is the ONLY addition the reflection makes: the rest of the card is rebuilt
-    from the current rows, so a resolved incident already shows ``Status: resolved``
-    without the footer having to say it twice. ``None`` (the delivery path) renders
-    the plain card with no acknowledgement line.
+    ``ack`` appends one context line acknowledging an interaction (a 👍/👎 recorded, or
+    the incident resolved) when the callback handler re-renders the card in place. It
+    is the ONLY addition the reflection makes: the rest of the card is rebuilt from the
+    current rows, so a resolved incident already shows ``Status: resolved``. ``None``
+    (the delivery path) renders the plain card.
     """
     header = _header_text(data)
     fallback_text = f"{header}: {data.title}"
@@ -135,15 +128,13 @@ def format_rca_card(
     ]
 
     if data.status == _STATUS_RESOLVED:
-        # Block Kit buttons have no disabled state — a "greyed out" Resolve button is
-        # not something Slack offers. The honest equivalent: the button is gone (there
-        # is nothing left to resolve), and this static line says so where it was.
+        # Block Kit buttons have no disabled state, so the Resolve button is dropped
+        # instead and this static line stands where it was.
         blocks.append(_context("✅ *Resolved* — no further action needed"))
 
     if data.is_fallback:
-        # The engineer is reading the planner's investigation steps, not a model's
-        # diagnosis. Say it again at the foot, so the distinction survives a card
-        # skimmed from the bottom up.
+        # Repeated at the foot so the distinction (planner's investigation steps, not
+        # a model's diagnosis) survives a card skimmed from the bottom up.
         blocks.append(
             _context(
                 "⚠️ Generated without AI — the LLM gateway was unavailable, so these "
@@ -158,11 +149,11 @@ def format_rca_card(
 
 
 def _header_text(data: RcaCardData) -> str:
-    # Lead with the alert the incident is about, so a channel of cards is scannable
-    # by name. The incident title is "<service_name> <alert_name>" (ingestion's
+    # Lead with the alert the incident is about, so a channel of cards is scannable by
+    # name. The incident title is "<service_name> <alert_name>" (ingestion's
     # radar_ingestion.publisher) and the service already has its own field, so show
-    # just the alert here; if the title is not in that shape, fall back to it whole.
-    # The fallback keeps "AI Unavailable" — that distinction must be unmistakable.
+    # just the alert here; a title not in that shape falls back to the whole string.
+    # The fallback keeps "AI Unavailable": that distinction must be unmistakable.
     alert_name = data.title.removeprefix(f"{data.service_name} ")
     if data.is_fallback:
         return f"⚠️ RADAR Alert : {alert_name} — AI Unavailable"
@@ -172,9 +163,9 @@ def _header_text(data: RcaCardData) -> str:
 def _format_actions(actions: Sequence[RecommendedAction]) -> str:
     """A numbered list of actions in ``order``, truncated to fit one section.
 
-    Empty is not expected — the recommendation contract requires at least one
-    action — but an empty list renders an honest placeholder rather than a blank
-    section, so a contract slip upstream is visible on the card instead of silent.
+    The recommendation contract requires at least one action, so an empty list renders
+    a placeholder rather than a blank section: a contract slip upstream is visible on
+    the card instead of silent.
     """
     if not actions:
         return "_No actions recorded._"
@@ -186,17 +177,16 @@ def _format_actions(actions: Sequence[RecommendedAction]) -> str:
 def _actions_block(recommendation_id: UUID, *, resolved: bool) -> dict[str, object]:
     """The 👍 / 👎 / Resolve buttons, each tagged for the callback parser.
 
-    ``action_id`` is the button's meaning (from :class:`InteractionAction`, so it cannot
-    disagree with the parser); ``value`` is the recommendation id the click acts on —
-    the only identity the callback carries, from which the handler derives the incident.
-    Resolve is styled ``primary`` (Slack's green) as the affirmative, forward-moving
-    action — ``danger`` is reserved for destructive actions, which resolving is not.
+    ``action_id`` is the button's meaning (from :class:`InteractionAction`, so it
+    cannot disagree with the parser); ``value`` is the recommendation id the click acts
+    on, the only identity the callback carries, from which the handler derives the
+    incident. Resolve is styled ``primary`` (Slack's green): ``danger`` is reserved for
+    destructive actions.
 
-    ``resolved`` drops the Resolve button once the incident already is: Slack Block Kit
-    buttons cannot be disabled or greyed out, so a resolved incident showing an active
-    Resolve button would look clickable while doing nothing new (the second click is
-    already handled as a benign no-op — see ``_resolve``'s loser path — but hiding the
-    button is the honest UI for it). 👍/👎 stay: rating an RCA's usefulness remains
+    ``resolved`` drops the Resolve button once the incident already is. Block Kit
+    buttons cannot be greyed out, so an active Resolve button on a resolved incident
+    would look clickable while doing nothing new (the second click is a benign no-op;
+    see ``_resolve``'s loser path). 👍/👎 stay: rating an RCA's usefulness remains
     meaningful after the incident is closed.
     """
     rec = str(recommendation_id)
@@ -212,8 +202,8 @@ def _actions_block(recommendation_id: UUID, *, resolved: bool) -> dict[str, obje
 
 
 def _iconize(value: str, icons: dict[str, str]) -> str:
-    """``high`` -> ``🟠 High`` — a color cue an on-call engineer reads faster than
-    the word alone, especially scanning a channel with several cards in it."""
+    """``high`` -> ``🟠 High``: a color cue an on-call engineer reads faster than the
+    word alone when scanning a channel with several cards in it."""
     icon = icons.get(value, _UNKNOWN_ICON)
     return f"{icon} {value.capitalize()}"
 
@@ -247,9 +237,8 @@ def _field(label: str, value: str) -> dict[str, str]:
 def _truncate(text: str, limit: int = _SECTION_TEXT_LIMIT) -> str:
     """Keep ``text`` within Slack's per-block limit, marking any cut.
 
-    A card that silently drops content is bad; a card Slack refuses to post
-    (block over 3000 chars) is worse — the incident then reaches nobody. So an
-    oversized field is cut and marked, and the message still delivers.
+    A card Slack refuses to post (block over 3000 chars) reaches nobody, so an
+    oversized field is cut and marked instead and the message still delivers.
     """
     if len(text) <= limit:
         return text

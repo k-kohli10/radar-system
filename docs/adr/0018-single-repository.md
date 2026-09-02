@@ -1,4 +1,4 @@
-# ADR 0018: Single Repository, Superseding ADR 0001
+# 📦 ADR 0018: Single Repository, Superseding ADR 0001
 
 ## Status
 Accepted
@@ -9,7 +9,7 @@ ADR 0001 (Two repositories: radar-system + radar-infra)
 ## Context
 ADR 0001 split RADAR into two repositories: radar-system for product code and
 radar-infra for platform configuration. The stated benefit was release-cadence
-isolation — a platform config change (a Grafana dashboard edit, a Postgres chart
+isolation: a platform config change (a Grafana dashboard edit, a Postgres chart
 bump) should not trigger an application CI run, and vice versa.
 
 That benefit is real. But it is fully achievable inside a single repository with
@@ -26,9 +26,8 @@ end goal is an installable open-source product, and its Phase 14 done-when is a
 to clone two repositories and reason about which config lives where, at the exact
 moment adoption is won or lost.
 
-radar-infra was also never created. The plan has been referencing a repository
-that does not exist, and Phase 10 — the first phase whose deliverables actually
-land in it — is about to start.
+radar-infra was also never created. The plan referenced a repository that does
+not exist, so retiring it removes plan-versus-reality drift.
 
 ## Decision
 RADAR is a single repository: radar-system. The product-versus-platform-config
@@ -44,7 +43,7 @@ radar-system/
     compose/               local dev stack
     helm/radar/            application chart
     helm/platform-deps/    postgres, elasticsearch, kibana, prometheus,
-                           grafana, vault — values for community charts
+                           grafana, vault (values for community charts)
     prometheus/            alerting rules + scrape config
     grafana/               dashboard ConfigMaps
     otel/                  collector config
@@ -61,7 +60,7 @@ deliverables name `deploy/helm/radar/` (the application chart) and
 `deploy/examples/`, but nothing named a home for the platform dependencies' Helm
 values. Without this line those files would have had nowhere to land.
 
-Note that `radar-infra` also names a **Kubernetes namespace** — platform
+Note that `radar-infra` also names a **Kubernetes namespace**: platform
 dependencies, as against the `radar` namespace for app workloads. That namespace
 is unaffected by this ADR and keeps its name, including the Vault
 init-container's `vault.radar-infra.svc.cluster.local` address from ADR 0007.
@@ -79,30 +78,3 @@ Only the repository is retired.
 - If product and platform ever need independent consumption, monorepo to split
   is an afternoon of work (git init, move a directory, update CI paths). No
   current need; deferred until a real user requires it.
-
-## Follow-up
-The documentation sweep this ADR requires. Line numbers are as of this commit.
-
-- Flip ADR 0001 Status to "Superseded by ADR 0018."
-- `docs/adr/0010-external-detection-not-radar.md:17` — stale path
-  `radar-infra/prometheus/alerting-rules.yml`. Two defects in one line: it is
-  repo-sense, and it contradicts the plan's own claim that these rules live at
-  `deploy/prometheus/`.
-- `docs/implementation_plan.md`, repo-sense sites:
-  - `:25` Locked Decisions "Repos" line
-  - `:243` and `:1422-1424` the alert-rules passage, which draws a repo
-    distinction that collapses under one repo and must be re-expressed as
-    purpose rather than renamed
-  - `:353-357` the `### radar-infra` subsection of `## Repositories`
-  - `:716-741` the `### radar-infra` directory tree
-  - `:2498-2499` Phase 10 deliverables
-  - `:2655` Git State Per Phase
-  - `:2782` Summary "2 repos"
-- Phase 11 done-when gains the `deploy/`-changes-nothing clause, per the
-  Consequences note above.
-
-**Do not sweep these.** They are the namespace, not the repository:
-`docs/implementation_plan.md` `:26`, `:374`, `:1715`, `:2783`. In particular
-`:1715` is the live `vault.radar-infra.svc.cluster.local` DNS name in the ADR
-0007 init-container pattern; rewriting it breaks secret loading for every
-workload.

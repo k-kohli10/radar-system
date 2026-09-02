@@ -1,38 +1,33 @@
 """planner-agent service assembly.
 
-The second stage of the incident pipeline. Everything it needs is loaded inside
-the lifespan — nothing at import time: the Postgres DSN and the planner's own
+The second stage of the incident pipeline. Everything it needs is loaded inside the
+lifespan, nothing at import time: the Postgres DSN and the planner's own
 ``agent_token`` come from Vault, and a missing secret leaves readiness false so
 ``/readyz`` answers 503 instead of crashing an import no probe will ever see.
-``Database`` construction is lazy (no connection yet), so a database that is down
-at startup does not fail startup — ``/readyz`` live-pings it and recovers when it
-returns.
+``Database`` construction is lazy, so a database down at startup does not fail
+startup; ``/readyz`` live-pings it and recovers when it returns.
 
 ``/readyz`` is 200 only when BOTH hold, every time it is asked:
 
 1. the Vault secrets loaded at startup, AND
 2. the database answers ``SELECT 1`` **right now**.
 
-The second is not redundant. A probe that checks only its own startup state
-reports healthy while its database is unreachable — Kubernetes keeps routing
-traffic to a pod that cannot do anything, and the failure surfaces as errors to
-callers instead of a pod taken out of rotation. So the DB is pinged per request,
-not remembered from boot.
+The DB is pinged per request, not remembered from boot: a probe that trusts its
+boot-time state reports healthy while its database is unreachable, and Kubernetes
+keeps routing traffic to a pod that cannot do anything.
 
-``/healthz`` is process liveness only — deliberately NOT gated on the database,
-or a database blip would get the pod killed and restarted rather than merely
-removed from service. Liveness and readiness answer different questions.
+``/healthz`` is process liveness only, NOT gated on the database, or a database blip
+would get the pod killed and restarted rather than merely removed from service.
 
 The agent token is loaded in the lifespan rather than via
-``bootstrap(with_agent_auth=True)``, which would read it at app-build time and
-crash on a missing secret — the exact crash ``/readyz`` exists to turn into a
-503. It is late-bound into the shared :class:`~radar_common.EventsAuth`, so a
-missing token degrades to 503 (which the outbox worker retries) rather than 401
-(which it would dead-letter).
+``bootstrap(with_agent_auth=True)``, which would read it at app-build time and crash
+on a missing secret. It is late-bound into the shared
+:class:`~radar_common.EventsAuth`, so a missing token degrades to 503 (which the
+outbox worker retries) rather than 401 (which it would dead-letter).
 
-The investigation templates are loaded here too, and an invalid file keeps the
-pod at 503. A planner running templates nobody wrote looks perfectly healthy
-while handing every incident the same generic checklist — so it does not start.
+The investigation templates are loaded here too, and an invalid file keeps the pod at
+503. A planner running templates nobody wrote looks healthy while handing every
+incident the same generic checklist, so it does not start.
 """
 
 from __future__ import annotations
@@ -49,9 +44,8 @@ from radar_common import (
     EventsAuth,
     bootstrap,
     install_guarded_events_handler,
-    read_secret,
 )
-from radar_common.bootstrap import AGENT_TOKEN_SECRET
+from radar_common.bootstrap import load_agent_tokens
 from radar_database import Database
 from radar_telemetry import (
     create_planner_metrics,
@@ -72,7 +66,7 @@ class Readiness:
     Starts not-ready ("starting"); :meth:`mark_ready` flips it once the Vault
     secrets have loaded. The live database check is separate (``/readyz`` pings on
     each call), so this tracks only the startup half of the contract. ``reason``
-    strings are safe to return to a probe — the config layer names files, never
+    strings are safe to return to a probe: the config layer names files, never
     secret values.
     """
 
@@ -115,20 +109,18 @@ def create_app(
         nonlocal database, agent_auth, templates
         try:
             dsn = load_postgres_dsn()
-            agent_token = read_secret(AGENT_TOKEN_SECRET)
-            assert agent_token is not None  # required=True: raised if absent
-            agent_auth = AgentTokenAuth([agent_token])
-            # A bad templates file is a startup failure, not a fallback to
-            # defaults. A planner running templates nobody wrote looks perfectly
-            # healthy while handing every incident the same generic checklist.
+            agent_auth = AgentTokenAuth(load_agent_tokens())
+            # A bad templates file is a startup failure, not a fallback to defaults:
+            # a planner running templates nobody wrote looks healthy while handing
+            # every incident the same generic checklist.
             templates = load_plan_templates(settings.plan_templates_path)
             database = Database(dsn)
             readiness.mark_ready()
             log.info(
                 "planner.ready",
-                # The template keys, out loud. If the ConfigMap failed to mount you
-                # would otherwise see a healthy planner quietly defaulting every
-                # incident — this is the line that says which templates are live.
+                # Which templates are live. Without this line, a ConfigMap that
+                # failed to mount looks like a healthy planner that happens to
+                # default every incident.
                 template_keys=templates.keys,
                 templates_path=str(settings.plan_templates_path),
             )
@@ -192,9 +184,8 @@ def create_app(
         if reason is not None:
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "not_ready", "reason": reason}
-        # Secrets loaded; now the live half of the contract. Asked every time,
-        # because a probe that trusts its boot-time state will report healthy with
-        # a dead database underneath it.
+        # The live half of the contract, asked every time: a probe that trusts its
+        # boot-time state reports healthy with a dead database underneath it.
         if database is None or not await database.ping():
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "not_ready", "reason": "database unreachable"}
@@ -244,13 +235,11 @@ _app: FastAPI | None = None
 def __getattr__(name: str) -> FastAPI:
     """Build the ASGI ``app`` lazily on first access (``main:app`` for uvicorn).
 
-    Importing this module — e.g. to reach :func:`create_app` from tests — must
-    have no side effects; in particular it must not register platform metrics on
-    the global Prometheus registry, which would collide (`Duplicated timeseries`)
-    when another service's app is imported in the same process. That is the
-    import-time collision Phase 5 hit with an eager ``app = create_app()``.
-    Cached, so repeated ``app`` access returns one instance and never a second
-    registration.
+    Importing this module (e.g. to reach :func:`create_app` from tests) must have no
+    side effects. In particular it must not register platform metrics on the global
+    Prometheus registry, which collides (`Duplicated timeseries`) when another
+    service's app is imported in the same process. Cached, so repeated ``app`` access
+    returns one instance and never a second registration.
     """
     if name == "app":
         global _app

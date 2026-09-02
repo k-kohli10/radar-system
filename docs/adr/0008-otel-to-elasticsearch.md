@@ -1,4 +1,4 @@
-# ADR 0008: OTel Traces to Elasticsearch via Kibana APM
+# 🔭 ADR 0008: OTel Traces to Elasticsearch via Kibana APM
 
 ## Status
 Accepted

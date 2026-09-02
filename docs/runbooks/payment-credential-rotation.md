@@ -11,14 +11,14 @@ status: fixture
 
 ## Summary
 
-Payment processor API credentials need to be replaced — on a schedule, on
+Payment processor API credentials need to be replaced: on a schedule, on
 expiry, or urgently after a suspected compromise. Rotation is routine, but it is
 the routine operation with the worst failure mode in the platform: a botched
 rotation takes payments to a near-total error rate within seconds of the first
 pod restarting.
 
-The failure is binary and immediate. Credentials do not degrade — they work
-until they do not — so there is no partial signal warning that a rotation is
+The failure is binary and immediate. Credentials do not degrade: they work
+until they do not: so there is no partial signal warning that a rotation is
 going wrong. That is what makes the verification step non-negotiable and why the
 order of operations matters more than the individual actions.
 
@@ -31,7 +31,7 @@ Signals that rotation is *needed*:
 
 - Credential expiry approaching, from the processor's dashboard or a tracked
   expiry date.
-- A compromise or suspected exposure — a leaked key, a departed engineer with
+- A compromise or suspected exposure: a leaked key, a departed engineer with
   access, a credential committed to a repository.
 - A scheduled rotation interval elapsing under policy.
 
@@ -49,8 +49,8 @@ A correctly executed rotation has no customer impact and no downtime.
 
 A failed one is a total payment outage: every authorization fails with an
 authentication error, no purchases complete, and the blast radius is every
-customer trying to pay. The recovery is fast once diagnosed — restore the
-previous credential — but the diagnosis is the slow part if nobody knows a
+customer trying to pay. The recovery is fast once diagnosed: restore the
+previous credential: but the diagnosis is the slow part if nobody knows a
 rotation was in progress. An unannounced rotation turns a two-minute fix into a
 twenty-minute investigation.
 
@@ -71,7 +71,7 @@ Causes of a rotation going wrong:
    spreading as pods restart, with revocation preceding full rollout.
 3. **Secret updated in Vault but not reloaded.** Credentials load at startup, so
    a Vault change alone does nothing until a restart. Distinguishing signal:
-   nothing changes at all after rotation — which is easy to mistake for success.
+   nothing changes at all after rotation: which is easy to mistake for success.
 4. **Wrong environment's credential.** A sandbox key in production or the
    reverse. Distinguishing signal: authentication succeeds but transactions
    behave incorrectly, which is worse than failing outright because it is not
@@ -97,7 +97,7 @@ Before rotating:
 If a rotation has gone wrong:
 
 4. **Check whether a rotation is in progress at all.** The first question for any
-   sudden authentication failure. This is why rotations are announced — it turns
+   sudden authentication failure. This is why rotations are announced: it turns
    the diagnosis into a single question.
 5. **Compare rotated and un-rotated replicas.** Failures tracking the rollout
    rather than traffic confirm cause 2 or 5.
@@ -111,7 +111,7 @@ If a rotation has gone wrong:
 
 1. Obtain the new credential and confirm it is active at the processor.
 2. Validate it out of band with a real call. Do not skip this.
-3. Write it to Vault alongside the old one — both valid simultaneously.
+3. Write it to Vault alongside the old one: both valid simultaneously.
 4. Restart `payment-gateway` replicas in a rolling fashion, watching the error
    rate between each batch rather than only at the end.
 5. Verify a real authorization succeeds on the new credential.
@@ -124,7 +124,7 @@ last. Reversing them turns a routine operation into an outage.
 
 **If rotation failed (cause 1 or 2):** restore the previous credential and
 restart. This is why the old credential is not revoked until the new one is
-proven — the rollback path only exists while both are valid.
+proven: the rollback path only exists while both are valid.
 
 **If the secret did not reload (cause 3):** restart the pods. Verify by making a
 transaction rather than by reading configuration, since a stale credential in
@@ -146,7 +146,7 @@ scheduled ones. This costs nothing and removes the most expensive step of
 diagnosing a failed rotation.
 
 Page the payment-gateway on-call if a rotation causes a payment outage. Restore
-the old credential first and diagnose afterwards — the rollback is fast and safe
+the old credential first and diagnose afterwards: the rollback is fast and safe
 precisely because the overlap was preserved.
 
 Involve security for any compromise-driven rotation, and let them set the
@@ -159,11 +159,11 @@ settlement at all.
 
 ## Related
 
-- `payment-gateway-errors` — its cause 2 is exactly a failed rotation, with the
+- `payment-gateway-errors`: its cause 2 is exactly a failed rotation, with the
   signature near-100% error rate and 401/403 responses. That runbook diagnoses
   the outage; this one covers the procedure that avoids or reverses it.
-- `payment-processor-failover` — depends on the secondary's credentials being
+- `payment-processor-failover`: depends on the secondary's credentials being
   valid, which depends on this procedure having been followed for the secondary
   as well as the primary.
-- `payment-reconciliation-mismatch` — the aftermath if transactions were
+- `payment-reconciliation-mismatch`: the aftermath if transactions were
   processed under a wrong-environment credential.

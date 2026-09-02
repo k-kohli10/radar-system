@@ -1,8 +1,8 @@
 """Token IAM enforcement: steps 1-5 of the gateway request validation order.
 
-The gateway has no single inbound agent token of its own, so it does not use
-``radar_common.AgentTokenAuth``; it validates each caller's token against the
-token→mode map loaded from Vault (see ``core.config``) and enforces:
+The gateway has no single inbound agent token of its own, so instead of
+``radar_common.AgentTokenAuth`` it validates each caller's token against the
+token->mode map loaded from Vault (see ``core.config``) and enforces:
 
 1. Extract ``X-Radar-Agent-Token`` header
 2. Token not in the map            -> 401
@@ -10,23 +10,18 @@ token→mode map loaded from Vault (see ``core.config``) and enforces:
 4. mode != the token's allowed mode -> 403
 5. Estimated input tokens over the mode's ``max_input_tokens`` -> 422
 
-:class:`GatewayAuth` is the FastAPI dependency covering 1-2; it runs before
-the body model is validated, so schema errors never mask a 401. One gap
-remains: FastAPI decodes the raw JSON *before* dependencies run, so malformed
-JSON would 422 even with a bad token. :func:`install_guarded_validation_handler`
-closes it — on any validation error under ``/v1/`` it re-checks the token and
-answers 401 first, keeping step order exact. Steps 4-5 need the parsed body
-and are called by the route handlers.
+:class:`GatewayAuth` covers 1-2 as a dependency;
+:func:`install_guarded_validation_handler` keeps 401 ahead of 422 when the body
+fails to parse. Steps 4-5 need the parsed body and run in the route handlers.
 
-Input tokens are *estimated* with the provider-neutral ~4-chars-per-token
-heuristic: the limits are admission guardrails, not billing, and an estimate
-keeps enforcement identical across OpenAI, Anthropic, and Gemini. For embed
-requests the budget applies to each input string individually, matching the
-per-input semantics of embedding APIs (the default 8191 limit is OpenAI's
-per-input cap).
+Input tokens are estimated with the provider-neutral ~4-chars-per-token
+heuristic: the limits are admission guardrails rather than billing, and an
+estimate keeps enforcement identical across vendors. For embed requests the
+budget applies to each input string individually, matching the per-input
+semantics of embedding APIs (the default 8191 limit is OpenAI's per-input cap).
 
 Nothing here logs, and no error detail ever contains a token value or message
-content — details carry only service names, mode names, and token counts.
+content: details carry only service names, mode names, and token counts.
 """
 
 # NOTE: no ``from __future__ import annotations`` here. GatewayAuth is used as

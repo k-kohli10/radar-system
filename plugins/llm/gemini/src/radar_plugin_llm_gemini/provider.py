@@ -2,9 +2,8 @@
 
 Structural implementations of ``radar_contracts.LLMProvider`` and
 ``radar_contracts.EmbeddingProvider`` over the ``google-generativeai`` SDK.
-Portable by design: depends on ``radar-contracts`` and the vendor SDK only,
-never on gateway internals. Vendor exceptions propagate unwrapped —
-classification, redaction, timeouts, and retries are the caller's job.
+Vendor exceptions propagate unwrapped: classification, redaction, timeouts, and
+retries are the caller's job.
 
 Gemini-specific translations:
 
@@ -13,15 +12,14 @@ Gemini-specific translations:
   assistant turns map to role ``model``.
 - **The embedding model is a separate model string** from the chat model
   (e.g. ``models/text-embedding-004`` vs ``gemini-1.5-pro``):
-  :class:`GeminiEmbeddingProvider` takes its own ``model`` at construction
-  and never reuses a chat model string.
+  :class:`GeminiEmbeddingProvider` takes its own ``model`` at construction.
 - Gemini responses carry no id; one is generated per response.
 
-SDK caveats: ``genai.configure`` sets the API key *process-globally* — all
-Gemini instances in one process share the last-configured key (fine for
-RADAR: one ``gemini_api_key`` secret). The SDK's async methods
-(``generate_content_async``, ``embed_content_async``) ride on
-``grpc.aio``; see the gateway phase notes on Python 3.14 async status.
+SDK caveats: ``genai.configure`` sets the API key *process-globally*, so all
+Gemini instances in one process share the last-configured key (fine for RADAR:
+one ``gemini_api_key`` secret). The SDK's async methods
+(``generate_content_async``, ``embed_content_async``) ride on ``grpc.aio``; see
+the gateway phase notes on Python 3.14 async status.
 """
 
 from __future__ import annotations
@@ -129,9 +127,8 @@ class GeminiChatProvider:
 class GeminiEmbeddingProvider:
     """``EmbeddingProvider`` over Gemini embed_content.
 
-    Bound to its *own* embedding model string (e.g.
-    ``models/text-embedding-004``) — the Gemini embedding API uses different
-    models than chat, so this never reuses a chat model string; the gateway
+    Bound to its *own* embedding model string (e.g. ``models/text-embedding-004``);
+    the Gemini embedding API takes different models than chat, and the gateway
     passes the embed mode's configured model here.
     """
 

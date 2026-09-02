@@ -1,17 +1,16 @@
 """Liveness and readiness probes.
 
-``/healthz`` answers 200 whenever the process is alive — nothing more.
+``/healthz`` answers 200 whenever the process is alive, nothing more.
 
-``/readyz`` is a different claim: *this gateway can actually serve LLM
-traffic*. Startup (``main.py``) loads the mode config, the token map from
-Vault, and builds every provider binding — which reads each referenced
-vendor's API key from the Vault secret files. Only if all of that succeeded
-does startup mark :class:`Readiness` ready; until then, and whenever any of
-it failed, ``/readyz`` answers 503 with the (secret-free) reason. A gateway
-that is alive but has no API keys or no token map is NOT ready.
+``/readyz`` makes the stronger claim that this gateway can serve LLM traffic.
+Startup (``main.py``) loads the mode config, the token map from Vault, and
+builds every provider binding, reading each referenced vendor's API key from
+the Vault secret files. Only if all of that succeeded does startup mark
+:class:`Readiness` ready; otherwise ``/readyz`` answers 503 with the
+(secret-free) reason.
 
-Neither probe requires an agent token (they sit outside ``/v1/``), and
-neither logs.
+Neither probe requires an agent token (they sit outside ``/v1/``), and neither
+logs.
 """
 
 from __future__ import annotations
@@ -22,11 +21,11 @@ from fastapi import APIRouter, Response, status
 class Readiness:
     """Mutable readiness state, set by startup and read by ``/readyz``.
 
-    Starts not-ready ("starting"); :meth:`mark_ready` flips it after the
-    config, token map, and every provider binding (API keys included) have
-    loaded. ``reason`` strings must be safe to return to a probe — the
-    ``ConfigurationError``/``SecretNotFoundError`` messages raised by the
-    config layer name files and modes, never secret values.
+    Starts not-ready ("starting"); :meth:`mark_ready` flips it after the config,
+    token map, and every provider binding (API keys included) have loaded.
+    ``reason`` strings must be safe to return to a probe: the config layer's
+    ``ConfigurationError``/``SecretNotFoundError`` messages name files and
+    modes, never secret values.
     """
 
     def __init__(self) -> None:

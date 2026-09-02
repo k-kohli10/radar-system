@@ -93,7 +93,7 @@ def _emit_pipeline_trace(correlation_id: str) -> None:
             bind_correlation_id(correlation_id)
     for provider in providers:
         assert provider.force_flush(), "span export flush failed"
-        provider.shutdown()  # type: ignore[no-untyped-call]  # OTel SDK is untyped here
+        provider.shutdown()
 
 
 async def _poll_trace(

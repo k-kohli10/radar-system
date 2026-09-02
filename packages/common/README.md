@@ -1,4 +1,4 @@
-# radar-common
+# 🧰 radar-common
 
 Shared runtime primitives for every RADAR service:
 

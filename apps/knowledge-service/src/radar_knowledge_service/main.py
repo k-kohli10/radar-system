@@ -1,18 +1,18 @@
 """knowledge-service assembly.
 
 The retrieval side of the knowledge service: the context API the reasoner calls
-to ground an RCA. Everything is loaded inside the lifespan — nothing at import
+to ground an RCA. Everything is loaded inside the lifespan, nothing at import
 time: the inbound ``agent_token`` and both outbound gateway tokens come from
 Vault-mounted files, and a missing one leaves readiness false so ``/readyz``
 answers 503 instead of crashing an import no probe will ever see.
 
 READINESS CHECKS THE INDEX CONTRACT, NOT JUST REACHABILITY
 -----------------------------------------------------------
-The live half of ``/readyz`` calls ``verify_dims`` on every probe: it confirms
+The live half of ``/readyz`` calls ``verify_dims`` on every probe, confirming
 Elasticsearch is reachable AND that the index exists at the dimension this
 service would embed queries at. A dimension mismatch is a model swap without a
-re-index — every query would come back nonsense while every component reported
-healthy — so it takes the pod out of rotation rather than degrading silently.
+re-index: every query would come back nonsense while every component reported
+healthy, so it takes the pod out of rotation rather than degrading silently.
 
 THE GATEWAY IS DELIBERATELY NOT PART OF READINESS, same reasoning as the
 reasoner: this service should stay in rotation when the gateway blips, because a
@@ -23,7 +23,7 @@ when the reasoner most needs a fast, honest "retrieval unavailable".
 401 BEATS 422 ON THE GUARDED PATH
 ----------------------------------
 FastAPI decodes the request body before dependencies run, so malformed JSON
-would answer 422 before the token is ever checked — letting an unauthenticated
+would answer 422 before the token is ever checked, letting an unauthenticated
 caller probe the contract's shape. The validation-error handler below returns
 401 first when the token is missing or unknown, the same rule the llm-gateway
 enforces on its ``/v1/`` paths.
@@ -46,9 +46,8 @@ from radar_common import (
     AgentTokenAuth,
     ConfigurationError,
     bootstrap,
-    read_secret,
 )
-from radar_common.bootstrap import AGENT_TOKEN_SECRET
+from radar_common.bootstrap import load_agent_tokens
 from radar_plugin_knowledge_elastic import ElasticKnowledgeStore
 from radar_telemetry import (
     create_request_metrics,
@@ -90,7 +89,7 @@ def create_app(
 ) -> FastAPI:
     """Build the knowledge-service app. ``metrics_registry`` is injectable."""
     # with_agent_auth=False: bootstrap would read the token at app-build time and
-    # raise on a missing secret — the crash /readyz exists to turn into a 503.
+    # raise on a missing secret, the crash /readyz exists to turn into a 503.
     runtime = bootstrap(KnowledgeSettings, with_agent_auth=False)
     settings = runtime.settings
     log = runtime.log
@@ -106,11 +105,9 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         nonlocal store, gateway_client, agent_auth, retriever
         try:
-            agent_token = read_secret(AGENT_TOKEN_SECRET)
-            assert agent_token is not None  # required=True: raised if absent
             embed_token, reason_token = load_gateway_tokens()
 
-            agent_auth = AgentTokenAuth([agent_token])
+            agent_auth = AgentTokenAuth(load_agent_tokens())
             store = ElasticKnowledgeStore(
                 hosts=settings.elasticsearch_url,
                 dims=settings.embedding_dims,
@@ -169,7 +166,7 @@ def create_app(
     async def _guarded_validation_error(
         request: Request, exc: RequestValidationError
     ) -> Response:
-        # 401 beats 422 on guarded paths — see the module docstring.
+        # 401 beats 422 on guarded paths; see the module docstring.
         if request.url.path.startswith(GUARDED_PATH_PREFIX):
             token = request.headers.get(AGENT_TOKEN_HEADER)
             if agent_auth is None or not agent_auth.verify(token):
@@ -181,8 +178,8 @@ def create_app(
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
-        # Liveness only — NOT gated on Elasticsearch: an ES blip should remove
-        # the pod from rotation (readyz), not have it killed (healthz).
+        # Liveness only, NOT gated on Elasticsearch: an ES blip should remove the
+        # pod from rotation (readyz), not have it killed (healthz).
         return {"status": "ok"}
 
     @app.get("/readyz")
@@ -192,8 +189,8 @@ def create_app(
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
             return {"status": "not_ready", "reason": reason}
         # The live half: the index exists, at the dimension we embed at. Asked
-        # every time — a probe trusting boot-time state reports healthy over a
-        # dead cluster or a swapped model.
+        # every time, because a probe trusting boot-time state reports healthy
+        # over a dead cluster or a swapped model.
         assert store is not None  # mark_ready() implies startup assigned it
         try:
             live = await store.verify_dims()
@@ -258,7 +255,7 @@ _app: FastAPI | None = None
 def __getattr__(name: str) -> FastAPI:
     """Build the ASGI ``app`` lazily on first access (``main:app`` for uvicorn).
 
-    Importing this module must have no side effects — eager ``create_app()``
+    Importing this module must have no side effects: eager ``create_app()``
     registers platform metrics on the global registry and collides when another
     service's app is imported in the same process (the Phase 5 lesson).
     """

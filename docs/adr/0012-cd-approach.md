@@ -1,4 +1,4 @@
-# ADR 0012: Deployment Targets (Docker and Ephemeral Kubernetes)
+# 🚢 ADR 0012: Deployment Targets (Docker and Ephemeral Kubernetes)
 
 ## Status
 
@@ -54,12 +54,12 @@ to live in inline comments is recorded here:
 - **`build.yml`** (push/PR): path-gated multi-arch build + boot-smoke via
   `scripts/detect-changed-services.py`. It never pushes.
 - **`deploy.yml`** (`workflow_dispatch`): builds + pushes the eight images
-  (amd64-only — the cluster is amd64, so arm64 here is wasted QEMU time), then
+  (amd64-only: the cluster is amd64, so arm64 here is wasted QEMU time), then
   `helm upgrade`. Manual because the cluster is ephemeral. The cluster steps run in
   the `kubernetes` environment; Required reviewers on it gate the deploy behind an
   approval. `helm upgrade radar` deliberately omits `--wait`: `--wait` blocks on
-  Deployment readiness before the post-install hooks run, but knowledge-service is
-  not ready until the `knowledge-indexer` hook builds its index — so `--wait` would
+  Deployment readiness before the post-install hooks run, but knowledge-service isn't
+  ready until the `knowledge-indexer` hook builds its index. That would make `--wait`
   deadlock. The Verify-rollout step is the readiness gate instead.
 
 ## Startup ordering inside the radar chart

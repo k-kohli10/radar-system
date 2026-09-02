@@ -7,17 +7,15 @@ follow-on, or request an investigation plan.
 
 **Ingestion owns incident identity; the watcher owns correlation policy.** By the
 time an event arrives here, ingestion has already opened or matched the incident and
-written the alert row — the watcher never inserts either. What it adds is judgement
-over time: whether alerts are arriving fast enough to escalate, whether this incident
-follows too closely on a recent one to be worth investigating again, and — when it is
-worth it — an ``incident.plan_requested`` event for the planner.
+written the alert row; the watcher never inserts either. What it adds is judgement
+over time, and an ``incident.plan_requested`` event when an investigation is worth
+starting.
 
-Every alert reaches it, duplicates included (see the ingestion publisher). That is
-what makes escalation observable at all: a rule about arrival rate cannot be enforced
-against alerts you are never shown.
+Every alert reaches it, duplicates included (see the ingestion publisher). A rule
+about arrival rate cannot be enforced against alerts you are never shown.
 
-**No LLM.** Correlation policy is YAML — deliberately, so it is auditable, testable,
-and changeable without a deploy. The reasoner is the only stage that calls a model.
+Correlation policy is YAML, so it is auditable, testable, and changeable without a
+deploy. The reasoner is the only stage that calls a model.
 
 Layout:
 

@@ -14,7 +14,7 @@ status: fixture
 A large number of cached inventory entries became invalid at once, and the
 resulting flood of concurrent misses is hitting the database far harder than
 steady-state traffic ever does. The service is not receiving more requests than
-usual — it is simply answering a much larger share of them the expensive way.
+usual: it is simply answering a much larger share of them the expensive way.
 
 The distinguishing question against ordinary latency is **shape over time**: a
 storm spikes and then decays as the cache refills, whereas a genuinely slow
@@ -34,7 +34,7 @@ simple cold-cache recovery.
 - `inventory_check_p95_seconds` elevated, often firing `InventoryCheckLatency`
   as a downstream effect.
 - Database query volume spiking while request volume stays flat. That
-  divergence — more queries for the same number of requests — is the storm's
+  divergence, more queries for the same number of requests, is the storm's
   signature and separates it from a traffic increase.
 - A spike-and-decay curve as the cache refills, typically over seconds to
   minutes. A flat elevated line instead means continuous invalidation.
@@ -45,7 +45,7 @@ simple cold-cache recovery.
 
 Elevated latency for inventory checks, which propagates to checkout as slowness
 and, if sustained, as timeouts. The impact is bounded by how quickly the cache
-refills — a one-off storm is usually a blip measured in seconds.
+refills: a one-off storm is usually a blip measured in seconds.
 
 The risk is disproportionate to the duration, because the database is absorbing
 a load spike it is not provisioned for. A large enough storm can saturate the
@@ -71,7 +71,7 @@ protection than its hit rate suggests during the good periods.
    instantly rather than degrading, correlated with a deploy or maintenance.
 4. **Continuous invalidation from an upstream loop.** A misbehaving writer, a
    deploy loop, or a sync job invalidating entries as fast as they are
-   populated. Distinguishing signal: hit rate stays low and does not recover —
+   populated. Distinguishing signal: hit rate stays low and does not recover:
    the defining feature of the non-decaying variant.
 5. **Cache key change on deploy.** A release changed the key format, so every
    lookup misses against a cache full of unreachable entries. Distinguishing
@@ -133,7 +133,7 @@ unrelated to the cache actually being repopulated.
 
 Page the inventory-service on-call if the storm is not decaying, or if database
 saturation is affecting queries beyond inventory. A decaying storm usually needs
-no page — it resolves before anyone can act on it.
+no page: it resolves before anyone can act on it.
 
 Escalate to the database on-call if the query spike is threatening connection
 capacity or CPU. That is the path by which an inventory cache problem becomes
@@ -146,12 +146,12 @@ deliberately.
 
 ## Related
 
-- `inventory-check-latency` — the alert this usually fires, where a cache miss
+- `inventory-check-latency`: the alert this usually fires, where a cache miss
   storm is listed as cause 3. That runbook covers inventory latency from any
   cause; this one covers the specific recurring pattern and its prevention. If
   hit rate is normal and latency is high, that runbook applies, not this one.
-- `inventory-stock-reservation-leak` — a different inventory failure entirely.
+- `inventory-stock-reservation-leak`: a different inventory failure entirely.
   This one makes correct answers slow; that one makes fast answers wrong.
-- `order-service-connection-pool-exhaustion` — a large enough storm can exhaust
+- `order-service-connection-pool-exhaustion`: a large enough storm can exhaust
   database connections, at which point that failure mode arrives on top of this
   one.

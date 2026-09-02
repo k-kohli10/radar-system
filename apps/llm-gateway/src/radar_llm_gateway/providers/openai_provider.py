@@ -3,12 +3,9 @@
 The OpenAI SDK adapter itself lives in ``plugins/llm/openai`` (vendor-neutral
 contracts, vendor exceptions propagate). This module is the gateway-side
 knowledge about that vendor: which Vault secret holds its API key and how its
-SDK exceptions classify for retry.
-
-:func:`translate_failure` returns classification only (:class:`FailureInfo`)
-— it cannot return text. Vendor exception messages can echo prompt content,
-so ``ProviderBinding`` drops them entirely (never truncated) and builds the
-``ProviderError`` reason from the exception class name alone.
+SDK exceptions classify for retry. :func:`translate_failure` returns
+classification only, never text; see ``providers/base.py`` for the redaction
+rule that enforces.
 
 Mapping (openai SDK exception taxonomy):
 

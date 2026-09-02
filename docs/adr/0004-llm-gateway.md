@@ -1,4 +1,4 @@
-# ADR 0004: A Single LLM Gateway, Not Direct SDK Calls Per Service
+# 🚪 ADR 0004: A Single LLM Gateway for All Provider Calls
 
 ## Status
 Accepted
@@ -42,8 +42,9 @@ without a recommendation, even during a full provider outage.
 ## Consequences
 - Exactly one place in the codebase touches `anthropic`/`openai`/`google-generativeai`
   SDKs directly: the plugin adapters behind the gateway.
-- No agent framework (LangChain, LangGraph, LiteLLM) is used or needed. The gateway is
-  a small, purpose-built router, not a general abstraction over "an LLM call."
+- The gateway is a small, purpose-built router: it routes a request to a provider,
+  enforces the per-mode config, and logs the result. See [ADR 0019](0019-no-llm-frameworks.md)
+  for why it uses no orchestration framework.
 - Losing an OpenAI key does not mean losing the gateway itself for other reasons. A
   provider-level outage degrades gracefully to a fallback provider, then to a template
   answer, never a hard failure that leaves an engineer with nothing.

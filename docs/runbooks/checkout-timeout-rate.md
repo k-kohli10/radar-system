@@ -14,7 +14,7 @@ status: fixture
 
 More than 10% of checkout attempts are exceeding their timeout budget and
 failing before the customer can complete a purchase. Unlike a failure after
-payment, nothing has been charged and no order exists — the customer simply
+payment, nothing has been charged and no order exists: the customer simply
 cannot buy, and usually retries or leaves.
 
 `checkout-service` is an orchestrator: a single checkout blocks on an inventory
@@ -30,12 +30,12 @@ touching `checkout-service`.
   margin of the ratio alerts, so treat sustained values in the 0.05–0.10 band as
   meaningful even though they do not fire.
 - Checkout p95 latency pressed up against the timeout ceiling rather than
-  distributed below it — the signature of requests being cut off by the budget
+  distributed below it: the signature of requests being cut off by the budget
   rather than completing slowly.
 - A dependency alert firing alongside this one, most often
   `InventoryCheckLatency` or `PaymentGatewayErrorRate`. Check for this before
   anything else; it usually names the real incident.
-- Cart abandonment climbing, and retry traffic rising as customers resubmit —
+- Cart abandonment climbing, and retry traffic rising as customers resubmit,
   which adds load to the very dependency that is already slow.
 
 ## Impact
@@ -89,7 +89,7 @@ persists.
 3. **Compare latency at the boundary.** For the implicated dependency, compare
    the latency checkout observes against the latency that service reports for
    itself. A large gap means the time is going into the network or into
-   connection acquisition, not into the dependency's own work — that points at
+   connection acquisition, not into the dependency's own work: that points at
    cause 5, not at the dependency.
 4. **Read the timeout distribution.** Timeouts tightly clustered at one elapsed
    value indicate a budget ceiling being hit (cause 3). A broad spread indicates
@@ -105,7 +105,7 @@ persists.
 
 **Inventory latency (cause 1):** work `inventory-check-latency`. This alert
 clears on its own once inventory recovers. Do not raise checkout's timeout to
-paper over it — a longer budget converts fast failures into slow ones and holds
+paper over it: a longer budget converts fast failures into slow ones and holds
 connections open longer, which makes saturation worse.
 
 **Payment slowness (cause 2):** work `payment-gateway-errors`. Same reasoning
@@ -116,14 +116,14 @@ to less than checkout's own, with margin. Each dependency call needs a timeout
 strictly smaller than the remaining budget at the point it is made, otherwise
 checkout abandons work that would have succeeded.
 
-**Recent deploy (cause 4):** roll back — `kubectl rollout undo
+**Recent deploy (cause 4):** roll back: `kubectl rollout undo
 deployment/checkout-service -n ecommerce`. If the deploy added a synchronous
 call to the checkout path, make it asynchronous or move it off the critical path
 before shipping again.
 
 **Pool saturation (cause 5):** raise the outbound connection pool ceiling and
 scale `checkout-service` replicas. Verify that dependency-side latency really is
-normal first — scaling into a slow dependency adds load to it and makes the
+normal first: scaling into a slow dependency adds load to it and makes the
 incident worse rather than better.
 
 **Once resolved**, confirm recovery on `checkout_timeout_rate` rather than on
@@ -136,7 +136,7 @@ Page the checkout-service on-call. At `severity=high` on a revenue-affecting
 path this warrants immediate attention even outside business hours.
 
 Escalate to an incident with customer communications if the timeout rate exceeds
-25%, or if it persists beyond 15 minutes — at that point a meaningful share of
+25%, or if it persists beyond 15 minutes: at that point a meaningful share of
 the day's purchase attempts have failed and the business needs to know.
 
 If the cause is a dependency, page that service's on-call directly rather than
@@ -145,11 +145,11 @@ that a revenue-affecting incident does not have.
 
 ## Related
 
-- `inventory-check-latency` — the most common upstream cause. Checkout blocks on
+- `inventory-check-latency`: the most common upstream cause. Checkout blocks on
   the inventory availability call, so latency there arrives here as timeouts.
-- `payment-gateway-errors` — the second most common upstream cause, when
+- `payment-gateway-errors`: the second most common upstream cause, when
   authorization calls consume the remaining timeout budget.
-- `order-service-high-failure-rate` — the mirror image, and easy to confuse.
+- `order-service-high-failure-rate`: the mirror image, and easy to confuse.
   There, payment succeeded and the order was lost afterwards; here, nothing was
   charged and no order exists. If customers report being charged, that runbook
   applies, not this one.

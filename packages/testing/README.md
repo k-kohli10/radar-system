@@ -1,4 +1,4 @@
-# radar-testing
+# 🧪 radar-testing
 
 Shared pytest fixtures for RADAR suites that need a **real Postgres**.
 

@@ -1,4 +1,4 @@
-# radar-platform-sim
+# 🎲 radar-platform-sim
 
 A local-only, **single-process simulator of a multi-service e-commerce
 platform**. Prometheus scrapes its `/metrics` and evaluates the e-commerce alert
@@ -18,7 +18,16 @@ Kubernetes and deliberately has no Postgres, no transactional outbox, no
 `POST /events`, no `/readyz`, and no agent token. The standard RADAR service
 template does not apply to it.
 
-## Simulated services
+## 📚 Contents
+
+- [🧪 Simulated services](#-simulated-services)
+- [🔗 Endpoints](#-endpoints)
+- [📈 Metrics](#-metrics)
+- [🌀 Chaos](#-chaos)
+- [▶️ Run locally](#-run-locally)
+- [🐳 Docker](#-docker)
+
+## 🧪 Simulated services
 
 | service | scenario | chaos endpoint |
 |---|---|---|
@@ -29,7 +38,7 @@ template does not apply to it.
 | `payment-gateway` | issuer card declines | `POST /chaos/payment-declines` |
 | `inventory-service` | slow availability checks | `POST /chaos/inventory-latency` |
 
-## Endpoints
+## 🔗 Endpoints
 
 ```
 GET  /metrics                  Prometheus text format
@@ -43,7 +52,7 @@ POST /chaos/order-memory       spike order_service_memory_bytes
 POST /chaos/reset              clear active chaos for every scenario
 ```
 
-## Metrics
+## 📈 Metrics
 
 ```
 order_processing_failure_rate     gauge      fraction of orders failing (0.0-1.0)
@@ -65,7 +74,7 @@ cannot be pinned: `histogram_quantile` over `rate(..._bucket[5m])` needs real
 observations accruing over time, which the deadline design cannot produce, and
 faking them would couple the metric to scrape cadence.
 
-## Chaos
+## 🌀 Chaos
 
 Two request shapes, because gauges and counters behave differently.
 
@@ -115,14 +124,14 @@ but **does not rewind** the counter: a counter going backwards tells Prometheus
 the process restarted, and `rate()` discards that interval, which would corrupt
 the very query the alert rule runs.
 
-### Spike values that actually fire
+### 🎯 Spike values that actually fire
 
 Each rule in `deploy/prometheus/alerting-rules.yml` has both a magnitude and a
 duration bar; a spike must clear both, and a spike shorter than the rule's `for`
 never fires however large it is. The measured minimums are tabulated in that
 file's header.
 
-## Run locally
+## ▶️ Run locally
 
 ```
 uv run uvicorn radar_platform_sim.main:app --port 8080
@@ -136,7 +145,7 @@ curl -sX POST localhost:8080/chaos/order-failures \
 curl -s localhost:8080/metrics | grep order_processing_failure_rate
 ```
 
-## Docker
+## 🐳 Docker
 
 Build from the **repo root** (uv workspace resolves against the root lockfile):
 

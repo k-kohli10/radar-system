@@ -1,22 +1,19 @@
 """ingestion service assembly.
 
-Startup (all inside the lifespan, nothing at import time) reads the Postgres
-DSN from Vault and constructs the :class:`~radar_database.Database`. If the DSN
-secret is missing, readiness stays false and ``/readyz`` answers 503 instead of
-crashing the import the probe never sees. ``Database`` construction is lazy (no
-connection yet), so a database that is down at startup does not fail startup —
-``/readyz`` live-pings it on every call and recovers once the database is back.
+Startup happens inside the lifespan, nothing at import time: it reads the Postgres
+DSN from Vault and constructs the :class:`~radar_database.Database`. A missing DSN
+secret leaves readiness false and ``/readyz`` at 503 rather than crashing an import
+the probe never sees. ``Database`` construction is lazy, so a database down at
+startup does not fail startup — ``/readyz`` live-pings it and recovers.
 
-``/readyz`` is 200 only when both hold: the Vault secrets loaded at startup AND
-the database answers ``SELECT 1`` right now (the phase contract). ``/healthz``
-is process liveness only. Shutdown marks not-ready first (so a load balancer
-sees 503 immediately) and then disposes the engine pool.
+``/readyz`` is 200 only when both hold: the Vault secrets loaded at startup AND the
+database answers ``SELECT 1`` right now. ``/healthz`` is process liveness only.
+Shutdown marks not-ready first (so a load balancer sees 503 immediately), then
+disposes the engine pool.
 
 Ingestion is the entry point, not an agent: ``bootstrap`` is called with
-``with_agent_auth=False`` (no inbound agent token; ``/alerts/*`` use a webhook
-token wired in a later commit). Also here: the platform request-metrics
-middleware (``radar_requests_total``/``duration``/``errors_total``) and OTel
-FastAPI instrumentation.
+``with_agent_auth=False`` — ``/alerts/*`` use a webhook token. Also here: the
+platform request-metrics middleware and OTel FastAPI instrumentation.
 """
 
 from __future__ import annotations
@@ -51,10 +48,9 @@ class Readiness:
     """Mutable readiness state, set by startup and read by ``/readyz``.
 
     Starts not-ready ("starting"); :meth:`mark_ready` flips it once the Vault
-    secrets have loaded. The live database check is separate (``/readyz`` pings
-    on each call), so this tracks only the startup half of the contract.
-    ``reason`` strings are safe to return to a probe — the config layer names
-    files, never secret values.
+    secrets have loaded. The live database check is separate, so this tracks only
+    the startup half of the contract. ``reason`` strings are safe to return to a
+    probe — the config layer names files, never secret values.
     """
 
     def __init__(self) -> None:
@@ -78,9 +74,8 @@ def create_app(
 ) -> FastAPI:
     """Build the ingestion app. ``metrics_registry`` is injectable for tests."""
     runtime = bootstrap(IngestionSettings, with_agent_auth=False)
-    # Ingestion has no inbound agent token; /alerts/* use a webhook token.
-    # bootstrap(with_agent_auth=False) returns auth=None by design — fail loudly
-    # if that ever changes rather than half-using it.
+    # bootstrap(with_agent_auth=False) returns auth=None by design — fail loudly if
+    # that ever changes rather than half-using an agent token here.
     if runtime.auth is not None:
         raise ConfigurationError(
             "ingestion bootstrap unexpectedly built an AgentTokenAuth; "
@@ -92,7 +87,7 @@ def create_app(
     readiness = Readiness()
     request_metrics = create_request_metrics(metrics_registry)
     # ingestion is the only service that opens incidents, so radar_incidents_total is
-    # produced here — not on feedback-service, where it used to sit at zero forever.
+    # produced here.
     ingestion_metrics = create_ingestion_metrics(metrics_registry)
     database: Database | None = None
     webhook_tokens: WebhookTokenMap | None = None
@@ -208,11 +203,10 @@ _app: FastAPI | None = None
 def __getattr__(name: str) -> FastAPI:
     """Build the ASGI ``app`` lazily on first access (``main:app`` for uvicorn).
 
-    Importing this module — e.g. to reach :func:`create_app` from tests — must
-    have no side effects; in particular it must not register platform metrics on
-    the global Prometheus registry, which would collide (`Duplicated timeseries`)
-    when another service's app is imported in the same process. Cached so
-    repeated ``app`` access returns one instance, never a second registration.
+    Importing this module (e.g. to reach :func:`create_app` from tests) must not
+    register platform metrics on the global Prometheus registry, which would collide
+    (`Duplicated timeseries`) when another service's app is imported in the same
+    process. Cached, so repeated ``app`` access never registers twice.
     """
     if name == "app":
         global _app

@@ -1,4 +1,4 @@
-# Example: minimal
+# 📦 Example: minimal
 
 The smallest way to run RADAR for evaluation: the in-cluster platform
 dependencies (dev-grade Postgres, Vault, Elasticsearch, …) plus the eight RADAR

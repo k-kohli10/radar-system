@@ -1,0 +1,26 @@
+name: security
+
+# Dependency vulnerability scanning with OSV-Scanner. Reads the uv.lock
+# workspace lockfile directly and reports advisories from the OSV database
+# (OSV + GitHub) to the Security tab as SARIF.
+#
+# Gates pull requests into main / Release*: fail-on-vuln fails the check when
+# the lockfile carries a known advisory, so the PR stays red until it is fixed.
+# Make this check "Required" in the branch protection rules for main / Release*
+# so a failing scan blocks merge.
+on:
+  pull_request:
+    branches: ["main", "Release*"]
+  push:
+    branches: ["main", "Release*"]
+
+permissions:
+  actions: read
+  security-events: write
+  contents: read
+
+jobs:
+  scan:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.5.0
+    with:
+      fail-on-vuln: true

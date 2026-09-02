@@ -1,8 +1,7 @@
 """RADAR OpenAI LLM provider plugin.
 
-Portable structural implementations of the ``radar-contracts`` provider
-protocols. Depends only on ``radar-contracts`` and the ``openai`` SDK; the
-consuming application registers the classes with its own plugin registry.
+Structural implementations of the ``radar-contracts`` provider protocols over the
+``openai`` SDK.
 """
 
 from __future__ import annotations

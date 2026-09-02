@@ -2,23 +2,21 @@
 
 This service holds no OpenAI key and imports no provider client. It asks
 ``llm-gateway`` for vectors in ``embed`` mode with a token scoped to exactly that
-mode, so swapping the embedding model is gateway config — with one caveat that is
-not free: the vector dimension is baked into the Elasticsearch ``dense_vector``
-mapping, so a model with different dimensions means a new index and a re-index.
+mode, so swapping the embedding model is gateway config, with one caveat: the
+vector dimension is baked into the Elasticsearch ``dense_vector`` mapping, so a
+model with different dimensions means a new index and a re-index.
 :class:`GatewayEmbeddingClient` therefore checks the dimension of what comes back
 and refuses anything else, rather than letting a silent model change reach the
 bulk request and be rejected one document at a time.
 
 RAISES, RATHER THAN RETURNING A RESULT
 --------------------------------------
-The reasoner's gateway client returns a typed *result* because an incident must
-get an RCA either way — a template fallback exists. Embedding has no such
-fallback: a chunk without a vector cannot be indexed, and indexing it without one
-would put a silently unretrievable document in the index. So failures raise, and
-each caller decides:
+A chunk without a vector cannot be indexed, and indexing it without one would put
+a silently unretrievable document in the index. So failures raise, and each
+caller decides:
 
-- the **indexer** lets them propagate — a failed run is a failed run, retried
-  later, leaving the index exactly as it was;
+- the **indexer** lets them propagate: a failed run is retried later, leaving the
+  index exactly as it was;
 - **query-time** embedding catches them and degrades to empty
   ``retrieved_context``, because an incident still needs an answer.
 
@@ -26,13 +24,9 @@ ONE CLOCK
 ---------
 Same rule as the reasoner: ``asyncio.timeout`` is the only bound, httpx is built
 with ``timeout=None``, and the constructor refuses a client whose own timeout
-could fire first. Two clocks that disagree means the one nobody reasoned about is
-the one in force.
-
-The budget here is deliberately the caller's own ceiling rather than trust in the
-gateway's: the gateway's ``embed`` mode allows 10s per provider attempt and may
-retry three times with backoff, so a pathological call could outlast anything the
-indexer wants to wait for.
+could fire first. The budget is the caller's own ceiling rather than trust in the
+gateway's, because the gateway's ``embed`` mode allows 10s per provider attempt
+and may retry three times with backoff.
 """
 
 from __future__ import annotations
@@ -60,7 +54,7 @@ EMBED_BUDGET_SECONDS: float = 30.0
 
 Generous against the gateway's 10s-per-attempt ``embed`` mode so a single retry
 does not trip it, but bounded so a hung provider cannot stall an indexing run
-indefinitely. The knowledge service owns this number alone — unlike the
+indefinitely. The knowledge service owns this number alone: unlike the
 reasoner/worker pair in ``radar_common.timeouts``, no other service's timeout has
 to be ordered against it.
 """
@@ -117,9 +111,9 @@ def estimate_input_tokens(text: str) -> int:
     """Estimate one input's token count.
 
     Embedding limits are per input, not per batch, so this wraps the shared
-    estimator with a one-element tuple — the same call the gateway's own
-    ``enforce_embed_budget`` makes, from the same function, so the pre-check
-    here and the enforcement there cannot disagree.
+    estimator with a one-element tuple. It is the same call the gateway's own
+    ``enforce_embed_budget`` makes, from the same function, so the pre-check here
+    and the enforcement there cannot disagree.
     """
     return estimate_tokens((text,))
 
@@ -162,10 +156,9 @@ class GatewayEmbeddingClient:
     def check_budget(self, texts: list[str]) -> None:
         """Raise if any input exceeds the mode's per-input token limit.
 
-        This is the assertion the chunker deliberately does not make: the
-        chunker is pure and knows nothing about a model's limits, while this
-        client does. Embedding limits are per input, not per batch, so an
-        oversized chunk is named by position rather than failing the batch
+        This is the assertion the chunker deliberately does not make: the chunker
+        is pure and knows nothing about a model's limits. Limits are per input,
+        so an oversized chunk is named by position rather than failing the batch
         anonymously.
         """
         for position, text in enumerate(texts):
@@ -279,8 +272,7 @@ def _reject_undercutting_timeout(client: httpx.AsyncClient, budget: float) -> No
 
     httpx defaults to 5 seconds. A batch of 64 embeddings routinely takes longer,
     so a client left on the default would abort every batch at 5s and indexing
-    would fail for a reason that looks like the gateway being slow. Same guard,
-    and same reasoning, as the reasoner's gateway client.
+    would fail for a reason that looks like the gateway being slow.
     """
     timeout = client.timeout
     for name in ("connect", "read", "write", "pool"):

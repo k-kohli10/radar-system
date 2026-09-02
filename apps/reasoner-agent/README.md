@@ -1,4 +1,4 @@
-# radar-reasoner-agent
+# 🧠 radar-reasoner-agent
 
 The third and final stage of the RADAR incident pipeline, and the only one that
 calls an LLM.

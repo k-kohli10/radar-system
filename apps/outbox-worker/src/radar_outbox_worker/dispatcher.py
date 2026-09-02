@@ -1,52 +1,38 @@
 """The outbound dispatcher: deliver one claimed event via ``POST /events``.
 
 The poller hands each claimed event here. The dispatcher resolves the target
-service to a URL and to a wall-clock budget, POSTs the delivery envelope with THAT
-TARGET's ``X-Radar-Agent-Token``, and returns a :class:`DispatchResult` classifying
-the outcome. It does **not** touch the database or schedule retries — it only
-performs the HTTP call and reports what happened; the poller's handler acts on the
-result (mark delivered, reschedule, or dead-letter).
+service to a URL and a wall-clock budget, POSTs the delivery envelope with that
+target's ``X-Radar-Agent-Token``, and returns a :class:`DispatchResult`. It never
+touches the database or schedules retries: the poller's handler acts on the result
+(mark delivered, reschedule, or dead-letter).
 
-**The timeout is per target, from config** (:class:`TimeoutPolicy`). Ten seconds is
-right for an agent that writes a row and answers; it is nowhere near enough for the
-reasoner, which calls an LLM first. A worker that gave up mid-call would redeliver
-the event, and the second delivery would start a SECOND LLM call — the first has
-not committed its ``processed_events`` marker yet, so the idempotency gate cannot
-see it. The reasoner's budget and this timeout are ordered against each other in
-``radar_common.timeouts``, together, because two copies of a number whose relative
-order is the whole guarantee will drift.
+**The timeout is per target, from config** (:class:`TimeoutPolicy`). Ten seconds
+suits an agent that writes a row and answers, but not the reasoner, which calls an
+LLM first. A worker that gave up mid-call would redeliver, and the second delivery
+would start a second LLM call: the first has not committed its ``processed_events``
+marker yet, so the idempotency gate cannot see it. The reasoner's budget and this
+timeout are ordered against each other in ``radar_common.timeouts``.
 
-Retry classification deliberately **mirrors the Phase 4 LLM-gateway retry policy**
-(see its spec in the implementation plan) so the whole platform treats upstream
-failures consistently:
+Retry classification mirrors the LLM-gateway retry policy:
 
-- **Retryable** (transient — back off and try again): a client-side timeout or
-  connection error, ``429``, or ``500/502/503/504``.
-- **Permanent** (will never succeed on retry — dead-letter immediately): ``400``,
-  ``401``, ``403``, ``422`` (and any other non-2xx we did not mark retryable).
+- **Retryable** (back off and try again): client-side timeout or connection error,
+  ``429``, or ``500/502/503/504``.
+- **Permanent** (dead-letter immediately): ``400``, ``401``, ``403``, ``422``, and
+  any other non-2xx not marked retryable.
 
-``401`` and ``422`` are tagged with *distinct* reasons on purpose: a ``401`` means
-the token the worker presented was rejected by the target — a misconfiguration that
-will fail *every* dispatch to that service — whereas a ``422`` means one malformed
-event. Operationally different, so they must be distinguishable in logs and (a
-later commit) metrics.
+``401`` and ``422`` carry distinct reason tags: a ``401`` is a misconfigured token
+that will fail *every* dispatch to that service, a ``422`` is one malformed event.
 
-**The worker presents the TARGET's token, not its own.** Every agent has its own
-agent token, so there is no single credential that opens all of them; the worker
-resolves each event's target to that target's token via the
-:class:`~radar_outbox_worker.security.DispatchTokenMap`. A target absent from the
-map is refused *before* the request is made (``no_dispatch_token``, permanent)
-rather than dispatched with no token and dead-lettered on a ``401`` from the far
-end — same outcome, but one of them says what is actually wrong. That is the
-expected fate of an event bound for a service that does not exist yet (Phase 9's
-feedback-service), and of one bound for a target whose token was never minted.
+**The worker presents the target's token, not its own** (each agent has a separate
+one), resolved via :class:`~radar_outbox_worker.security.DispatchTokenMap`. A
+target absent from the map is refused before the request is made
+(``no_dispatch_token``, permanent), which reports the real cause instead of a
+``401`` from the far end.
 
-The delivery body is :class:`~radar_contracts.EventEnvelope` — exactly
-``event_id``, ``event_type``, ``correlation_id``, ``payload`` — not the full
-outbox row, whose internal ``status``/``attempts``/row ``id`` must never cross the
-wire. The envelope is the *shared* contract: the receiving agents parse the same
-model this builds, so a producer/consumer drift is a type error here rather than a
-422 in production.
+The delivery body is :class:`~radar_contracts.EventEnvelope`, which keeps the
+outbox row's internal ``status``/``attempts``/row ``id`` off the wire. Receiving
+agents parse the same model, so producer/consumer drift is a type error here
+rather than a 422 in production.
 """
 
 from __future__ import annotations

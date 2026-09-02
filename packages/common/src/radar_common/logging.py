@@ -13,11 +13,6 @@ Usage::
     bind_log_correlation_id(event.correlation_id)
     log = get_logger(__name__)
     log.info("incident.opened", incident_id=str(incident.id))
-
-Which emits (one line, pretty-printed here)::
-
-    {"event": "incident.opened", "level": "info", "service": "watcher-agent",
-     "correlation_id": "…", "incident_id": "…", "timestamp": "2026-07-06T…Z"}
 """
 
 from __future__ import annotations
@@ -75,13 +70,11 @@ def bind_log_correlation_id(correlation_id: UUID | str) -> None:
     """Bind ``correlation_id`` so every subsequent log line in this context
     carries it. Call once per request/event before doing any work.
 
-    Named ``_log_`` deliberately: this binds the id to the LOG context only, not
-    to the current trace span. A request handler that wants the id on its span
-    too — so an incident is traceable in Kibana APM by correlation_id alone
-    (ADR 0008) — must call :func:`radar_telemetry.bind_correlation_id`, which
-    wraps this and also stamps the span. Confusing the two silently drops
-    correlation_id from traces; keeping the names distinct makes the choice
-    explicit at the import."""
+    Named ``_log_`` deliberately: this binds the id to the LOG context only. A
+    handler that wants the id on its trace span too — so an incident is traceable
+    in Kibana APM by correlation_id alone (ADR 0008) — must call
+    :func:`radar_telemetry.bind_correlation_id`, which wraps this and also stamps
+    the span."""
     bind_contextvars(**{CORRELATION_ID_KEY: str(correlation_id)})
 
 

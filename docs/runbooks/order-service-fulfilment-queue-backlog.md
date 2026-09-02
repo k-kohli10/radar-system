@@ -12,14 +12,14 @@ status: fixture
 ## Summary
 
 Orders are being published to the fulfilment queue faster than they are being
-consumed, and the backlog is growing. Every order is present and correct —
-nothing has been lost — but orders are sitting unfulfilled for longer than they
+consumed, and the backlog is growing. Every order is present and correct,
+nothing has been lost, but orders are sitting unfulfilled for longer than they
 should.
 
 This is a consumer-side problem that presents on the producer's dashboard.
 `order-service` is working perfectly; the queue is the visible symptom of
 something downstream not keeping up. That distinction matters because the
-instinct to restart or scale `order-service` is exactly wrong here — it produces
+instinct to restart or scale `order-service` is exactly wrong here: it produces
 *more* messages into a queue nobody is draining.
 
 ## Symptoms
@@ -39,7 +39,7 @@ instinct to restart or scale `order-service` is exactly wrong here — it produc
 ## Impact
 
 Delayed fulfilment rather than lost orders. Nothing needs reconciliation and no
-data is at risk — this is a latency problem measured in hours rather than
+data is at risk: this is a latency problem measured in hours rather than
 milliseconds.
 
 The customer-visible impact is delayed shipping notifications and, if the
@@ -49,7 +49,7 @@ before the daily cutoff costs nothing, and the same backlog cleared an hour late
 costs a day of delivery time across every affected order.
 
 If the queue has a retention limit, a sufficiently long backlog risks messages
-aging out entirely — at which point delayed fulfilment becomes lost fulfilment.
+aging out entirely: at which point delayed fulfilment becomes lost fulfilment.
 Establish the retention window early; it converts a vague "we should fix this"
 into a hard deadline.
 
@@ -98,7 +98,7 @@ into a hard deadline.
 ## Resolution
 
 **Consumers down (cause 1):** restore them. If they are crash-looping, read the
-crash reason before restarting again — a consumer that crashes on a specific
+crash reason before restarting again: a consumer that crashes on a specific
 message will crash again immediately, which is cause 3 in disguise.
 
 **Slow downstream (cause 2):** work the downstream problem. Scaling consumers
@@ -107,7 +107,7 @@ usually makes throughput worse rather than better.
 
 **Poison message (cause 3):** move the offending message to the dead-letter
 queue so the partition can drain, then investigate it separately. Do not delete
-it — it represents a real order, and it needs handling even if it cannot be
+it: it represents a real order, and it needs handling even if it cannot be
 processed automatically.
 
 **Insufficient capacity (cause 4):** scale consumers up. Confirm the downstream
@@ -120,7 +120,7 @@ An unexplained scale-down will recur.
 **In every case**, do not scale or restart `order-service`. It is producing
 correctly, and adding producers to a queue that is not draining makes the
 backlog grow faster. Confirm recovery by watching oldest-message age fall to
-baseline, not by watching depth alone — depth can fall while the oldest messages
+baseline, not by watching depth alone: depth can fall while the oldest messages
 still sit unprocessed.
 
 ## Escalation
@@ -130,7 +130,7 @@ on order-service dashboards but the problem is downstream, and routing it by
 where it was noticed rather than where it lives costs an escalation hop.
 
 Escalate to an incident if the oldest message age approaches the queue's
-retention window — that converts delayed orders into lost ones and is a hard
+retention window: that converts delayed orders into lost ones and is a hard
 deadline rather than a judgment call.
 
 Notify the business if the backlog will not clear before the daily carrier
@@ -139,11 +139,11 @@ the warning to manage it rather than discovering it from customers.
 
 ## Related
 
-- `order-service-high-failure-rate` — the opposite failure, easily confused.
+- `order-service-high-failure-rate`: the opposite failure, easily confused.
   There, publishes *fail* and orders never reach the queue at all, which needs
   reconciliation. Here, publishes succeed and orders sit in the queue, which
   needs patience or more consumers. Check whether publishes are erroring before
   choosing between them.
-- `order-service-connection-pool-exhaustion` — unrelated cause, but both present
+- `order-service-connection-pool-exhaustion`: unrelated cause, but both present
   as "orders are not completing." Pool exhaustion stops orders being created;
   this stops created orders being fulfilled.

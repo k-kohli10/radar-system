@@ -1,18 +1,16 @@
 """Build the retrieval query string from an incident.
 
-This is the layer that sits ABOVE the retrieval core, and the split is
-deliberate. The core takes a plain string, exactly as the ``KnowledgeStore``
-protocol declares; incidents are assembled into a string here. That means the
-pre-registered probes in ``tests/retrieval/probes.yaml`` — which are plain
-strings — exercise the SAME retrieval code path production uses, rather than a
-parallel one built for measurement. An evaluation that runs through different
-code than production does not tell you production works.
+This layer sits ABOVE the retrieval core, and the split is deliberate. The core
+takes a plain string, exactly as the ``KnowledgeStore`` protocol declares;
+incidents are assembled into a string here. That means the pre-registered probes
+in ``tests/retrieval/probes.yaml``, which are plain strings, exercise the SAME
+retrieval code path production uses rather than a parallel one built for
+measurement.
 
-It is a string join, which sounds too small to test and is exactly the kind of
-thing that has gone wrong repeatedly in this service: a join that silently drops
-a component degrades retrieval quality without failing anything. Nothing raises,
-nothing logs, the pipeline just gets quietly worse at its job. So the assembly is
-a named function with its own tests rather than an f-string at a call site.
+It is a string join, which sounds too small to test. But a join that silently
+drops a component degrades retrieval quality without raising or logging
+anything, so the assembly is a named function with its own tests rather than an
+f-string at a call site.
 """
 
 from __future__ import annotations
@@ -33,17 +31,18 @@ def build_query(
     Order is ``service_name``, ``alert_name``, then each step's description in
     plan order. It matches how an incident is described from the outside in, and
     it puts the two identifiers first so they survive any future truncation
-    against a model's input budget — losing the tail of the investigation steps
-    degrades the query, losing the service and alert changes what is being asked.
+    against a model's input budget: losing the tail of the investigation steps
+    degrades the query, while losing the service and alert changes what is being
+    asked.
 
-    ``investigation_steps`` are sorted by ``order`` rather than trusted to
-    arrive sorted: they cross a service boundary as JSON, and a query whose
-    meaning depends on incidental list order is not reproducible. Steps are
-    optional because retrieval must work before the planner has run.
+    ``investigation_steps`` are sorted by ``order`` rather than trusted to arrive
+    sorted: they cross a service boundary as JSON, and a query whose meaning
+    depends on incidental list order is not reproducible. Steps are optional
+    because retrieval must work before the planner has run.
 
     Raises on blank identifiers. An empty ``service_name`` would produce a query
-    missing the term the pre-filter is built around, which retrieves plausible
-    chunks for the wrong service — a wrong answer, not an obvious failure.
+    missing the term the pre-filter is built around, retrieving plausible chunks
+    for the wrong service: a wrong answer rather than an obvious failure.
     """
     if not service_name.strip():
         raise ValueError("service_name is required for a retrieval query")
