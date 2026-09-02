@@ -14,7 +14,7 @@
 
 ```mermaid
 flowchart LR
-    Watcher[watcher-agent] --> Planner[planner-agent] --> Reasoner[reasoner-agent]
+    Watcher[WATCHER-AGENT] --> Planner[PLANNER-AGENT] --> Reasoner[REASONER-AGENT]
 
     classDef agent fill:#eafaf6,stroke:#127d69,color:#0b3d33;
     class Watcher,Planner,Reasoner agent

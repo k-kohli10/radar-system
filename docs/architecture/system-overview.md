@@ -58,14 +58,14 @@ Detection is external. RADAR's flow starts at ingestion:
 
 ```mermaid
 flowchart TB
-    ext["Prometheus / Kibana Watcher<br/><small>pre-fired alert</small>"]
-    ing["ingestion<br/><small>normalize, dedupe, outbox</small>"]
-    watcher["watcher-agent<br/><small>correlate alerts into an incident</small>"]
-    planner["planner-agent<br/><small>build an investigation plan</small>"]
-    reasoner["reasoner-agent<br/><small>call LLM, produce RCA</small>"]
-    feedback["feedback-service<br/><small>deliver Slack card, run Slack bot</small>"]
+    ext["Prometheus / Kibana Watcher<br/>pre-fired alert"]
+    ing["INGESTION<br/>normalize, dedupe, outbox"]
+    watcher["WATCHER-AGENT<br/>correlate alerts into an incident"]
+    planner["PLANNER-AGENT<br/>build an investigation plan"]
+    reasoner["REASONER-AGENT<br/>call LLM, produce RCA"]
+    feedback["FEEDBACK-SERVICE<br/>deliver Slack card, run Slack bot"]
     oncall(["On-call engineer"])
-    pg[("Postgres<br/><small>transactional outbox<br/>all agent comms</small>")]
+    pg[("Postgres<br/>transactional outbox<br/>all agent comms")]
 
     ext --> ing
     ing -- outbox-worker --> watcher

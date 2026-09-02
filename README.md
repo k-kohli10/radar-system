@@ -88,17 +88,17 @@ Zoomed in on the pipeline itself, labeled by arrow type:
 
 ```mermaid
 flowchart TB
-    P["Prometheus / Kibana Watcher<br/><small>pre-fired alert</small>"]
-    I["ingestion<br/><small>normalize, dedupe, outbox</small>"]
-    W["watcher-agent<br/><small>correlate alerts into an incident</small>"]
-    PL["planner-agent<br/><small>build an investigation plan</small>"]
-    R["reasoner-agent<br/><small>produce the RCA</small>"]
-    K["knowledge-service<br/><small>retrieve + grade runbooks</small>"]
-    G["llm-gateway<br/><small>token IAM, routing, fallback</small>"]
-    LLM["LLM provider<br/><small>OpenAI / Anthropic</small>"]
-    F["feedback-service<br/><small>deliver Slack card, run bot</small>"]
+    P["Prometheus / Kibana Watcher<br/>pre-fired alert"]
+    I["INGESTION<br/>normalize, dedupe, outbox"]
+    W["WATCHER-AGENT<br/>correlate alerts into an incident"]
+    PL["PLANNER-AGENT<br/>build an investigation plan"]
+    R["REASONER-AGENT<br/>produce the RCA"]
+    K["KNOWLEDGE-SERVICE<br/>retrieve + grade runbooks"]
+    G["LLM-GATEWAY<br/>token IAM, routing, fallback"]
+    LLM["LLM provider<br/>OpenAI / Anthropic"]
+    F["FEEDBACK-SERVICE<br/>deliver Slack card, run bot"]
     S(["Slack / on-call engineer"])
-    DB[("Postgres<br/><small>transactional outbox<br/>all agent comms</small>")]
+    DB[("Postgres<br/>transactional outbox<br/>all agent comms")]
 
     P --> I
     I -- outbox --> W

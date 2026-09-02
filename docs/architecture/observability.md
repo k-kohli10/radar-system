@@ -29,23 +29,23 @@ For the incident data-flow plane (alerts to agents to Slack), see
 
 ```mermaid
 flowchart TB
-    SIM["platform-sim<br/><small>simulated shop, POC target</small>"]:::ext
+    SIM["PLATFORM-SIM<br/>simulated shop, POC target"]:::ext
 
     subgraph RADAR["RADAR services (×8)"]
       direction LR
-      SVC["ingestion · watcher · planner · reasoner<br/>knowledge · llm-gateway · outbox-worker · feedback"]:::agent
+      SVC["INGESTION · WATCHER · PLANNER · REASONER<br/>KNOWLEDGE · LLM-GATEWAY · OUTBOX-WORKER · FEEDBACK"]:::agent
     end
 
-    PROM["Prometheus<br/><small>scrapes /metrics, evaluates rules</small>"]:::infra
-    OTELC["OTel Collector<br/><small>OTLP :4317</small>"]:::infra
-    FB["Fluent Bit<br/><small>tails JSON stdout</small>"]:::infra
+    PROM["Prometheus<br/>scrapes /metrics, evaluates rules"]:::infra
+    OTELC["OTel Collector<br/>OTLP :4317"]:::infra
+    FB["Fluent Bit<br/>tails JSON stdout"]:::infra
     AM["Alertmanager"]:::infra
-    ES[("Elasticsearch<br/><small>traces + radar-*-logs-*<br/>joined by correlation_id</small>")]:::store
+    ES[("Elasticsearch<br/>traces + radar-*-logs-*<br/>joined by correlation_id")]:::store
 
-    GRAF["Grafana<br/><small>5 dashboards</small>"]:::ext
-    KIB["Kibana<br/><small>APM + Discover</small>"]:::ext
-    ING["ingestion /alerts/prometheus<br/><small>becomes an incident</small>"]:::agent
-    BH["blackhole<br/><small>dropped, no self-incidents</small>"]:::muted
+    GRAF["Grafana<br/>5 dashboards"]:::ext
+    KIB["Kibana<br/>APM + Discover"]:::ext
+    ING["INGESTION /alerts/prometheus<br/>becomes an incident"]:::agent
+    BH["blackhole<br/>dropped, no self-incidents"]:::muted
 
     %% metrics + alerting plane
     SIM -- "metrics" --> PROM

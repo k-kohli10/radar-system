@@ -16,13 +16,13 @@
 sequenceDiagram
     autonumber
     participant Prometheus
-    participant ingestion
-    participant watcher as watcher-agent
-    participant planner as planner-agent
-    participant reasoner as reasoner-agent
-    participant knowledge as knowledge-service
-    participant llm as llm-gateway
-    participant feedback as feedback-service
+    participant ingestion as INGESTION
+    participant watcher as WATCHER-AGENT
+    participant planner as PLANNER-AGENT
+    participant reasoner as REASONER-AGENT
+    participant knowledge as KNOWLEDGE-SERVICE
+    participant llm as LLM-GATEWAY
+    participant feedback as FEEDBACK-SERVICE
     participant Slack
 
     Prometheus->>ingestion: POST /alerts/prometheus
@@ -74,13 +74,13 @@ atomicity and the correlation chain.
 sequenceDiagram
     autonumber
     participant Prometheus
-    participant ingestion
+    participant ingestion as INGESTION
     participant Postgres
-    participant outbox as outbox-worker
-    participant watcher as watcher-agent
-    participant planner as planner-agent
-    participant reasoner as reasoner-agent
-    participant llm as llm-gateway
+    participant outbox as OUTBOX-WORKER
+    participant watcher as WATCHER-AGENT
+    participant planner as PLANNER-AGENT
+    participant reasoner as REASONER-AGENT
+    participant llm as LLM-GATEWAY
 
     Prometheus->>ingestion: alert fired (webhook token)
     ingestion->>Postgres: INSERT incident + alert + outbox(alert.normalized)
@@ -143,9 +143,9 @@ The second POST produces no pipeline work. The engineer sees one incident, not t
 ```mermaid
 sequenceDiagram
     autonumber
-    participant reasoner as reasoner-agent
-    participant llm as llm-gateway
-    participant feedback as feedback-service
+    participant reasoner as REASONER-AGENT
+    participant llm as LLM-GATEWAY
+    participant feedback as FEEDBACK-SERVICE
     participant Slack
 
     reasoner->>llm: POST /v1/complete (mode=extended)
@@ -178,9 +178,9 @@ the incident gets a real RCA that is merely ungrounded, not a template.
 ```mermaid
 sequenceDiagram
     autonumber
-    participant reasoner as reasoner-agent
-    participant knowledge as knowledge-service
-    participant llm as llm-gateway
+    participant reasoner as REASONER-AGENT
+    participant knowledge as KNOWLEDGE-SERVICE
+    participant llm as LLM-GATEWAY
 
     reasoner->>knowledge: POST /v1/context
     alt knowledge or Elasticsearch is down
@@ -210,7 +210,7 @@ sequenceDiagram
     autonumber
     actor Engineer
     participant Slack
-    participant feedback as feedback-service
+    participant feedback as FEEDBACK-SERVICE
 
     Engineer->>Slack: clicks 👍 Helpful / 👎 Not Helpful / ✏️ Add Correction
     Slack->>feedback: interactive callback
@@ -224,7 +224,7 @@ sequenceDiagram
     autonumber
     actor Engineer
     participant Slack
-    participant feedback as feedback-service
+    participant feedback as FEEDBACK-SERVICE
     participant Postgres
 
     Engineer->>Slack: "@radar last 5 incidents for order-service"
