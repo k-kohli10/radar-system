@@ -9,7 +9,7 @@ dependencies = [
     # slack_sdk's AsyncWebClient imports aiohttp at module load, but slack-sdk
     # does NOT declare it (there is no async extra). Declared here explicitly, or
     # importing this plugin raises ModuleNotFoundError at runtime.
-    "aiohttp==3.14.1",
+    "aiohttp==3.14.3",
 ]
 
 [dependency-groups]
