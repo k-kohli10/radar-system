@@ -68,17 +68,16 @@ Correlates raw alerts into incidents.
 flowchart TD
     A[event: alert.normalized] --> B{Seen in processed_events?}
     B -- yes --> R200[Return 200]
-    B -- no --> C[Load correlation rules from YAML ConfigMap]
-    C --> D["fingerprint = sha256(service_name:alert_name:severity)"]
-    D --> E[Fold grouped services into one fingerprint]
-    E --> F{Open incident with same fingerprint in window?}
-    F -- yes --> G{Suppressed by cooldown rule?}
+    B -- no --> C[Load the incident that ingestion resolved]
+    C --> D[Apply escalation rules: raise severity if alerts arrive fast enough]
+    D --> E{Alert deduplicated onto an existing incident?}
+    E -- yes --> F[Attach alert to incident, no plan requested]
+    E -- no --> G{Suppressed by cooldown rule?}
     G -- yes --> H[Skip outbox write]
-    G -- no --> I[Increment alert_count, apply escalation, attach alert]
-    F -- no --> J[Create incident, write outbox: incident.plan_requested]
-    H --> K[(One transaction: alert + incident + processed_events + audit_log)]
+    G -- no --> I[Write outbox: incident.plan_requested]
+    F --> K[(One transaction: incident state + outbox + processed_events + audit_log)]
+    H --> K
     I --> K
-    J --> K
 
     classDef event fill:#eef3fc,stroke:#2f5fa8,color:#1a2b4a;
     classDef decision fill:#fef6e9,stroke:#b5761f,color:#5a3a0a;
@@ -87,15 +86,19 @@ flowchart TD
     classDef commit fill:#eef1fb,stroke:#33418f,color:#1a2350;
 
     class A event
-    class B,F,G decision
-    class C,D,E,I,J action
+    class B,E,G decision
+    class C,D,F,I action
     class R200,H terminal
     class K commit
 ```
 
-Correlation rules (window overrides, service groups, suppression, escalation,
-fingerprint fields) live in `apps/watcher-agent/config/correlation-rules.yaml`, mounted
-as a ConfigMap. Never hardcoded.
+Fingerprinting and deduplication happen upstream, in ingestion, on its 5-minute window;
+by the time an event reaches the watcher, ingestion has already decided which incident
+it belongs to. The watcher's own correlation rules live in
+`apps/watcher-agent/config/correlation-rules.yaml`, mounted as a ConfigMap. Suppression
+and escalation are the rules it applies; window overrides, service groups, and
+fingerprint fields are validated and carried in the same file but applied by nothing yet
+(see [ADR 0013](../adr/0013-watcher-correlation-scope.md)).
 
 ## Planner Agent
 
@@ -136,10 +139,15 @@ flowchart TD
     A[event: incident.reasoning_requested] --> B{Seen in processed_events?}
     B -- yes --> R200[Return 200]
     B -- no --> C[Load incident + plan from Postgres]
-    C --> D[Build context bundle: incident metadata + investigation steps<br/>+ retrieved runbook context from Phase 8 onward]
-    D --> E["POST /v1/complete to llm-gateway, mode=extended"]
-    E -- 503 --> F["fallback.generate_template_rca(incident, plan)<br/>confidence=low, is_fallback=true"]
-    E -- 200 --> G[Parse root_cause, confidence, recommended_actions]
+    C --> D[Build context bundle: incident metadata + investigation steps]
+    D --> D2["POST /v1/context to knowledge-service"]
+    D2 --> D3{Retrieval outcome?}
+    D3 -- grounded --> D4[Merge graded chunks into retrieved_context]
+    D3 -- empty or unavailable --> D5[retrieved_context stays empty]
+    D4 --> E["POST /v1/complete to llm-gateway, mode=extended"]
+    D5 --> E
+    E -- success, parses --> G[Parse root_cause, confidence, recommended_actions]
+    E -- failure or unparseable --> F["fallback.generate_template_rca(incident, plan)<br/>confidence=low, is_fallback=true"]
     F --> H[(One transaction: recommendation + outbox: recommendation.created + processed_events + audit_log)]
     G --> H
 
@@ -150,16 +158,18 @@ flowchart TD
     classDef commit fill:#eef1fb,stroke:#33418f,color:#1a2350;
 
     class A event
-    class B decision
-    class C,D,E,F,G action
+    class B,D3 decision
+    class C,D,D2,D4,D5,E,F,G action
     class R200 terminal
     class H commit
 ```
 
-The LLM call itself sits outside the transaction, since it's an external network call.
-An incident is never left without a recommendation. See
+Both remote calls — to `knowledge-service` and to `llm-gateway` — sit outside the
+transaction, since they're external network calls. An incident is never left without a
+recommendation, whether retrieval comes back grounded, empty, or unavailable. See
 [docs/adr/0004-llm-gateway.md](../adr/0004-llm-gateway.md) for the fallback chain in
-full.
+full and [sequence-flows.md](sequence-flows.md#1-happy-path-alert-to-rca-in-slack) for
+the three retrieval outcomes.
 
 ## Idempotency
 

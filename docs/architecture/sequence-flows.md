@@ -103,7 +103,7 @@ sequenceDiagram
     Note over reasoner,Postgres: any non-success → template RCA, is_fallback=true.<br/>An incident always ends with a recommendation
 
     outbox->>Postgres: claim recommendation.created
-    Note over outbox,Postgres: dead-letters until Phase 9, since feedback-service doesn't exist yet
+    Note over outbox,Postgres: dispatched to feedback-service via the same POST /events<br/>mechanism as the earlier hops. An unreachable target retries with<br/>backoff and dead-letters once the attempt budget is spent (see flow 6)
 ```
 
 Two details this view makes precise:
@@ -149,10 +149,16 @@ sequenceDiagram
     participant Slack
 
     reasoner->>llm: POST /v1/complete (mode=extended)
-    loop 3 attempts, 1s/3s/9s backoff
-        llm->>llm: primary provider call fails
+    llm->>llm: primary provider call fails
+    loop 3 retries, 1s/3s/9s backoff
+        llm->>llm: primary provider retry fails
     end
-    llm->>llm: fallback provider fails (or none configured)
+    alt fallback binding configured
+        llm->>llm: fallback provider call fails
+        loop 3 retries, 1s/3s/9s backoff
+            llm->>llm: fallback provider retry fails
+        end
+    end
     llm-->>reasoner: 503
     Note over reasoner: generate_template_rca(incident, plan):<br/>root_cause explains AI was unavailable,<br/>recommended_actions = plan's investigation steps
     Note over reasoner: INSERT recommendation (is_fallback=true, confidence=low)
@@ -237,8 +243,8 @@ outbox-worker dispatches event → target agent unreachable / 5xx
   attempt 2: retry at NOW()+5s    → fails
   attempt 3: retry at NOW()+15s   → fails
   attempt 4: retry at NOW()+60s   → fails
-  attempt 5: retry at NOW()+300s  → fails
-  attempt 6: status → dead_letter, audit_log entry written, metric emitted
+  attempt 5: retry at NOW()+300s  → fails → status: dead_letter,
+                                             audit_log entry written, metric emitted
 ```
 
 A dead lettered event stops retrying automatically but is never deleted. It stays

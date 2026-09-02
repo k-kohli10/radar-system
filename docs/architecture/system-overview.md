@@ -47,7 +47,7 @@ watcher-agent        Correlates alerts into incidents using configurable rules.
 planner-agent        Builds an investigation plan from a template.
 reasoner-agent        Calls the LLM gateway to produce a root cause analysis, or
                      falls back to a template-based RCA if the LLM is unavailable.
-knowledge-service     Indexes runbooks and serves retrieval to the reasoner (Phase 8+).
+knowledge-service     Indexes runbooks and serves retrieval to the reasoner.
 feedback-service      Delivers RCA cards to Slack, collects feedback, and runs the
                      Slack bot that answers status queries.
 ```
@@ -89,8 +89,12 @@ flowchart TB
     class pg store
 ```
 
-Note: `reasoner-agent` also calls `llm-gateway` directly via `POST /v1/complete`
-(a direct call, not mediated by the outbox, omitted above for clarity).
+Note: `reasoner-agent` also calls `knowledge-service` (retrieve + grade runbooks) and
+`llm-gateway` (produce the RCA) directly, and `knowledge-service` in turn calls
+`llm-gateway` (embed + grade). These are synchronous request/response calls, not
+mediated by the outbox, and are omitted above for clarity — see
+[agent-pipeline.md](agent-pipeline.md#why-no-direct-http-between-agents) for why they
+are queries rather than pipeline handoffs.
 
 All agent-to-agent communication is mediated by the Postgres transactional outbox. See
 [docs/architecture/agent-pipeline.md](agent-pipeline.md) and
@@ -118,5 +122,5 @@ shop versus watching RADAR itself) is drawn in
 
 Two targets, from the same multi-arch images: the two-stack Docker deployment
 (`radar-infra` + `radar-apps`) for local end-to-end runs, and an ephemeral managed
-Kubernetes (K3s) cluster for the k8s path (Phase 12). Images build for `linux/amd64`
+Kubernetes (K3s) cluster for the k8s path. Images build for `linux/amd64`
 (the cluster, x86 CI) and `linux/arm64` (local Docker on Apple Silicon) via `docker buildx`.

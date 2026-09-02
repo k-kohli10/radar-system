@@ -136,8 +136,7 @@ plugin (`plugins/logs/elastic`) queries the `radar-*-logs-*` pattern.
 
 Because `correlation_id` is bound on every RADAR log line and also rides on every span,
 logs and traces for one incident are queryable by the same key in the same
-Elasticsearch, which is the Phase 10 done-condition: a single mock alert is traceable
-end to end by `correlation_id` alone.
+Elasticsearch: a single mock alert is traceable end to end by `correlation_id` alone.
 
 ## Where each signal is configured
 
