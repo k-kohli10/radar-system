@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/RADAR_Logo.png" alt="RADAR — Real-time Agents for Diagnostics, Analysis & Response" width="820">
+  <img src="docs/assets/RADAR_Logo.png" alt="RADAR: Real-time Agents for Diagnostics, Analysis & Response" width="820">
 </p>
 
 <p align="center">
@@ -98,7 +98,7 @@ flowchart TB
     LLM["LLM provider<br/>OpenAI / Anthropic"]
     F["FEEDBACK-SERVICE<br/>deliver Slack card, run bot"]
     S(["Slack / on-call engineer"])
-    DB[("Postgres<br/>transactional outbox<br/>all agent comms")]
+    DB[("Postgres<br/>transactional<br/>outbox<br/>all agent comms")]
 
     P --> I
     I -- outbox --> W
@@ -129,16 +129,16 @@ flowchart TB
 The pipeline runs top to bottom, starting when a pre-fired alert reaches ingestion. Three
 arrow types carry it:
 
-1. **Solid one-way (agent → agent) — an asynchronous outbox handoff.** The source agent
+1. **Solid one-way (agent → agent): an asynchronous outbox handoff.** The source agent
    commits its state change and an outbox row in a single transaction; a dedicated
    outbox-worker later picks up that row and dispatches it to the next agent, with retries
    and idempotency guarantees.
-2. **Solid two-way — a synchronous request/response call.** These are:
-   - reasoner ↔ knowledge-service — retrieve and grade runbook context
-   - reasoner ↔ llm-gateway — produce the RCA
-   - knowledge-service ↔ llm-gateway — embed queries and grade retrieved chunks
-   - feedback-service ↔ Slack — post cards and take the engineer's responses back
-3. **Dashed one-way — the outbox write** landing durably in Postgres.
+2. **Solid two-way: a synchronous request/response call.** These are:
+   - reasoner ↔ knowledge-service: retrieve and grade runbook context
+   - reasoner ↔ llm-gateway: produce the RCA
+   - knowledge-service ↔ llm-gateway: embed queries and grade retrieved chunks
+   - feedback-service ↔ Slack: post cards and take the engineer's responses back
+3. **Dashed one-way: the outbox write** landing durably in Postgres.
 
 Two rules follow from this:
 
@@ -246,7 +246,7 @@ control flow explicit and the dependency surface small.
 <summary><b>3. Why a Postgres outbox instead of Redis or Kafka?</b></summary>
 
 > The state change and its outbox event commit in one database transaction, so a
-> handoff can never be half-done — "incident created but no plan requested" is
+> handoff can never be half-done: "incident created but no plan requested" is
 > structurally impossible. It also means no extra broker infrastructure. See
 > [docs/adr/0003-postgres-outbox.md](docs/adr/0003-postgres-outbox.md).
 
@@ -266,7 +266,7 @@ control flow explicit and the dependency surface small.
 <summary><b>5. What happens if the knowledge service (retrieval) is down?</b></summary>
 
 > The reasoner proceeds with an empty context and still calls the LLM,
-> producing a genuine but ungrounded RCA — not a template. Losing retrieval
+> producing a genuine but ungrounded RCA, not a template. Losing retrieval
 > costs the incident its grounding, not its analysis. See
 > [docs/architecture/sequence-flows.md](docs/architecture/sequence-flows.md).
 
@@ -286,7 +286,7 @@ control flow explicit and the dependency surface small.
 
 > Yes. Backends are plugins resolved at runtime against Protocol interfaces in
 > `radar_contracts`; nothing in `apps/` or `packages/` imports a vendor client
-> directly — vendor SDKs live behind `plugins/`. See
+> directly; vendor SDKs live behind `plugins/`. See
 > [docs/plugin-development.md](docs/plugin-development.md).
 
 </details>
@@ -295,7 +295,7 @@ control flow explicit and the dependency surface small.
 <summary><b>8. How are secrets handled?</b></summary>
 
 > At runtime each service reads secret *files* that Vault mounts (default
-> `/vault/secrets`, overridable with `RADAR_SECRETS_DIR` for local dev) — secret
+> `/vault/secrets`, overridable with `RADAR_SECRETS_DIR` for local dev). Secret
 > values never come from the service's own environment. External credentials like
 > your OpenAI and Slack keys are seeded into Vault first (locally from `.env`, in
 > CI/CD from GitHub Actions secrets) and materialized as those files. Each service
@@ -307,7 +307,7 @@ control flow explicit and the dependency surface small.
 <details>
 <summary><b>9. Can I point RADAR at my own Vault, Postgres, or Elasticsearch?</b></summary>
 
-> Yes — that is the production pattern. Run RADAR's app chart against your own
+> Yes, that is the production pattern. Run RADAR's app chart against your own
 > managed backends and skip the bundled `platform-deps`: set `vault.addr` (in
 > the Helm values) to your own or HCP Vault, `RADAR_ELASTICSEARCH_URL` to your
 > Elasticsearch, and store your Postgres DSN at `secret/radar/postgres` (with
@@ -342,7 +342,7 @@ control flow explicit and the dependency surface small.
 
 ## 🤝 Contributing
 
-Contributions are welcome. A handful of architectural decisions are locked —
+Contributions are welcome. A handful of architectural decisions are locked,
 settled, and best treated as fixed when you open a PR:
 
 - Agents are hand-written against the provider SDK.
@@ -351,8 +351,9 @@ settled, and best treated as fixed when you open a PR:
 
 They're locked because they keep the system small and predictable, and each
 one's reasoning is written down: read [docs/adr/](docs/adr/) before proposing to
-change it, and read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. Found
-a bug or have a question? [Open an issue](../../issues).
+change it, and read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
+
+Found a bug or have a question? [Open an issue](../../issues).
 
 ---
 

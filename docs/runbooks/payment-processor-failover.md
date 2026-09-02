@@ -13,7 +13,7 @@ status: fixture
 
 The primary payment processor is unusable and payments need to move to the
 secondary. This runbook covers the decision to fail over, the execution, and the
-return — the last of which is where failovers most often go wrong.
+return: the last of which is where failovers most often go wrong.
 
 Failover is not free and is not automatic. The secondary typically has different
 rates, different supported methods, and no knowledge of authorizations held at
@@ -31,7 +31,7 @@ to avoid.
   elevated. Failover is a response to *unusable*, not to *degraded*.
 - The processor's status page confirming an incident, with no stated recovery
   time or one measured in hours.
-- Errors affecting all card types, all BINs, and all regions uniformly —
+- Errors affecting all card types, all BINs, and all regions uniformly,
   consistent with the processor rather than with anything in our request path.
 - Retries failing identically, confirming this is not a transient blip that will
   clear on its own.
@@ -39,7 +39,7 @@ to avoid.
 
 ## Impact
 
-While the primary is down and before failover completes, no payments succeed —
+While the primary is down and before failover completes, no payments succeed:
 a total revenue stop. That is what justifies accepting the trade-offs of moving.
 
 Failover itself carries risk. In-flight authorizations at the primary may
@@ -62,14 +62,14 @@ using an unsupported method will fail even after a successful failover, so
    5xx, and possibly a billing or contract cause rather than a technical one.
 3. **Regional network partition.** The processor is healthy but unreachable from
    our infrastructure. Distinguishing signal: reachable from outside our network,
-   unreachable from inside. Failover may be the wrong response — fixing the path
+   unreachable from inside. Failover may be the wrong response: fixing the path
    may be faster.
 4. **Sustained latency without errors.** The processor answers, but so slowly
    that checkout times out. Distinguishing signal: authorizations eventually
    succeed, so errors stay low while timeouts climb. This is the ambiguous case
    where failover is a judgment call.
 5. **Planned migration or maintenance.** A scheduled move rather than an
-   incident. Distinguishing signal: it is on the calendar — and the procedure
+   incident. Distinguishing signal: it is on the calendar: and the procedure
    below should be rehearsed here rather than first attempted under pressure.
 
 ## Investigation
@@ -82,7 +82,7 @@ using an unsupported method will fail even after a successful failover, so
    single input that most determines the right decision.
 3. **Verify the secondary is actually ready.** Credentials valid, connectivity
    confirmed, configuration current. A secondary that has not been exercised
-   recently is a hypothesis, not a fallback — check before committing.
+   recently is a hypothesis, not a fallback: check before committing.
 4. **Confirm which payment methods the secondary supports.** Knowing what will
    still fail after failover shapes customer communication and prevents a second
    round of surprise.
@@ -96,8 +96,8 @@ using an unsupported method will fail even after a successful failover, so
 ## Resolution
 
 **To fail over:** switch the configured processor for the `payment-gateway` to
-the secondary and restart. Verify with a low-value test transaction end to end —
-authorization, capture, and appearance in the secondary's dashboard — before
+the secondary and restart. Verify with a low-value test transaction end to end:
+authorization, capture, and appearance in the secondary's dashboard, before
 declaring payments restored. A configuration change that has not completed a real
 transaction has not been verified.
 
@@ -109,7 +109,7 @@ rather than announcing full restoration.
 and every one the primary may have completed after the switch. This is the
 reconciliation input and it cannot be reconstructed accurately afterwards.
 
-**To fail back — the step that is most often mishandled:** do it deliberately,
+**To fail back: the step that is most often mishandled:** do it deliberately,
 during business hours, after the primary has been stable for a meaningful
 period. Failing back during the same incident, or overnight because "the primary
 is up again," risks a second outage with a tired team. There is rarely urgency;
@@ -124,7 +124,7 @@ surprise.
 
 Page the payment-gateway on-call and treat any total payment failure as an
 incident immediately. The failover *decision* should involve an engineering lead
-and the business — it has commercial implications, including different
+and the business: it has commercial implications, including different
 processing rates, that are not engineering's to make alone.
 
 Notify the business before failing over, not after. If the secondary does not
@@ -132,7 +132,7 @@ support some payment methods, that is a customer-facing consequence they need to
 communicate.
 
 Engage the primary processor's support channel in parallel, and keep the
-relationship open — their recovery estimate is the main input to the fail-back
+relationship open: their recovery estimate is the main input to the fail-back
 decision.
 
 Involve finance after any failover. Two processors handling one period changes
@@ -141,12 +141,12 @@ during it.
 
 ## Related
 
-- `payment-gateway-errors` — the alert that leads here. Its cause 1 is an
+- `payment-gateway-errors`: the alert that leads here. Its cause 1 is an
   upstream processor incident, and its resolution says to fail over if a
   secondary is configured. This runbook is that procedure.
-- `payment-reconciliation-mismatch` — the expected aftermath. Failover windows
+- `payment-reconciliation-mismatch`: the expected aftermath. Failover windows
   produce authorizations at the primary that our side stopped tracking, which is
   precisely the discrepancy that runbook handles.
-- `payment-credential-rotation` — a failover only works if the secondary's
+- `payment-credential-rotation`: a failover only works if the secondary's
   credentials are valid, which depends on that rotation procedure having been
   followed.

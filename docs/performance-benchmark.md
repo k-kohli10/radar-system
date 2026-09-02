@@ -1,7 +1,7 @@
 # 📊 Performance Benchmark
 
 How RADAR behaves under a **100-alert burst** on a real Kubernetes cluster, with
-the **real LLM** in the loop — measured end to end, not mocked. 🎯
+the **real LLM** in the loop: measured end to end, not mocked. 🎯
 
 **Headline:** 100 simultaneous alerts → **100 RCAs, zero data loss, zero
 fallbacks**, drained in **~7 minutes** on a single reasoner replica.
@@ -21,8 +21,8 @@ fallbacks**, drained in **~7 minutes** on a single reasoner replica.
 ## 🧪 What Was Measured
 
 100 distinct alerts fired **concurrently** at the live ingestion endpoint, each
-driving the full pipeline — ingestion → watcher → planner → reasoner → **real LLM
-gateway** → recommendation — through the Postgres outbox at every hop.
+driving the full pipeline (ingestion → watcher → planner → reasoner → **real LLM
+gateway** → recommendation) through the Postgres outbox at every hop.
 
 | Setting | Value |
 |---|---|
@@ -30,7 +30,7 @@ gateway** → recommendation — through the Postgres outbox at every hop.
 | 🤖 LLM | **real** gateway (live model calls, not mocked) |
 | 🔢 Load | 100 distinct alerts, fired at once |
 | 🧵 Reasoner | **1 replica** (default) |
-| ⏱️ Latency span | `incident.opened_at → recommendation.created_at` — both Postgres `now()`, one clock |
+| ⏱️ Latency span | `incident.opened_at → recommendation.created_at` (both Postgres `now()`, one clock) |
 | 🛠️ Driver | [`scripts/load-benchmark.sh`](../scripts/load-benchmark.sh) |
 
 > 🔕 `feedback-service` was scaled to 0 for the run, so the 100 RCAs did **not**
@@ -68,15 +68,15 @@ gateway** → recommendation — through the Postgres outbox at every hop.
 
 These are **queue-position** times, **not** per-RCA processing time. 100 incidents
 open in the same second, and one reasoner replica works them off roughly
-sequentially through the real LLM — so an incident's latency is mostly *time spent
+sequentially through the real LLM, so an incident's latency is mostly *time spent
 waiting in the queue*:
 
-- ⚡ **min 4.9 s** — the first incident: one real LLM call, no wait.
-- 🐢 **max 405 s** — the last incident: ~6.7 min queued behind the other 99.
-- 📈 **p50 ≈ avg ≈ 207 s ≈ ½ · max** — the signature of a linear queue drain.
+- ⚡ **min 4.9 s**, the first incident: one real LLM call, no wait.
+- 🐢 **max 405 s**, the last incident: ~6.7 min queued behind the other 99.
+- 📈 **p50 ≈ avg ≈ 207 s ≈ ½ · max**: the signature of a linear queue drain.
 
 So the number that describes the system is the **throughput (~14–15 RCAs/min)** and
-the **no-data-loss guarantee under a 100× burst** — the durable outbox means nothing
+the **no-data-loss guarantee under a 100× burst**: the durable outbox means nothing
 is dropped, doubled, or crossed, it just queues. More reasoner replicas raise
 throughput and pull the tail in; the per-RCA LLM cost (~5 s) is the floor.
 
@@ -85,7 +85,7 @@ throughput and pull the tail in; the per-RCA LLM cost (~5 s) is the floor.
 ## 🆚 vs. the Mocked Baseline
 
 [`tests/load/`](../tests/load/) runs the same 100-alert shape **in-process with the
-LLM mocked** — it isolates RADAR's own queueing latency with model time removed:
+LLM mocked**; it isolates RADAR's own queueing latency with model time removed:
 
 | | Mocked, in-process ([tests/load](../tests/load/)) | Live, real LLM (this doc) |
 |---|---|---|
@@ -94,7 +94,7 @@ LLM mocked** — it isolates RADAR's own queueing latency with model time remove
 | Includes model time | ❌ | ✅ |
 | Runs on the cluster | ❌ | ✅ |
 
-The gap is the real model latency plus real single-replica throughput — exactly what
+The gap is the real model latency plus real single-replica throughput: exactly what
 the mocked test deliberately factors out.
 
 ---
@@ -109,5 +109,5 @@ scripts/load-benchmark.sh 25       # a smaller run
 ```
 
 The script fires the burst, waits for the drain, and prints the no-data-loss counts
-and p50/p95/p99 — reading latency straight from the Postgres spans. It protects your
+and p50/p95/p99, reading latency straight from the Postgres spans. It protects your
 Slack channel automatically (see the note above).

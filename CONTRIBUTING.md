@@ -95,7 +95,7 @@ maintainer reviews it and merges when it's ready.
 - 🟢 CI (lint, typecheck, test, multi-arch build) and the security scan
   (OSV-Scanner) are required checks and must pass before merge.
 - 🔑 A first-time contributor's workflow runs wait for maintainer approval to
-  start — GitHub's default for fork PRs.
+  start (GitHub's default for fork PRs).
 - 📦 Keep the PR scoped to one logical change.
 
 ---

@@ -13,13 +13,13 @@ status: fixture
 ## Summary
 
 `order-service` resident memory has stayed above 1.5GB for five minutes.
-Nothing is failing yet — this alert is a leading indicator, not an outage. It
+Nothing is failing yet: this alert is a leading indicator, not an outage. It
 fires early precisely so someone can look while the service is still healthy.
 
 The trajectory is what matters. Memory that rises to a new plateau and holds is
 usually a workload or configuration change and can wait for business hours.
 Memory that climbs steadily without levelling off will reach the 2GB container
-limit, get OOM-killed, and restart — dropping every in-flight order at the
+limit, get OOM-killed, and restart: dropping every in-flight order at the
 moment it does.
 
 ## Symptoms
@@ -53,12 +53,12 @@ investigation unless the growth curve says the container limit arrives sooner.
 ## Likely Causes
 
 1. **Unbounded in-process cache.** A cache with no eviction policy or TTL that
-   grows with cardinality — product ids, customer ids, promo codes. Distinguishing
+   grows with cardinality: product ids, customer ids, promo codes. Distinguishing
    signal: memory tracks a business quantity (catalogue size, active customers)
    rather than request volume, and never drops.
 2. **Genuine memory leak.** Objects retained by a listener, a background task,
    or an accumulating list that is never cleared. Distinguishing signal: steady
-   climb that survives traffic troughs — memory does not fall overnight when
+   climb that survives traffic troughs: memory does not fall overnight when
    almost no requests arrive.
 3. **Recent deploy raising the baseline.** A new dependency, a larger connection
    pool, or increased worker concurrency, each of which legitimately costs
@@ -87,7 +87,7 @@ investigation unless the growth curve says the container limit arrives sooner.
    -n ecommerce`. A step change aligning with a rollout is cause 3.
 5. **Check whether memory falls during the overnight trough.** This is the
    single most useful discriminator: a healthy service releases memory when
-   traffic drops. One that does not is retaining objects — cause 1 or 2.
+   traffic drops. One that does not is retaining objects: cause 1 or 2.
 6. **Compare replicas.** If one pod is far above the others on the same traffic,
    suspect a leak triggered by a specific long-lived connection or a poisoned
    cache entry rather than a uniform workload cost.
@@ -95,16 +95,16 @@ investigation unless the growth curve says the container limit arrives sooner.
 ## Resolution
 
 **Immediate relief, any cause:** `kubectl rollout restart deployment/order-service
--n ecommerce`. This is a deliberate rolling restart — pods drain in-flight work
+-n ecommerce`. This is a deliberate rolling restart: pods drain in-flight work
 before terminating, unlike an OOM-kill, which does not. It buys hours to days.
 It is not a fix, and a service that needs it on a schedule has an open bug.
 
-**Unbounded cache (cause 1):** add an eviction policy — a size ceiling or a TTL.
+**Unbounded cache (cause 1):** add an eviction policy: a size ceiling or a TTL.
 Prefer bounding the cache to raising the limit; an unbounded cache will find
 whatever ceiling you give it.
 
 **Leak (cause 2):** capture a heap profile from an affected pod before
-restarting it — the restart destroys the evidence. Compare object counts by type
+restarting it: the restart destroys the evidence. Compare object counts by type
 against a freshly-started pod; the type that grows without bound names the
 retaining code path.
 
@@ -127,7 +127,7 @@ Does not auto-page at `severity=medium`. Pick it up during working hours unless
 the growth curve puts the container limit within a few hours, in which case
 treat it as urgent and page the order-service on-call.
 
-Escalate immediately if pods are actively OOM-killing — restarts drop in-flight
+Escalate immediately if pods are actively OOM-killing: restarts drop in-flight
 orders, which makes this a customer-facing problem regardless of the declared
 severity.
 
@@ -137,10 +137,10 @@ hours.
 
 ## Related
 
-- `order-service-high-failure-rate` — same service, different failure mode, and
+- `order-service-high-failure-rate`: same service, different failure mode, and
   the one to check first. That runbook covers orders failing while the process
   stays healthy; this one covers the process itself being unhealthy while orders
   still succeed. If both are firing, memory pressure is likely causing the
   failures via OOM-kills, so work this one.
-- `checkout-timeout-rate` — GC pauses under memory pressure can surface upstream
+- `checkout-timeout-rate`: GC pauses under memory pressure can surface upstream
   as checkout slowness before anything in order-service errors.

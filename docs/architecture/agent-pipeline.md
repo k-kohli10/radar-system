@@ -164,7 +164,7 @@ flowchart TD
     class H commit
 ```
 
-Both remote calls — to `knowledge-service` and to `llm-gateway` — sit outside the
+Both remote calls, to `knowledge-service` and to `llm-gateway`, sit outside the
 transaction, since they're external network calls. An incident is never left without a
 recommendation, whether retrieval comes back grounded, empty, or unavailable. See
 [docs/adr/0004-llm-gateway.md](../adr/0004-llm-gateway.md) for the fallback chain in

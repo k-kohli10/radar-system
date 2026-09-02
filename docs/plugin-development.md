@@ -1,7 +1,7 @@
 # 🔌 Plugin Development Guide
 
-Swap in a new backend — an LLM provider, a notification channel, a
-logs / metrics / traces sink — **without touching a single service.** 🎉
+Swap in a new backend (an LLM provider, a notification channel, a
+logs / metrics / traces sink) **without touching a single service.** 🎉
 
 Every swappable backend in RADAR is just two things:
 
@@ -95,7 +95,7 @@ Five steps. The running example: a PagerDuty notification backend. 📟
 ### 1️⃣ Scaffold the package
 
 Workspace members are `plugins/*/*`, so a new directory with a `pyproject.toml`
-**joins the uv workspace automatically** — no root config edit. 🪄
+**joins the uv workspace automatically**: no root config edit. 🪄
 
 ```toml
 # plugins/notifications/pagerduty/pyproject.toml
@@ -110,7 +110,7 @@ radar-contracts = { workspace = true }
 
 ### 2️⃣ Implement the protocol
 
-Write a **plain class** — nothing to inherit — whose method signatures
+Write a **plain class** (nothing to inherit) whose method signatures
 structurally match the target `Protocol`.
 
 > 💡 Let vendor exceptions propagate unwrapped. Classification, redaction, and
@@ -118,7 +118,7 @@ structurally match the target `Protocol`.
 
 ### 3️⃣ Register it
 
-In the consuming service's composition root — e.g. `register_plugins()` in
+In the consuming service's composition root, e.g. `register_plugins()` in
 [`apps/llm-gateway/…/main.py`](../apps/llm-gateway/src/radar_llm_gateway/main.py):
 
 ```python
@@ -126,7 +126,7 @@ registry.register(NotificationBackend, PagerDutyBackend, name="pagerduty")
 ```
 
 🛡️ Registration runs `issubclass(impl, protocol)` immediately and raises
-`PluginConformanceError` on a mismatch — a wiring bug fails **at startup**, not
+`PluginConformanceError` on a mismatch: a wiring bug fails **at startup**, not
 in production.
 
 ### 4️⃣ Point config at the name
@@ -150,7 +150,7 @@ settings:
 
 | Test | What it proves | Reference |
 |---|---|---|
-| ✅ **Conformance** | Registering against the `Protocol` succeeds — a real structural match, not just "it imports" | any plugin's tests |
+| ✅ **Conformance** | Registering against the `Protocol` succeeds: a real structural match, not just "it imports" | any plugin's tests |
 | 🎭 **Behavior** | Methods do the right thing against a **mocked vendor client** | `plugins/notifications/slack/tests/` builds the real `SlackNotificationBackend` |
 
 Run just this package:
@@ -172,15 +172,15 @@ make lint      # ruff + mypy strict — catches a signature that's close but not
 
 - 🔒 **No vendor imports outside `plugins/`.** `apps/` and `packages/` see only
   `radar_contracts` Protocol types. Need a vendor SDK in a service? The
-  abstraction is wrong — fix the Protocol, don't reach around it.
+  abstraction is wrong: fix the Protocol, don't reach around it.
 - 🧬 **Structural, not nominal.** Don't inherit the Protocol, don't add an ABC.
   Conformance is `issubclass` against a `@runtime_checkable` Protocol.
-- 🏷️ **One name per protocol.** `registry.register()` raises on a duplicate — pick
+- 🏷️ **One name per protocol.** `registry.register()` raises on a duplicate: pick
   a distinct vendor name (`"pagerduty"`, not `"slack"`).
 - ⚙️ **Config, not code, picks the backend.** A deployment's choice is a
   `BackendConfig` value (YAML), never a hardcoded class in a service.
 - 🔑 **Secrets from Vault only.** API keys and tokens come from Vault secret
-  files — never environment variables, never the config YAML.
+  files: never environment variables, never the config YAML.
 
 ---
 
@@ -188,7 +188,7 @@ make lint      # ruff + mypy strict — catches a signature that's close but not
 
 | 😖 Symptom | 🤔 Cause | 🔧 Fix |
 |---|---|---|
-| `PluginConformanceError` at registration | Signature doesn't structurally match the `Protocol` | Diff against the `Protocol` in `radar_contracts` — check param names and async/sync |
+| `PluginConformanceError` at registration | Signature doesn't structurally match the `Protocol` | Diff against the `Protocol` in `radar_contracts`: check param names and async/sync |
 | `PluginConformanceError`: name already registered | Two plugins share a name for the same `Protocol` | Give the new plugin a distinct `name=` |
 | `PluginNotFoundError` at load time | Config's `plugin` name matches no `register(..., name=…)` call | Line up the config value with `register_plugins()` |
 | mypy strict fails in CI, not locally | Vendor stubs differ, or the SDK version isn't pinned | Pin the exact vendor SDK version used elsewhere in the repo |

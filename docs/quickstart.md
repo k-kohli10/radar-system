@@ -1,7 +1,7 @@
 # ⏱️ 15-Minute Quickstart
 
 Go from a fresh clone to a live, LLM-generated root cause analysis on your own
-machine. Everything runs locally in Docker — no cloud, no Kubernetes.
+machine. Everything runs locally in Docker: no cloud, no Kubernetes.
 
 **Total time:** ~15 minutes, most of it the one-time image build.
 
@@ -13,9 +13,9 @@ machine. Everything runs locally in Docker — no cloud, no Kubernetes.
 |---|---|---|
 | **Docker** (Desktop or Engine) + Compose v2, running | Runs the whole stack | `docker compose version` |
 | **Python** ≥ 3.12 | `bootstrap.sh` uses it to generate credentials | `python3 --version` |
-| **git**, **curl** | Clone + drive the demo | — |
+| **git**, **curl** | Clone + drive the demo | n/a |
 | **An OpenAI API key** | The LLM gateway won't start without it | [platform.openai.com](https://platform.openai.com/api-keys) |
-| *(optional)* **A Slack app** (bot + app token) | To see the RCA delivered as a Slack card | — |
+| *(optional)* **A Slack app** (bot + app token) | To see the RCA delivered as a Slack card | n/a |
 
 `uv` is installed automatically by the bootstrap script if it's missing.
 Slack is optional: without it, the RCA still lands in Postgres and you verify it there.
@@ -66,7 +66,7 @@ curl -s localhost:8081/readyz; echo    # llm-gateway → ready
 ## 4. Index the runbooks · ~1–2 min
 
 `knowledge-service` returns `503` until the runbook corpus is embedded into
-Elasticsearch — this is what lets RADAR ground its RCAs in real runbooks.
+Elasticsearch: this is what lets RADAR ground its RCAs in real runbooks.
 
 ```bash
 make agent-secrets && make index       # embed runbooks into Elasticsearch
@@ -76,7 +76,7 @@ curl -s localhost:8095/readyz; echo    # knowledge-service → ready
 ## 5. Fire an alert · ~1 min
 
 Post an alert straight to ingestion with its webhook token. The richer the
-`labels`/`annotations`, the sharper the RCA — this one carries a deploy id and a
+`labels`/`annotations`, the sharper the RCA; this one carries a deploy id and a
 dominant error class, so expect **high confidence**:
 
 ```bash
@@ -92,7 +92,7 @@ curl -s -X POST http://127.0.0.1:8090/alerts/mock \
   }'; echo
 ```
 
-> Use a fresh `service_name` on repeat runs — the same fingerprint within 5 minutes
+> Use a fresh `service_name` on repeat runs: the same fingerprint within 5 minutes
 > deduplicates onto the open incident instead of opening a new one.
 
 ## 6. See the result · ~1 min
@@ -103,7 +103,7 @@ Watch the reasoner produce the RCA:
 docker compose -p radar-apps logs -f reasoner-agent    # Ctrl+C when the RCA appears
 ```
 
-Then confirm it persisted — this works whether or not Slack is configured:
+Then confirm it persisted (this works whether or not Slack is configured):
 
 ```bash
 docker exec radar-infra-postgres-1 psql -U radar -d radar -c \
@@ -132,7 +132,7 @@ your alert → ingestion → watcher → planner → reasoner → RCA
 
 RADAR normalized and deduplicated the alert, correlated it into an incident, built
 an investigation plan, retrieved and graded the relevant runbook, called the LLM to
-produce a grounded RCA with recommended actions, and delivered it — all coordinated
+produce a grounded RCA with recommended actions, and delivered it: all coordinated
 through a Postgres outbox, no direct calls between agents.
 
 ## Troubleshooting

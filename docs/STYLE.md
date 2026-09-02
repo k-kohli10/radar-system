@@ -23,7 +23,7 @@ is the example. 🎯
 | 📚 Contents | A `## Contents` block right after the intro, linking every `##` heading |
 | 🎨 Headings | One emoji per `##`/`###`, meaningful (not decorative) |
 | 📊 Tables | Prefer a table to a paragraph wherever the content is a list of facts |
-| ✅ Steps | Numbered or bulleted, short — one idea per line |
+| ✅ Steps | Numbered or bulleted, short: one idea per line |
 | 💬 Prose | Two to three sentences per paragraph, max |
 | 🧩 Code blocks | Short, runnable, only what's needed to make the point |
 

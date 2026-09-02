@@ -13,7 +13,7 @@ status: fixture
 ## Summary
 
 More than 5% of payment authorization calls are returning errors. These are
-gateway *faults* — the request failed to complete — and are categorically
+gateway *faults*, the request failed to complete, and are categorically
 different from declines, where the call succeeded and the issuer said no.
 
 That distinction drives everything in this runbook. A decline is a normal
@@ -42,7 +42,7 @@ than errors, `payment-decline-rate` is the correct runbook.
 
 Critical and immediately revenue-affecting. Every errored authorization is a
 purchase that cannot complete, and unlike a decline the customer has no
-remediation available — trying a different card will not help, because the
+remediation available: trying a different card will not help, because the
 failure is not about the card.
 
 Nothing is charged, so there is no refund exposure. The cost is lost sales plus
@@ -60,8 +60,8 @@ declaring there is no financial exposure.
    confirming, and errors affecting all card types and BINs uniformly. The most
    common cause and the one we cannot fix directly.
 2. **Expired or rotated API credentials.** Authentication against the processor
-   is failing. Distinguishing signal: a sharp step to a very high error rate —
-   often near 100% — with 401 or 403 responses, and no partial degradation.
+   is failing. Distinguishing signal: a sharp step to a very high error rate,
+   often near 100%, with 401 or 403 responses, and no partial degradation.
    Credentials fail completely, not gradually.
 3. **Network path failure.** DNS, egress, or TLS problems reaching the
    processor. Distinguishing signal: connection-level errors and timeouts rather
@@ -94,7 +94,7 @@ declaring there is no financial exposure.
    otherwise.
 5. **Determine which side of the call failed.** For a sample of errored
    authorizations, check whether the processor recorded an authorization that we
-   never successfully received. This is the check that rules out — or confirms —
+   never successfully received. This is the check that rules out, or confirms,
    customers charged without orders, and it should not be deferred.
 6. **Check deploys and traffic.** `kubectl rollout history
    deployment/payment-gateway -n ecommerce`, and compare request volume against
@@ -103,7 +103,7 @@ declaring there is no financial exposure.
 ## Resolution
 
 **Processor incident (cause 1):** we cannot fix it. Fail fast rather than
-retrying into a known-bad backend — retries extend checkout timeouts and add
+retrying into a known-bad backend: retries extend checkout timeouts and add
 load to a struggling processor. If a secondary processor is configured, fail
 over. Otherwise notify the business early; this is a case where communication is
 the entire available response.
@@ -116,7 +116,7 @@ broadly, so a bad rotation is not repeated across every replica.
 from an affected pod directly. A recently changed network policy or an expired
 intermediate certificate is the usual culprit.
 
-**Recent deploy (cause 4):** roll back — `kubectl rollout undo
+**Recent deploy (cause 4):** roll back: `kubectl rollout undo
 deployment/payment-gateway -n ecommerce`. Payment request construction is not a
 place to debug forward under load.
 
@@ -137,7 +137,7 @@ than any other alert in the platform.
 
 Notify the business and prepare customer messaging if the error rate exceeds 20%
 or persists beyond ten minutes. For an upstream processor incident, do this
-early — the fix is not ours to make and the only thing engineering controls is
+early: the fix is not ours to make and the only thing engineering controls is
 how quickly everyone else finds out.
 
 Engage the processor's support channel for any suspected upstream fault, and
@@ -147,12 +147,12 @@ availability problem.
 
 ## Related
 
-- `payment-decline-rate` — the alert most easily confused with this one, and the
+- `payment-decline-rate`: the alert most easily confused with this one, and the
   distinction that matters most. Declines are issuers refusing cards, a normal
   business outcome; errors are the gateway failing to complete a call. Different
   causes, different responses, different severity.
-- `checkout-timeout-rate` — the downstream symptom. Failed authorizations consume
+- `checkout-timeout-rate`: the downstream symptom. Failed authorizations consume
   checkout's timeout budget, so this alert frequently drags that one with it.
-- `order-service-high-failure-rate` — what to check if payments are succeeding
+- `order-service-high-failure-rate`: what to check if payments are succeeding
   but orders are not appearing. That is a post-payment failure, not a payment
   failure.

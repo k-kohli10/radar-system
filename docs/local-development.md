@@ -170,7 +170,7 @@ Single service: pass `s=<service>` where `<service>` is one of `postgres`,
 > `make clean` wipes them.
 
 > ⚠️ **Vault is the exception.** It runs `server -dev`, which is **in-memory**:
-> every secret is gone the moment its container restarts — no volume, no
+> every secret is gone the moment its container restarts: no volume, no
 > `make clean` required. This is not a problem, it is the reason `make seed` and
 > `make tokens` exist: they rebuild Vault from nothing. If a service suddenly
 > reports `/readyz` 503 on a missing secret, an emptied Vault is the first thing
@@ -185,13 +185,13 @@ Database migrations (Alembic, against the compose Postgres):
 | `make migrate-down` | roll back the most recent migration |
 | `make revision m="add foo table"` | autogenerate a new migration from model changes |
 
-Tokens and secrets — see [Tokens and secrets](#-tokens-and-secrets) for what these
+Tokens and secrets: see [Tokens and secrets](#-tokens-and-secrets) for what these
 mean and when you need them:
 
 | Command | What it does |
 |---|---|
 | `make seed` | write the human-supplied secrets (DSN, API key) from `.env` into Vault |
-| `make tokens` | mint every platform token into Vault (idempotent — keeps what exists) |
+| `make tokens` | mint every platform token into Vault (idempotent: keeps what exists) |
 | `make rotate SERVICE=reasoner-agent` | replace one service's tokens, and the worker's map entry for it |
 | `make agent-secrets` | pull each agent's secrets into `~/.radar-dev/secrets/<service>/` |
 | `make gateway-secrets` | pull the gateway's API key and token map |
@@ -202,9 +202,9 @@ mean and when you need them:
 | `make dev-apps-logs` | tail all eight logs |
 | `make index` | index `docs/runbooks/` into Elasticsearch (incremental) |
 
-Docker (containerised stack — the alternative to running apps natively; full
+Docker (containerised stack, the alternative to running apps natively; full
 guide in [`operations/docker.md`](operations/docker.md)). Run this **or** the
-native `make dev-apps-up`, not both — they share host ports:
+native `make dev-apps-up`, not both; they share host ports:
 
 | Command | What it does |
 |---|---|
@@ -279,7 +279,7 @@ make agent-secrets                   # pull the new files
 
 > ⚠️ **Rotation is not hot.** Between the two restarts the worker still holds the old
 > token; a dispatch then 401s, which is classified permanent and dead-lettered (not
-> retried). Rotate on a drained pipeline — check outbox depth first.
+> retried). Rotate on a drained pipeline: check outbox depth first.
 
 Recover a dead-lettered event with the worker's admin endpoints:
 
@@ -291,7 +291,7 @@ curl -s -X POST -H "X-Radar-Agent-Token: $TOK" localhost:8080/admin/dead-letters
 
 Rotating the Vault root token follows the same shape: put a new `VAULT_DEV_ROOT_TOKEN`
 in `.env`, **recreate** the Vault container (`up -d --force-recreate vault`, not
-`restart` — env binds at create time), then `make seed && make tokens` and the pulls.
+`restart`, env binds at create time), then `make seed && make tokens` and the pulls.
 
 > 🤫 These tools never print a secret value, only names and short prefixes. Do the
 > same by hand: a value pasted into a terminal, chat, or PR is exposed even if
@@ -333,7 +333,7 @@ missing):
 | `gateway_tokens` | YAML map: `tokens: {<64-hex>: {service, allowed_mode}}` | `secret/radar/llm-gateway` |
 
 Both are put into Vault by `make seed` (the API key, from `.env`) and `make tokens`
-(the token map, minted), then pulled to files by `make gateway-secrets` — the same
+(the token map, minted), then pulled to files by `make gateway-secrets`: the same
 flow the Kubernetes init-container performs (ADR 0007). Rotate with
 `make rotate SERVICE=<service>`, re-pull, and restart the gateway.
 
@@ -354,7 +354,7 @@ curl -s localhost:8081/v1/complete \
 
 > 🔑 **Tokens come from a service's own directory.** Each service reads its secrets
 > from `~/.radar-dev/secrets/<service>/`, mirroring its per-pod Vault mount in
-> production. There is no general-purpose "dev token" that can call anything — a
+> production. There is no general-purpose "dev token" that can call anything: a
 > token exists because a service needs it, and it can do exactly what that service
 > is allowed to do.
 
@@ -391,7 +391,7 @@ make index                          # build the runbook index
 make dev-apps-ps                        # all 8 ready
 ```
 
-`knowledge-service` reports **not ready** until `make index` has run — its
+`knowledge-service` reports **not ready** until `make index` has run: its
 readiness check verifies the live index's vector dimension, and there is no
 index before the first pass. It flips to ready on the next `make dev-apps-ps`.
 
@@ -399,7 +399,7 @@ index before the first pass. It flips to ready on the next `make dev-apps-ps`.
 Socket Mode connection at startup (before it reports ready), so a placeholder
 `SLACK_APP_TOKEN` passes secret-load but fails the connect and holds `/readyz` at
 503. Without a real Slack app it stays not-ready and `recommendation.created`
-retries — the rest of the pipeline (ingestion → agents → reasoner) is unaffected.
+retries; the rest of the pipeline (ingestion → agents → reasoner) is unaffected.
 
 > ⚠️ `make dev-infra-stop` wipes the in-memory Vault (re-seed as above); Postgres
 > and Elasticsearch use named volumes, so the index and past RCAs survive.
@@ -489,7 +489,7 @@ gateway was down).
 Test 2 shows `grounded` with a few chunks rather than `empty`: the model rejects the
 irrelevant chunks (`confidence=low`, "no runbook covers this") instead of retrieval
 returning nothing. That is the pre-registered Phase 8 boundary-instability for
-alert-shaped queries — see the limitation note in
+alert-shaped queries; see the limitation note in
 [implementation_plan.md](implementation_plan.md).
 
 Trace one incident end to end:
@@ -592,8 +592,8 @@ ready.
    where the RADAR bot is installed.
 2. Confirm the bot has permissions: **Socket Mode** enabled at the app level, and
    the bot user scope includes `app_mentions:read` and `reactions:write`.
-3. Check the logs: `tail .dev-run/feedback-service.log` for the actual error —
-   common issues are revoked tokens, missing app-level Socket Mode permissions,
+3. Check the logs: `tail .dev-run/feedback-service.log` for the actual error.
+   Common issues are revoked tokens, missing app-level Socket Mode permissions,
    or network timeouts.
 
 **If tokens are valid but the connection hangs**, it may be a network issue or

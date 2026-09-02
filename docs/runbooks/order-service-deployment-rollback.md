@@ -12,7 +12,7 @@ status: fixture
 ## Summary
 
 A deploy of `order-service` has made things worse and needs to be reversed. This
-runbook covers the decision — roll back or fix forward — and the execution,
+runbook covers the decision, roll back or fix forward, and the execution,
 including the case where a database migration has made a plain rollback unsafe.
 
 Several other runbooks say "check for a recent deploy, and roll back if one
@@ -26,7 +26,7 @@ than a diagnosis conducted during an outage.
 
 ## Symptoms
 
-- Any order-service alert firing within roughly 30 minutes of a rollout —
+- Any order-service alert firing within roughly 30 minutes of a rollout:
   failure rate, memory, latency, or error volume stepping up rather than
   drifting.
 - A step change aligned with the rollout timestamp. Deploy-caused regressions
@@ -35,7 +35,7 @@ than a diagnosis conducted during an outage.
 - New error types in logs that did not appear before the rollout, particularly
   serialization, validation, or schema errors.
 - Regression present on new pods and absent on old ones during a partially
-  completed rollout — the cleanest possible evidence, available only while both
+  completed rollout: the cleanest possible evidence, available only while both
   versions are running.
 - Readiness probe failures or crash-looping pods on the new version, which stall
   the rollout with mixed versions serving traffic.
@@ -48,7 +48,7 @@ a minute of whatever the regression is doing.
 
 A partially completed rollout is its own hazard. Two versions serving
 simultaneously can produce inconsistent behaviour that is worse than either
-version alone — particularly when a schema change means the two disagree about
+version alone: particularly when a schema change means the two disagree about
 what the data means.
 
 Rollback itself is not free. It restarts every pod, dropping in-flight work, and
@@ -73,7 +73,7 @@ and it is why "roll back and see" is not the answer for a marginal regression.
    more connections than its limits allow. Distinguishing signal: OOM-kills or
    pool exhaustion beginning after a deploy that changed no limits.
 5. **Genuine logic regression.** A bug reaching production. Distinguishing
-   signal: wrong behaviour rather than failed behaviour — orders processed
+   signal: wrong behaviour rather than failed behaviour: orders processed
    incorrectly rather than not at all. The hardest to spot, because nothing
    errors.
 
@@ -107,14 +107,14 @@ kubectl rollout status deployment/order-service -n ecommerce
 ```
 
 Watch the regression's own signal return to baseline. If it does not within a
-few minutes of pods becoming ready, the deploy was not the cause — stop and
+few minutes of pods becoming ready, the deploy was not the cause: stop and
 re-investigate rather than rolling back further.
 
 **Rollback blocked by a migration (cause 1):** do not roll back blindly. Options,
 in order of preference: fix forward with a small corrective release if the fault
 is understood; reverse the migration first and then roll back, if the migration
 has a tested down-path; or roll back code and immediately apply a compatibility
-shim. Involve the database on-call for any of these — migration recovery under
+shim. Involve the database on-call for any of these: migration recovery under
 incident pressure is where a bad incident becomes an unrecoverable one.
 
 **Stalled rollout:** `kubectl rollout pause` to stop new pods replacing old ones
@@ -134,7 +134,7 @@ pipeline run is not a rollback.
 
 Page the order-service on-call if the regression is customer-affecting. For a
 rollback during business hours with the deploying engineer available, that
-person is usually the fastest path — they know what changed.
+person is usually the fastest path: they know what changed.
 
 Bring in the database on-call before rolling back any release containing a
 migration. This is not optional and not a judgment call; it is the case where
@@ -147,11 +147,11 @@ unidentified while attention has been spent elsewhere.
 
 ## Related
 
-- `order-service-high-failure-rate` — names a recent deploy as its most common
+- `order-service-high-failure-rate`: names a recent deploy as its most common
   cause and sends you here to execute the rollback.
-- `order-service-high-memory` — cause 3 there is a deploy raising the memory
+- `order-service-high-memory`: cause 3 there is a deploy raising the memory
   baseline, which is a legitimate resource change rather than a fault. Read that
   runbook before rolling back a deploy whose only symptom is higher memory.
-- `order-service-connection-pool-exhaustion` — a deploy that changes pool
+- `order-service-connection-pool-exhaustion`: a deploy that changes pool
   configuration or concurrency can cause it, and the fix may be a configuration
   correction rather than a rollback.

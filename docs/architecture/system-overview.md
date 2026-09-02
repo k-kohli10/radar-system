@@ -65,7 +65,7 @@ flowchart TB
     reasoner["REASONER-AGENT<br/>call LLM, produce RCA"]
     feedback["FEEDBACK-SERVICE<br/>deliver Slack card, run Slack bot"]
     oncall(["On-call engineer"])
-    pg[("Postgres<br/>transactional outbox<br/>all agent comms")]
+    pg[("Postgres<br/>transactional<br/>outbox<br/>all agent comms")]
 
     ext --> ing
     ing -- outbox-worker --> watcher
@@ -92,7 +92,7 @@ flowchart TB
 Note: `reasoner-agent` also calls `knowledge-service` (retrieve + grade runbooks) and
 `llm-gateway` (produce the RCA) directly, and `knowledge-service` in turn calls
 `llm-gateway` (embed + grade). These are synchronous request/response calls, not
-mediated by the outbox, and are omitted above for clarity — see
+mediated by the outbox, and are omitted above for clarity. See
 [agent-pipeline.md](agent-pipeline.md#why-no-direct-http-between-agents) for why they
 are queries rather than pipeline handoffs.
 

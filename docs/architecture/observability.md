@@ -40,7 +40,7 @@ flowchart TB
     OTELC["OTel Collector<br/>OTLP :4317"]:::infra
     FB["Fluent Bit<br/>tails JSON stdout"]:::infra
     AM["Alertmanager"]:::infra
-    ES[("Elasticsearch<br/>traces + radar-*-logs-*<br/>joined by correlation_id")]:::store
+    ES[("Elasticsearch<br/>traces + radar-*-logs-*<br/>joined by<br/>correlation_id")]:::store
 
     GRAF["Grafana<br/>5 dashboards"]:::ext
     KIB["Kibana<br/>APM + Discover"]:::ext
