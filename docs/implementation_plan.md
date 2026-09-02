@@ -1342,37 +1342,13 @@ feedback-quality.json    Positive/negative ratio, correction rate over time
 
 ### Package Versions
 
-```toml
-[project]
-requires-python = ">=3.12"
-
-[tool.uv.dependencies]
-fastapi                              = "0.115.0"
-uvicorn                              = {extras = ["standard"], version = "0.32.0"}
-pydantic                             = "2.13.4"
-pydantic-settings                    = "2.6.0"
-sqlalchemy                           = {extras = ["asyncio"], version = "2.0.36"}
-alembic                              = "1.14.0"
-asyncpg                              = "0.30.0"
-anthropic                            = "0.40.0"
-openai                               = "1.55.0"
-google-generativeai                  = "0.8.3"
-structlog                            = "24.4.0"
-prometheus-client                    = "0.21.0"
-opentelemetry-sdk                    = "1.28.0"
-opentelemetry-exporter-otlp-proto-grpc = "1.28.0"
-opentelemetry-instrumentation-fastapi = "0.49b0"
-httpx                                = "0.28.0"
-pyyaml                               = "6.0.2"
-slack-sdk                            = "3.33.0"
-
-[tool.uv.dev-dependencies]
-pytest          = "8.3.0"
-pytest-asyncio  = "0.24.0"
-pytest-cov      = "6.0.0"
-ruff            = "0.15.20"
-mypy            = "2.1.0"
-```
+Every dependency is pinned to an exact version in the workspace member that uses
+it — one `pyproject.toml` per app, package, and plugin — and resolved into a
+single lockfile, `uv.lock`, which is the authoritative record of exact versions
+for the whole workspace. The floor is `requires-python = ">=3.12"`; the build and
+CI run on Python 3.14. Change a version by editing the owning `pyproject.toml` and
+running `uv lock` (then `make lint` and `make test`). Because `uv.lock` is the
+source of truth, this document names no version numbers of its own.
 
 ### Every Service Must Have
 
@@ -1393,7 +1369,7 @@ SIGTERM handler: drain, exit within 30s
 ### Dockerfile Pattern
 
 ```dockerfile
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 

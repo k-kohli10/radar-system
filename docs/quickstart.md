@@ -54,8 +54,8 @@ make docker-apps-ps     # all app containers should read "Up"
 
 `make docker-up` starts the infra (Postgres, Vault, Elasticsearch, Prometheus,
 Grafana), seeds Vault and runs migrations on the host, then builds and starts the
-eight services. The first run builds images, so this is the slow step; later runs
-are fast.
+eight services plus a platform-sim demo target. The first run builds images, so
+this is the slow step; later runs are fast.
 
 Confirm the gateway is live:
 

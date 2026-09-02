@@ -22,10 +22,15 @@ RADAR's first public release.
 - ✍️ **A house documentation style** applied across every ADR, operations doc, architecture doc, and package/app README ([docs/STYLE.md](docs/STYLE.md)).
 - 🖼️ **Project logo and an embedded whole-system architecture schematic** in the README, with a link to the interactive version.
 - 🛡️ **Supply-chain security CI**: an OSV-Scanner dependency vulnerability workflow and an OpenSSF Scorecard workflow, each with a README badge.
+- ⚖️ **Apache 2.0 license** with a `NOTICE` file ([LICENSE](LICENSE)).
 
 ### 💅 Changed
 - 📖 **README** polished: run paths, stack, badges, a Contributing section, and honest status.
 - 🧹 **Trimmed oversized code comments** across every service, shared package, and plugin, dropping narrative history while keeping every tested invariant.
+
+### 🛡️ Security
+- ⬆️ **Dependency upgrades clearing 15 OSV advisories** (up to CVSS 8.7): FastAPI and Starlette, OpenTelemetry, `cryptography`, `aiohttp`, `pyasn1`, and pytest.
+- 🚦 **The OSV-Scanner check now gates pull requests** to `main` and release branches, failing on any known advisory.
 
 ---
 
