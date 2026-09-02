@@ -7,7 +7,7 @@
   <a href="https://github.com/k-kohli10/radar-system/actions/workflows/security.yml"><img src="https://github.com/k-kohli10/radar-system/actions/workflows/security.yml/badge.svg" alt="Security"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/k-kohli10/radar-system"><img src="https://api.scorecard.dev/projects/github.com/k-kohli10/radar-system/badge" alt="OpenSSF Scorecard"></a>
   <a href="https://github.com/k-kohli10/radar-system/releases"><img src="https://img.shields.io/github/v/release/k-kohli10/radar-system?sort=semver" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.14-blue.svg" alt="Python 3.14"></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/Framework-FastAPI-teal.svg" alt="Framework: FastAPI"></a>
   <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/Database-PostgreSQL-blue.svg" alt="Database: PostgreSQL"></a>
@@ -359,4 +359,4 @@ Found a bug or have a question? [Open an issue](../../issues).
 
 ## 📄 License
 
-MIT. See [LICENSE](LICENSE).
+Apache 2.0. See [LICENSE](LICENSE).

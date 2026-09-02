@@ -2,7 +2,7 @@
 
 **Status**: Accepted
 **Date**: 2025-01-15
-**Author**: Kashyap
+**Author**: Kashyap Kohli
 
 ---
 
