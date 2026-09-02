@@ -8,7 +8,11 @@ full technical plan, see [docs/implementation_plan.md](docs/implementation_plan.
 
 ## [Unreleased]
 
-Work toward the first public release, `v1.0.0`.
+---
+
+## [1.0.0] - 2026-09-01
+
+RADAR's first public release.
 
 ### ✨ Added
 - ⏱️ **15-minute quickstart**: clone to a live, LLM-generated RCA on one machine ([docs/quickstart.md](docs/quickstart.md)).
@@ -16,6 +20,8 @@ Work toward the first public release, `v1.0.0`.
 - 📊 **Performance benchmark**: a 100-alert burst on a live Kubernetes cluster with the real LLM in the loop, zero data loss ([docs/performance-benchmark.md](docs/performance-benchmark.md)).
 - 📓 **This changelog** and a refreshed **contributor guide** ([CONTRIBUTING.md](CONTRIBUTING.md)).
 - ✍️ **A house documentation style** applied across every ADR, operations doc, architecture doc, and package/app README ([docs/STYLE.md](docs/STYLE.md)).
+- 🖼️ **Project logo and an embedded whole-system architecture schematic** in the README, with a link to the interactive version.
+- 🛡️ **Supply-chain security CI**: an OSV-Scanner dependency vulnerability workflow and an OpenSSF Scorecard workflow, each with a README badge.
 
 ### 💅 Changed
 - 📖 **README** polished: run paths, stack, badges, a Contributing section, and honest status.
@@ -25,7 +31,6 @@ Work toward the first public release, `v1.0.0`.
 
 ## 🏷️ Versioning
 
-Milestones are the version scheme (`v0.x-<focus>`); `v1.0.0` will be the first
-public release, once tagged. Only `v0.0-foundation` and `v0.6-outbox-worker` are
-tagged so far. See [docs/roadmap.md](docs/roadmap.md) for the full milestone
-history.
+Milestones are the version scheme (`v0.x-<focus>`). `v1.0.0`, dated
+2026-09-01, is RADAR's first public release. See
+[docs/roadmap.md](docs/roadmap.md) for the full milestone history.

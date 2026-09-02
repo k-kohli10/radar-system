@@ -12,4 +12,4 @@ type: application
 version: 0.1.0
 # The RADAR application release these defaults target (Phase 12 milestone v0.6.0).
 # The per-service image tag defaults to this value.
-appVersion: "0.6.0"
+appVersion: "1.0.0"

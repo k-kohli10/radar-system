@@ -1,6 +1,6 @@
 [project]
 name = "radar-system"
-version = "0.1.0"
+version = "1.0.0"
 description = "RADAR - Real-time Agents for Diagnostics, Analysis & Response. AI-powered Reliability Intelligence Platform for SRE workflows."
 readme = "README.md"
 requires-python = ">=3.12"
