@@ -92,8 +92,12 @@ curl -s -X POST http://127.0.0.1:8090/alerts/mock \
   }'; echo
 ```
 
-> Use a fresh `service_name` on repeat runs: the same fingerprint within 5 minutes
-> deduplicates onto the open incident instead of opening a new one.
+> On repeat runs within 5 minutes, vary the `alert_name` to open a fresh incident:
+> the dedup fingerprint is `service_name:alert_name:severity`, so a new `alert_name`
+> is enough. Keep `service_name` as `order-service` so runbook retrieval still
+> grounds — retrieval filters by service, so a different `service_name` yields
+> `retrieval = empty` and RADAR reasons from the alert alone (still a real,
+> high-confidence RCA, just runbook-free).
 
 ## 6. See the result · ~1 min
 
