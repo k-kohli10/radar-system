@@ -19,6 +19,8 @@ jobs:
   detect:
     name: detect changed services
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       services: ${{ steps.detect.outputs.services }}
     steps:
@@ -52,6 +54,8 @@ jobs:
     needs: detect
     if: needs.detect.outputs.services != '[]'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:

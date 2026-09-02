@@ -44,7 +44,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
 
 env:
   REGISTRY: ghcr.io
@@ -56,6 +55,8 @@ jobs:
   setup:
     name: resolve build matrix
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       services: ${{ steps.pick.outputs.services }}
     steps:
@@ -72,6 +73,9 @@ jobs:
     name: build + push ${{ matrix.service }}
     needs: setup
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -115,6 +119,8 @@ jobs:
     name: helm upgrade -> k8s
     needs: build-push
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     # Deployment credentials live here; enable Required reviewers on this
     # environment to pause the run for approval before the cluster is touched.
     environment: kubernetes

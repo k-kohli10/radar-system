@@ -23,6 +23,8 @@ jobs:
   lint:
     name: lint + typecheck (ruff, mypy strict)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Install uv
@@ -36,6 +38,8 @@ jobs:
   test:
     name: test (full suite + no-silent-skip guard)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     # Mapped through env: the workflow parser rejects secrets.* in a step `if:`.
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -113,6 +117,8 @@ jobs:
   helm:
     name: helm lint + template + kubeconform (--strict)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Install helm

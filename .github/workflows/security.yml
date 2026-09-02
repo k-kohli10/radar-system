@@ -15,12 +15,14 @@ on:
     branches: ["main", "Release*"]
 
 permissions:
-  actions: read
-  security-events: write
   contents: read
 
 jobs:
   scan:
+    permissions:
+      actions: read
+      security-events: write
+      contents: read
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.5.0
     with:
       fail-on-vuln: true
