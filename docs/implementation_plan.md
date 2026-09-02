@@ -17,7 +17,6 @@
 - [Repository](#repository)
 - [Kubernetes Namespaces](#kubernetes-namespaces)
 - [Deployment Targets](#deployment-targets)
-- [Final Git Structure](#final-git-structure)
 - [Postgres Schema](#postgres-schema)
 - [LLM Gateway: Full Specification](#llm-gateway-full-specification)
 - [Outbox Worker: Full Specification](#outbox-worker-full-specification)
@@ -42,7 +41,6 @@
 - [Phase 12: Kubernetes and Helm](#phase-12-kubernetes-and-helm)
 - [Phase 13: Security and Resilience Audit](#phase-13-security-and-resilience-audit)
 - [Phase 14: Open Source Polish](#phase-14-open-source-polish)
-- [Git State Per Phase](#git-state-per-phase)
 - [First Vertical Slice](#first-vertical-slice)
 - [Non-Goals for V1](#non-goals-for-v1)
 - [Summary](#summary)
@@ -66,7 +64,7 @@ Prometheus and Kibana detect anomalies. RADAR does correlation, reasoning, and d
 Do not revisit these during implementation.
 
 ```
-Repos              : radar-system only. Single repository. (Superseded entry, see below.)
+Repos              : radar-system only. Single repository. (ADR 0018)
 Namespaces         : radar (app workloads), radar-infra (platform deps)
 Agent comms        : Postgres transactional outbox only.
 Agent pipeline     : Watcher -> Planner -> Reasoner
@@ -93,26 +91,10 @@ Runbooks           : Human-written markdown about TARGET services. RAG-indexed.
 RADAR ops docs     : docs/operations/. Not RAG-indexed.
 ```
 
-### The one entry that was revisited: Repos
-
-Recorded rather than silently rewritten, because this block says "do not revisit
-these" and one of them was revisited, following the same discipline as Phase 8's
-"Added during implementation" and Phase 9's footprint divergence note. A locked decision
-that changes should say so, and say why, instead of quietly reading as though it
-had always been that way.
-
-The original entry was `radar-system (product), radar-infra (platform config)`.
-**ADR 0018 supersedes ADR 0001 and retires the second repository**: cadence
-isolation, the benefit the split existed for, is delivered inside one repo by the
-path-based CI that ADR 0001 already committed to building, while the two-repo cost
-lands squarely on the Phase 14 fifteen-minute-quickstart done-when. radar-infra
-existed only as a plan, so the retirement is a documentation change alone.
-
-The **Namespaces** line below it still reads `radar-infra`, correctly. That name
-belongs to a Kubernetes namespace for platform dependencies, a distinct thing from
-a repository, and ADR 0018 leaves it as-is, including the Vault init-container's
-`vault.radar-infra.svc.cluster.local` address in the ADR 0007 pattern. Anything
-sweeping this document for `radar-infra` should distinguish the two senses.
+The **Namespaces** line below reads `radar-infra`, which names a Kubernetes
+namespace for platform dependencies, distinct from the (single) repository
+above it. The Vault init-container's `vault.radar-infra.svc.cluster.local`
+address (ADR 0007) uses this namespace sense.
 
 ---
 
@@ -417,6 +399,25 @@ Prometheus alert rules, OTel collector config, Fluent Bit config) lives under
 `deploy/` in this same repository, separated from product code by directory
 rather than by repo boundary (ADR 0018).
 
+Top-level layout:
+
+```
+apps/       One directory per service (ingestion, llm-gateway, outbox-worker,
+            watcher-agent, planner-agent, reasoner-agent, knowledge-service,
+            feedback-service, platform-sim). Each has its own src/, tests/,
+            Dockerfile, pyproject.toml, README.md.
+packages/   Shared libraries: contracts, plugin-sdk, common, database,
+            telemetry, testing.
+plugins/    Vendor backends behind the contracts Protocols: llm/, logs/,
+            metrics/, knowledge/, traces/, notifications/.
+deploy/     Helm charts, Docker Compose stacks, Prometheus/Grafana/OTel/
+            Fluent Bit config.
+docs/       ADRs, architecture docs, operations runbooks, target-service
+            runbooks (RAG corpus).
+scripts/    Bootstrap, dev-data seeding, smoke tests.
+tests/      Cross-service e2e, retrieval, and load tests.
+```
+
 ---
 
 ## Kubernetes Namespaces
@@ -457,368 +458,6 @@ RADAR runs two ways, from the same multi-arch images:
 
 Images build for linux/amd64 (the cluster and x86 CI) and linux/arm64 (local Docker on
 Apple Silicon) via docker buildx.
-
----
-
-## Final Git Structure
-
-### radar-system
-
-```
-radar-system/
-├── .github/
-│   ├── workflows/
-│   │   ├── ci.yml            # lint + test + helm chart validation
-│   │   ├── build.yml         # path-gated image build + boot-smoke (no push)
-│   │   └── deploy.yml        # manual, approval-gated build+push + helm upgrade (Phase 12)
-│   ├── ISSUE_TEMPLATE/
-│   │   ├── bug_report.md
-│   │   └── feature_request.md
-│   └── PULL_REQUEST_TEMPLATE.md
-│
-├── apps/
-│   ├── ingestion/
-│   │   ├── src/radar_ingestion/
-│   │   │   ├── __init__.py
-│   │   │   ├── main.py
-│   │   │   ├── routes.py
-│   │   │   ├── normalizer.py
-│   │   │   ├── deduper.py
-│   │   │   └── publisher.py
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   │
-│   ├── llm-gateway/
-│   │   ├── src/radar_llm_gateway/
-│   │   │   ├── __init__.py
-│   │   │   ├── main.py
-│   │   │   ├── api/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── chat.py
-│   │   │   │   ├── embed.py
-│   │   │   │   ├── health.py
-│   │   │   │   └── metrics.py
-│   │   │   ├── core/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── config.py
-│   │   │   │   ├── security.py
-│   │   │   │   └── errors.py
-│   │   │   ├── gateway/
-│   │   │   │   ├── __init__.py
-│   │   │   │   ├── service.py
-│   │   │   │   ├── model_router.py
-│   │   │   │   ├── fallback.py
-│   │   │   │   ├── retry.py
-│   │   │   │   └── stream.py
-│   │   │   └── providers/
-│   │   │       ├── __init__.py
-│   │   │       ├── base.py
-│   │   │       ├── anthropic_provider.py
-│   │   │       ├── openai_provider.py
-│   │   │       └── gemini_provider.py
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   │
-│   ├── outbox-worker/
-│   │   ├── src/radar_outbox_worker/
-│   │   │   ├── __init__.py
-│   │   │   ├── main.py
-│   │   │   ├── poller.py
-│   │   │   ├── dispatcher.py
-│   │   │   ├── retry.py
-│   │   │   └── dead_letter.py
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   │
-│   ├── watcher-agent/
-│   │   ├── src/radar_watcher/
-│   │   │   ├── __init__.py
-│   │   │   ├── main.py
-│   │   │   ├── agent.py
-│   │   │   ├── correlator.py
-│   │   │   └── rules.py
-│   │   ├── config/
-│   │   │   └── correlation-rules.yaml
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   │
-│   ├── planner-agent/
-│   │   ├── src/radar_planner/
-│   │   │   ├── __init__.py
-│   │   │   ├── main.py
-│   │   │   ├── agent.py
-│   │   │   ├── planner.py
-│   │   │   └── templates.py
-│   │   ├── config/
-│   │   │   └── plan-templates.yaml
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   │
-│   ├── reasoner-agent/
-│   │   ├── src/radar_reasoner/
-│   │   │   ├── __init__.py
-│   │   │   ├── main.py
-│   │   │   ├── agent.py
-│   │   │   ├── rca.py
-│   │   │   ├── context_builder.py
-│   │   │   ├── fallback.py
-│   │   │   ├── confidence.py
-│   │   │   └── prompts.py
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   │
-│   ├── knowledge-service/
-│   │   ├── src/radar_knowledge/
-│   │   │   ├── __init__.py
-│   │   │   ├── main.py
-│   │   │   ├── api.py
-│   │   │   ├── indexer.py
-│   │   │   ├── embeddings.py
-│   │   │   ├── retrieval.py
-│   │   │   ├── ranking.py
-│   │   │   └── crag.py
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   │
-│   ├── feedback-service/
-│   │   ├── src/radar_feedback/
-│   │   │   ├── __init__.py
-│   │   │   ├── main.py
-│   │   │   ├── api.py
-│   │   │   ├── slack_delivery.py      # sends RCA cards
-│   │   │   ├── slack_events.py        # handles callbacks and bot mentions
-│   │   │   ├── slack_bot.py           # parses commands, queries DB, formats responses
-│   │   │   ├── classifier.py
-│   │   │   └── processor.py
-│   │   ├── tests/
-│   │   ├── Dockerfile
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   │
-│   └── platform-sim/                  # Local POC only. Never goes to Kubernetes.
-│       ├── src/radar_platform_sim/
-│       │   ├── __init__.py
-│       │   ├── main.py
-│       │   ├── metrics.py
-│       │   └── chaos.py
-│       ├── Dockerfile
-│       ├── pyproject.toml
-│       └── README.md
-│
-├── packages/
-│   ├── common/
-│   │   ├── src/radar_common/
-│   │   │   ├── __init__.py
-│   │   │   ├── logging.py
-│   │   │   ├── config.py
-│   │   │   ├── auth.py
-│   │   │   ├── errors.py
-│   │   │   ├── ids.py
-│   │   │   └── time.py
-│   │   ├── tests/
-│   │   └── pyproject.toml
-│   │
-│   ├── contracts/
-│   │   ├── src/radar_contracts/
-│   │   │   ├── __init__.py
-│   │   │   ├── alerts.py
-│   │   │   ├── incidents.py
-│   │   │   ├── events.py
-│   │   │   ├── llm.py
-│   │   │   ├── feedback.py
-│   │   │   ├── notifications.py
-│   │   │   ├── bot.py
-│   │   │   ├── logs.py
-│   │   │   ├── metrics.py
-│   │   │   └── traces.py
-│   │   ├── tests/
-│   │   └── pyproject.toml
-│   │
-│   ├── database/
-│   │   ├── src/radar_database/
-│   │   │   ├── __init__.py
-│   │   │   ├── connection.py
-│   │   │   ├── models.py
-│   │   │   ├── outbox.py
-│   │   │   ├── repository.py
-│   │   │   └── migrations/
-│   │   │       └── versions/
-│   │   ├── tests/
-│   │   └── pyproject.toml
-│   │
-│   ├── telemetry/
-│   │   ├── src/radar_telemetry/
-│   │   │   ├── __init__.py
-│   │   │   ├── metrics.py
-│   │   │   ├── tracing.py
-│   │   │   └── events.py
-│   │   ├── tests/
-│   │   └── pyproject.toml
-│   │
-│   ├── plugin-sdk/
-│   │   ├── src/radar_plugin_sdk/
-│   │   │   ├── __init__.py
-│   │   │   ├── registry.py
-│   │   │   ├── base.py
-│   │   │   ├── loader.py
-│   │   │   └── config.py
-│   │   ├── tests/
-│   │   └── pyproject.toml
-│   │
-│   └── testing/                       # radar-testing: shared pytest fixtures.
-│       ├── src/radar_testing/         # Dev dependency only, never a runtime import.
-│       │   ├── __init__.py
-│       │   └── postgres.py
-│       └── pyproject.toml
-│
-├── plugins/
-│   ├── llm/
-│   │   ├── anthropic/
-│   │   ├── openai/
-│   │   └── gemini/
-│   ├── logs/
-│   │   └── elastic/
-│   ├── metrics/
-│   │   └── prometheus/
-│   ├── knowledge/
-│   │   └── elastic/
-│   ├── traces/
-│   │   └── elastic/                   # Phase 10. Not built yet.
-│   └── notifications/
-│       └── slack/
-│
-├── deploy/
-│   ├── helm/
-│   │   ├── radar/
-│   │   │   ├── templates/
-│   │   │   │   ├── ingestion/
-│   │   │   │   ├── llm-gateway/
-│   │   │   │   ├── outbox-worker/
-│   │   │   │   ├── watcher-agent/
-│   │   │   │   ├── planner-agent/
-│   │   │   │   ├── reasoner-agent/
-│   │   │   │   ├── knowledge-service/
-│   │   │   │   └── feedback-service/
-│   │   │   ├── Chart.yaml
-│   │   │   └── values.yaml
-│   │   └── platform-deps/
-│   │       ├── postgres/values.yaml
-│   │       ├── elasticsearch/values.yaml
-│   │       ├── kibana/values.yaml
-│   │       ├── prometheus/values.yaml
-│   │       ├── grafana/values.yaml
-│   │       └── vault/values.yaml
-│   ├── compose/
-│   │   ├── docker-compose-infra.yml
-│   │   ├── docker-compose-apps.yml
-│   │   ├── apps.env
-│   │   └── vault-init/fetch-secrets.sh
-│   ├── prometheus/
-│   │   ├── alerting-rules.yml
-│   │   └── prometheus.yml
-│   ├── grafana/
-│   │   ├── radar-overview.json
-│   │   ├── llm-gateway.json
-│   │   ├── outbox-health.json
-│   │   ├── incident-pipeline.json
-│   │   └── feedback-quality.json
-│   ├── otel/
-│   │   └── config.yml
-│   └── fluent-bit/
-│       └── config.yml
-│
-├── docs/
-│   ├── adr/
-│   │   ├── 0001-monorepo.md
-│   │   ├── 0002-fastapi.md
-│   │   ├── 0003-postgres-outbox.md
-│   │   ├── 0004-llm-gateway.md
-│   │   ├── 0005-plugin-architecture.md
-│   │   ├── 0006-no-redis.md
-│   │   ├── 0007-vault-init-container.md
-│   │   ├── 0008-otel-to-elasticsearch.md
-│   │   ├── 0009-slack-only-notifications.md
-│   │   ├── 0011-inbound-webhook-token.md
-│   │   ├── 0012-cd-approach.md
-│   │   ├── 0013-watcher-correlation-scope.md
-│   │   ├── 0014-event-schema-versioning.md
-│   │   ├── 0015-database-migration-rules.md
-│   │   ├── 0016-incident-lifecycle-state-machine.md
-│   │   ├── 0017-dead-letter-replay.md
-│   │   ├── 0018-single-repository.md
-│   │   ├── 0019-no-llm-frameworks.md
-│   │   └── 0020-static-token-auth.md
-│   ├── architecture/
-│   │   ├── system-overview.md
-│   │   ├── agent-pipeline.md
-│   │   ├── plugin-architecture.md
-│   │   ├── data-model.md
-│   │   ├── sequence-flows.md
-│   │   └── threat-model.md
-│   ├── operations/
-│   │   ├── llm-gateway-failure.md
-│   │   ├── outbox-backlog.md
-│   │   └── vault-secret-rotation.md
-│   └── runbooks/
-│       ├── order-service-high-failure-rate.md
-│       ├── order-service-high-memory.md
-│       ├── checkout-timeout-rate.md
-│       ├── inventory-check-latency.md
-│       └── payment-gateway-errors.md
-│
-├── tests/                             # Cross-service tests. Per-service unit
-│   ├── e2e/                           # tests live in each app's own tests/.
-│   │   ├── harness.py
-│   │   ├── test_pipeline.py
-│   │   └── ...
-│   ├── retrieval/                     # Retrieval probes + scored baselines.
-│   │   ├── probes.yaml
-│   │   └── baseline*.json
-│   └── load/                          # Phase 13. Not built yet.
-│
-├── scripts/
-│   ├── bootstrap.sh
-│   ├── detect-changed-services.py
-│   ├── seed-dev-data.py
-│   └── smoke-test.sh
-│
-├── .env.example
-├── .gitignore
-├── .pre-commit-config.yaml
-├── CHANGELOG.md
-├── CODEOWNERS
-├── CONTRIBUTING.md
-├── LICENSE
-├── Makefile
-├── pyproject.toml
-├── README.md
-└── uv.lock
-```
-
-Everything that was previously listed here as a second `radar-infra/` tree is
-folded into the `deploy/` block above (ADR 0018): platform-dependency Helm values
-at `deploy/helm/platform-deps/`, dashboards at `deploy/grafana/`, alerting rules
-and scrape config at `deploy/prometheus/`, collector config at `deploy/otel/`,
-and log shipping at `deploy/fluent-bit/`.
-
-A second correction predates ADR 0018: the tree once listed
-`compose/docker-compose.yml` under radar-infra; the compose stack has lived at
-`deploy/compose/docker-compose.yml` in radar-system since Phase 1. Folding the
-trees together settles both points.
 
 ---
 
@@ -1305,7 +944,7 @@ v1 context bundle:
 }
 ```
 
-> **Note (Phase 7 as-built):** this is the bundle SENT to the model: the flat
+> **Note:** this is the bundle SENT to the model: the flat
 > prompt-facing shape. What is STORED in `recommendations.context_bundle` is a wrapper
 > that composes it with fallback metadata: `{"bundle": {…the v1 bundle above…},
 > "fallback": null | {"reason", "attempted_mode", "detail", "elapsed_ms"}}`. The nesting
@@ -1528,20 +1167,7 @@ header; `PaymentDeclineRate` is the one to watch, because `rate()` over a range
 climbs as the window fills, so the window **adds** to `for` rather than
 overlapping it.
 
-### Wiring Deferred to Phase 10
-
-The rules file sits declared but unmounted and unevaluated at this stage:
-`deploy/compose/docker-compose-infra.yml` carries no scrape config and no
-alertmanager, and platform-sim runs outside compose entirely. Standing up the
-running Prometheus + alertmanager, wiring them into compose, and proving the real
-front door in the default suite are all **deferred to Phase 10 (Observability)**,
-which already owns that infrastructure.
-
-The real path is nonetheless proven *once*, opt-in, by
-`tests/e2e/test_real_prometheus_alert.py` under the `infra` marker: real
-Prometheus with these rules mounted, real alertmanager, firing to a real webhook
-receiver in ~85s. It stays deselected by default, keeping the standard suite
-independent of Docker.
+---
 
 ## Knowledge Service
 
@@ -1616,11 +1242,10 @@ database connectivity issues, or upstream dependency failures.
 2. Pre-filter: only chunks where services contains service_name
 3. BM25 keyword search -> top 20
 4. kNN vector search -> top 20
-5. Merge with RRF -> top 10
-6. Cross-encoder rerank -> top 5
-7. CRAG grade each chunk via llm-gateway (mode=reason)
-8. Return all 5 with grades
-9. Reasoner uses: sufficient and partial. Skips: insufficient.
+5. Merge with RRF -> top 5
+6. CRAG grade each chunk via llm-gateway (mode=reason)
+7. Return all 5 with grades
+8. Reasoner uses: sufficient and partial. Skips: insufficient.
 ```
 
 ---
@@ -1716,8 +1341,6 @@ feedback-quality.json    Positive/negative ratio, correction rate over time
 ## Engineering Standards
 
 ### Package Versions
-
-# NOTE: Some pins below were bumped for Python 3.14 wheel compatibility (pydantic 2.10.0->2.13.4, ruff 0.8.0->0.15.20, mypy 1.13.0->2.1.0); remaining packages to be re-verified for 3.14 as each phase lands.
 
 ```toml
 [project]
@@ -2126,40 +1749,10 @@ docs: add adr 0011 inbound webhook token pattern
 ```
 
 Done when: POST /alerts/mock creates one incident + outbox event. Second identical
-POST within 5 minutes creates neither.
-
-### Pre-Phase-8 extension (done later, on `pre-phase-8-order-stub-fix`)
-
-Phase 5 shipped a stub simulating order-service only, and **met** its bar: the
-done-condition above is written entirely in terms of `/alerts/mock`. Phase 8
-retrieval is triggered by incidents, though, and incidents come from alerts, so a
-stub firing three scenarios would leave most of a 15-20 runbook corpus grounded in
-alerts beyond the stub's reach. The stub was therefore extended into the platform
-simulator ahead of writing any runbook, so every Tier-1 runbook has a matching
-fireable alert.
-
-```
-refactor(order-stub): rename the stub to platform-simulator
-feat(deploy): declare prometheus alert rules for simulated scenarios
-feat(platform-sim): add payment-gateway error-rate and decline-rate scenarios
-feat(platform-sim): add inventory-service check-latency scenario
-feat(platform-sim): add order-service memory-pressure scenario
-test(platform-sim): prove a chaos spike drives an alert to an incident
-```
-
-This scope decision is settled here, to stay settled: the alert rules are
-declared in `deploy/prometheus/alerting-rules.yml`. The running Prometheus +
-alertmanager, their compose wiring, and proving the real scrape -> fire -> webhook
-path in the default suite belong to **Phase 10** rather than Phase 5: that
-infrastructure was always a Phase 10 deliverable, and Phase 8 gets by without it
-(ingestion creates the same incident whether the alert arrived from a real breach
-or a crafted POST, and the reasoner retrieves on service_name + alert_name either
-way). The real path is proven once, opt-in, behind the `infra` marker.
-
-Extended done-condition: a chaos spike breaches its declared rule and the
-resulting alertmanager-shaped body creates exactly one incident through
-`/alerts/prometheus`; a second identical POST creates none. Six scenarios across
-four services are fireable.
+POST within 5 minutes creates neither. A chaos spike breaching a declared
+Prometheus rule creates exactly one incident through `/alerts/prometheus`, with
+the six scenarios across four services all fireable (see Platform Simulator
+Service above).
 
 ---
 
@@ -2278,10 +1871,9 @@ This is your POC. Everything after this is improvement.
 
 Write the runbooks before writing code. You need real content to test retrieval against.
 
-Every Tier-1 runbook below has a matching **fireable** alert: platform-sim was
-extended before this phase precisely so every one of them describes an alert the
-simulator can actually fire (see the Phase 5 pre-Phase-8 extension). The mapping
-is one-to-one:
+Every Tier-1 runbook below has a matching **fireable** alert: platform-sim (see
+Platform Simulator Service above) fires every one of the alerts these runbooks
+describe. The mapping is one-to-one:
 
 ```
 order-service-high-failure-rate  <- OrderProcessingFailureRate  order-service
@@ -2299,8 +1891,8 @@ incidents skip the mechanism under test.
 
 Deliverables:
 ```
-docs/runbooks/                      # 17 runbooks as built: the 6 Tier-1 below
-                                    # plus 11 depth runbooks (see its README)
+docs/runbooks/                      # 17 runbooks: the 6 Tier-1 below plus
+                                    # 11 depth runbooks (see its README)
 apps/knowledge-service/             # package: radar_knowledge_service
 plugins/knowledge/elastic/          # the dense-vector index + search primitives
 plugins/traces/elastic/             # deferred to Phase 10, see below
@@ -2313,154 +1905,39 @@ dashboards) lands in Phase 10. Phase 8 leaves it unreferenced, and its
 done-condition stands independent of it. Building it here would have added a
 consumerless component, purely to tick a list item.
 
-Commits (planned, with as-built names where they differ):
+Commits:
 ```
-docs(runbooks): add order service high failure rate runbook
-    -> shipped as "add runbook frontmatter contract and order service
-       failure rate runbook" (the contract landed with the first runbook)
+docs(runbooks): add runbook frontmatter contract and order service failure rate runbook
 docs(runbooks): add order service high memory runbook
 docs(runbooks): add checkout timeout rate runbook
 docs(runbooks): add inventory latency runbook
 docs(runbooks): add payment gateway errors runbook
 docs(runbooks): add payment decline rate runbook
-    + 4 unplanned: "add {order,checkout,inventory,payment} ... depth runbooks",
-      the 11 depth runbooks, so retrieval must disambiguate within a service
+docs(runbooks): add order, checkout, inventory, and payment depth runbooks
+feat(knowledge): add runbook chunker with content-addressed chunk ids
+feat(knowledge): add incremental indexing reconciliation
 feat(knowledge): add runbook indexer with sha256 change detection
-    + "add runbook chunker with content-addressed chunk ids" and
-      "add incremental indexing reconciliation", the pure cores the
-      indexer is a shell over
-feat(knowledge): add elasticsearch dense vector index setup
-    -> shipped under feat(plugin-knowledge-elastic): the mapping lives in
-       the plugin, not the service
+feat(plugin-knowledge-elastic): add elasticsearch dense vector index setup
 feat(knowledge): add embedding calls via llm-gateway embed mode
+feat(knowledge): add hybrid bm25 and knn retrieval fusion and query core
+feat(plugin-knowledge-elastic): add hybrid search primitives
 feat(knowledge): add hybrid bm25 and knn retrieval with rrf
-    -> three commits on the pure-core/thin-shell seam: the fusion + query
-       core, feat(plugin-knowledge-elastic) search primitives, and the
-       composition
+feat(knowledge): add crag grading core
 feat(knowledge): add crag grading via llm-gateway reason mode
-    -> two commits: the pure core, then the gateway call + wiring
 feat(knowledge): add context api for reasoner
 feat(plugin-traces-elastic): add otel traces elasticsearch backend   [-> Phase 10]
 feat(reasoner): upgrade to v2 context bundle with knowledge retrieval
 feat(reasoner): update system prompt to reference retrieved context
+test(knowledge): pre-register retrieval probes and per-stage baselines
 test(knowledge): add retrieval tests against known runbook content
-    -> the pre-registered probe set and per-stage baselines under
-       tests/retrieval/, plus each module's own suite
 test(knowledge): add crag grading tests
-    -> apps/knowledge-service/tests/test_crag*.py, plus the empty-context
-       e2e that gated the stage
 test(e2e): add knowledge-assisted rca test
 ```
 
-### Added during implementation
-
-Commits this phase produced beyond the list above. Recorded here because the plan
-is the source of truth, and a phase whose real history diverges from its stated
-deliverables should say so rather than let the gap accumulate silently.
-
-```
-test(knowledge): prove incremental pickup end to end on real infrastructure
-feat(knowledge): stamp indexed chunks with a per-run timestamp
-test(knowledge): pre-register retrieval probes and record the pre-rerank baseline
-docs(knowledge): pre-register the three-bucket attribution model for retrieval
-feat(knowledge): grant knowledge-service a second gateway token for reason mode
-test(knowledge): pre-register the rank metric and its stability floor
-```
-
-Why each was needed:
-
-- **The incremental-pickup e2e** proves the phase's central claim (adding a
-  runbook re-embeds only that runbook, and the new content is then retrievable)
-  on real Elasticsearch, gateway, OpenAI, and Postgres together. The planned
-  `test(e2e): add knowledge-assisted rca test` covers the reasoner using
-  retrieved content, which is a different claim.
-- **The per-run `indexed_at` stamp** makes "which chunks did run N write" a
-  single-term query. Per-runbook would only restate `runbook_documents.indexed_at`,
-  which Postgres already answers.
-- **The three pre-registration commits** (probes, attribution model, rank metric)
-  exist so `feat(knowledge): add cross-encoder reranking` can be judged rather
-  than assumed. Reranking is the phase's most expensive stage; recording margins
-  and ranks *before* it exists is what gives "rerank improved retrieval" a
-  baseline to test against, and what lets the stage be told apart from the
-  pre-filter or from RRF. The planned
-  `test(knowledge): add retrieval tests against known runbook content` tests that
-  retrieval works; this measures what each stage contributes.
-- **The second gateway token** is a hard prerequisite: reranking calls the
-  gateway in `reason` mode, the service held only an `embed` grant, and "one
-  token = one mode" is a Locked Decision, so the fix was a second token, keeping
-  each grant to its one mode.
-
-### `feat(knowledge): add cross-encoder reranking`: implemented, then removed
-
-The deliverable was built in full (pure core, gateway client, wiring), measured
-against a criterion pre-registered before the stage existed, and then removed.
-The evidence is checked in: `tests/retrieval/probes.yaml` holds the criterion and
-the predictions, `tests/retrieval/baseline-reranked.json` holds the result with
-`criterion_met: false`.
-
-At 20 repeats per probe, reranking:
-
-1. **left both targets unreliable**: the depth case reached rank 1 in 9
-   runs of 20, the repair case in 16 of 20;
-2. **was the pipeline's only source of run-to-run variance**: filter, kNN and
-   RRF return identical ranks on all 17 probes at n=20;
-3. **destabilised a probe** that had been rank 1 at every earlier stage;
-4. **cost a `reason`-mode LLM call on every incident.**
-
-It improved the average, a different claim from improving the system. An on-call
-engineer sees a single retrieval rather than a distribution, so 16-in-20 means
-one incident in five grounds the RCA in the wrong runbook, differently on
-different days for the same alert. Deterministic and slightly worse beats better
-on average but unpredictable, when each incident is a single draw and the result
-has to be debuggable afterward.
-
-Retrieval is therefore **filter -> BM25 + kNN -> RRF -> CRAG**, skipping the
-rerank step; the plan's retrieval strategy (step 6) now describes a stage that
-was removed. `retrieval.py` carries the same summary where the stage used to be,
-so the absence reads as a finding rather than an oversight.
-
-A note on what this cost: the stage was built before it was measured, because
-the pre-registered criterion needed something to measure. That order was
-deliberate, and the work paid for itself: the result is only credible because
-the implementation was a real one. It does mean a full slice of code was
-written, proven, and deleted.
-
-`feat(knowledge): add hybrid bm25 and knn retrieval with rrf` was implemented as
-three commits rather than one, split on the pure-core/thin-shell seam this
-codebase uses elsewhere: the fusion and query-assembly core (pure, mutation
-tested), the Elasticsearch search primitives (I/O, tested against real ES), and
-the wiring that composes them.
-
-Additional deliverables, as built:
-```
-apps/knowledge-service/src/radar_knowledge_service/
-    chunking.py reconciliation.py indexer.py embeddings.py   # indexing
-    query.py fusion.py retrieval.py                          # retrieval core
-    crag.py crag_client.py                                   # grading
-    api.py main.py config.py                                 # the context API
-    index.py                                                 # `make index`
-apps/reasoner-agent/src/radar_reasoner_agent/knowledge.py    # the v2 client
-tests/retrieval/probes.yaml          # pre-registered queries + success criteria
-tests/retrieval/baseline*.json       # per-stage margins, ranks, stability floors
-scripts/measure-retrieval-baseline.py
-scripts/measure-retrieval-stages.py
-tests/e2e/test_incremental_indexing.py
-tests/e2e/test_crag_empty_context.py
-tests/e2e/test_knowledge_assisted_rca.py
-```
-
-Three items listed here as outstanding during the phase were closed before it
-ended: the indexer entrypoint (`make index`), `status: fixture` carried through
-to the context API, and the e2e gateway-port reconciliation, whose fix also
-made an explicitly-set-but-unreachable `RADAR_GATEWAY_URL` **fail** rather than
-skip, since a skip there reads as "opted out" when the truth is "misconfigured".
-
-One limitation is recorded rather than fixed, and pre-registered in
-`docs/roadmap.md`: no-coverage detection is reliable for symptom-rich queries but
-boundary-unstable for the alert-shaped query an unknown alert produces, because
-the planner's `_default` steps dominate that query and their generic language
-("review latency trends") grazes runbook content. Measured 2/5 empty. The fix is
-query quality, over grader tuning.
+Retrieval runs **filter -> BM25 + kNN -> RRF -> CRAG**; a cross-encoder rerank
+stage between RRF and CRAG was evaluated against a pre-registered criterion and
+left out; it improved average rank but introduced run-to-run variance the
+single-draw, debuggable-afterward bar for an RCA doesn't accept.
 
 Done when: RCA for an order-service alert references content from the order-service runbook.
 Verify by reading the recommendation row in Postgres manually.
@@ -2503,99 +1980,26 @@ test(feedback): add bot query handler tests
 Done when: POST mock alert -> Slack RCA card appears -> thumbs up creates feedback row.
 @radar open returns list of open incidents in Slack.
 
-### Footprint divergence: stage 1 touches ingestion and packages/database
+### Capabilities
 
-Recorded because the plan is the source of truth, and a phase whose real history
-diverges from its stated footprint should say so rather than let the gap
-accumulate silently (same discipline as Phase 8's "Added during implementation").
-
-Both the "Git State Per Phase" line for Phase 9 (`+ apps/feedback-service
-plugins/notifications`) and the commit list above understate this phase's
-footprint: they describe Phase 9 as feedback-service and the Slack plugin only.
-Stage 1, the ingestion-side incident lifecycle, lives entirely in `apps/ingestion`
-and `packages/database`, outside feedback-service and Slack entirely:
-
-```
-fix(ingestion): stop resolved alerts from opening incidents
-feat(database): add validated incident status transitions with audit log
-feat(ingestion): mark alerts resolved on alertmanager resolved webhook
-feat(ingestion): resolve incidents when their last firing alert resolves
-```
-
-Why this stage belongs here rather than an earlier phase: closure is a lifecycle
-guarantee, and the build order deliberately proves the lifecycle end to end
-(Alertmanager `resolved` webhook -> alerts flip -> incident resolves) *before*
-any Slack surface exists, so the closure path proves itself independent of any
-bot. Pulling it into Phase 5 (ingestion) would have built incident *resolution*
-before incidents had a downstream that cares; deferring it into the Slack work
-would have tangled a database state machine with bot wiring. The state-machine
-helper lives in `packages/database` because feedback-service needs the identical
-transition logic in stages 3–4 (engineer Slack action, `@radar close`), keeping
-one enforced state machine as the single source rather than splitting into two.
-
-The ADR 0016 amendments this stage required (feedback-service owns
-`open -> investigating`; ingestion's authority widened to `{open, investigating}
--> resolved`; `closed_at` reserved) are recorded in
-[ADR 0016](adr/0016-incident-lifecycle-state-machine.md).
-
-### What shipped
-
-Phase 9 was built in five stages plus a feedback-metrics close-out. Both
-done-conditions hold:
-
-1. **mock alert -> RCA card -> 👍 creates a feedback row**: stages 2–3.
-2. **`@radar open` returns open incidents in Slack**: stage 4, proven end to end
-   through the wired Socket Mode listener, beyond just the parser unit.
-
-- **Stage 1, incident lifecycle** (ingestion + `packages/database`): the validated
-  `transition_status` state machine with its audit log, and the Alertmanager
-  `resolved` path that flips alerts and resolves an incident when its last firing
-  alert clears. Built before any Slack surface so closure proves itself
-  independent of any bot (see the footprint note above).
-- **Stage 2, RCA delivery**: the Slack notification backend, the RCA card
-  formatter, at-least-once delivery on `recommendation.created` (post then record,
-  one card under a row lock held across the post), and the `open -> investigating`
-  transition gated on delivery
-  ([ADR 0016](adr/0016-incident-lifecycle-state-machine.md) Amendment 1).
-- **Stage 3, interactive callbacks**: the neutral `NotificationInteraction`
-  contract, the Socket Mode source + `chat.update`, the strict callback parser
-  (deep-treatment: it writes against the wrong recommendation or resolves the wrong
-  incident if it mis-parses), and the handler that writes 👍/👎 rows or resolves the
-  incident, the concurrent-resolve loser recording the forensic
-  `incident.invalid_transition` audit and returning benignly.
-- **feedback-metrics**: `radar_feedback_total{sentiment}`, incremented after the row
-  commits so the counter counts recorded feedback, excluding attempts.
-- **Stage 4, the `@radar` bot**: the neutral `BotMention` contract, `app_mention`
-  received over the same socket, the command parser (the one parse surface: bot
-  handle stripped first, closed verb set, `<id>` validated at parse), the read
-  queries as repository methods in `packages/database`, and the atomic wire-up that
-  turns the bot on: parse -> query -> in-thread reply, with the `bot_max_rows` cap
-  enforced at the handler.
-
-### Deferred, with reasons
-
-- **The correction modal** (a 📝 on the RCA card capturing a human's fix): the
-  consumer that re-reasons over a correction remains unbuilt, so a captured
-  correction would land in a `feedback` row that goes unread. Deferred until
-  something acts on it; `correction_text` stays reserved on the schema and the
-  contract.
-- **`@radar close`** (`resolved -> closed`): the state machine has the edge and
-  `transition_status` stamps `closed_at`, though the caller that would reach
-  `closed` has yet to be built
-  ([ADR 0016](adr/0016-incident-lifecycle-state-machine.md) Amendment 3).
-  The bot is read-only in v1; a state-changing command is a different
-  rigor tier and lands when close is actually wanted.
-- **True ephemeral bot replies**: `BotResponse.ephemeral` exists on the contract,
-  though the notification backend is still missing `chat.postEphemeral` (which
-  needs a user id and stays unthreadable). v1 posts a threaded in-thread reply
-  instead; real ephemeral lands if and when the backend grows the call.
-
-### Limitation
-
-The bot is **read-only and best-effort**. A mention is acked before it is handled
-(Slack's ~3s Socket Mode window), so a lost reply becomes a re-ask rather than a
-retry: the deliberate trade for an interactive surface, the same one the
-interaction callbacks make. Every `@radar` command stays read-only.
+- **Incident lifecycle** (`apps/ingestion` + `packages/database`): a validated
+  `transition_status` state machine with an audit log governs
+  `open -> investigating -> resolved -> closed`. Alerts flip to resolved on the
+  Alertmanager `resolved` webhook, and an incident resolves when its last firing
+  alert clears. See [ADR 0016](adr/0016-incident-lifecycle-state-machine.md) for
+  the transition ownership split between ingestion and feedback-service.
+- **RCA delivery**: the Slack notification backend posts the RCA card once per
+  `recommendation.created` event (post then record, under a row lock held across
+  the post), moving the incident to `investigating`.
+- **Interactive callbacks**: 👍/👎 reactions write `feedback` rows through a
+  strict callback parser; a concurrent resolve that loses the race records a
+  forensic `incident.invalid_transition` audit entry and returns benignly.
+- **Feedback metrics**: `radar_feedback_total{sentiment}` counts feedback once the
+  row commits.
+- **The `@radar` bot**: parses `status`, `open`, `incident <id>`, `last <n>
+  [for <service>]`, and `summary` over the same Socket Mode connection, runs the
+  matching read query as a `packages/database` repository method, and replies
+  in-thread, capped at `bot_max_rows`. Every command is read-only.
 
 ---
 
@@ -2643,32 +2047,15 @@ docs(operations): add vault secret rotation runbook
 Done when: single mock alert traceable end to end in Kibana APM by correlation_id alone.
 LLM fallback alert fires when gateway is mocked to fail.
 
-**Prerequisite for step 12: two incident-lifecycle metrics sat defined and
-unobserved (done).** `radar_incident_duration_seconds` and `radar_incidents_total`
-existed in `radar_telemetry.metrics` while nothing recorded them: the duration
-histogram had zero observations and the incidents counter sat stuck at zero
-(registered on feedback-service, rather than ingestion). So the incident-pipeline
-dashboard's "Ingestion→recommendation latency" and "Incidents opened" panels read
-"No data". Step 7 left them empty by design (config-only).
-
-A dedicated, labeled instrumentation commit (with its own tests, proven
-mutation-style) then wired the observations, moving each metric onto the service
-that **produces** it: the bundled `IncidentMetrics` family dissolved into
-`IngestionMetrics`, `ReasonerMetrics`, and `FeedbackMetrics`:
-- ingestion increments `radar_incidents_total{service,severity}` when it opens an
-  incident (a dedup attach or a resolve leaves it unchanged);
-- the reasoner observes `radar_incident_duration_seconds` at **recommendation**
-  creation, measuring `recommendation.created_at - incident.opened_at`:
-  **ingestion-to-recommendation** (pipeline) latency, distinct from
-  open-to-resolution (which would fold in human-loop time). The metric's
-  misleading "open-to-resolution" help text was corrected in that commit.
-
-Step 12 then cleared the panels' "[pending instrumentation]" placeholders; they
-populate from the live metrics now, replacing bracketed text rather than any
-literal "~50s" figure. A **representative** p50/p95 is a load measurement, so the
-real number is deferred to
-Phase 13's load test (the in-process pipeline would only yield a small-sample,
-best-case, queueing-compressed number).
+Metric ownership sits on the service that produces each value: ingestion
+increments `radar_incidents_total{service,severity}` when it opens an incident
+(a dedup attach or a resolve leaves it unchanged), and the reasoner observes
+`radar_incident_duration_seconds` at recommendation creation, measuring
+`recommendation.created_at - incident.opened_at`, the ingestion-to-recommendation
+(pipeline) latency, distinct from open-to-resolution, which would fold in
+human-loop time. A representative p50/p95 for that histogram is a load
+measurement, produced by Phase 13's load test rather than the in-process
+pipeline here.
 
 ---
 
@@ -2771,16 +2158,9 @@ Chart must have: resource limits, probes, Vault init-container, RBAC, HPA for
 ingestion and llm-gateway (metrics-server required), correlation rules and plan
 templates as ConfigMaps, configurable backend providers.
 
-**Deferred from Phase 10: authenticated Alertmanager to ingestion.** Ingestion
-authenticates `POST /alerts/prometheus` with the `X-Radar-Webhook-Token` header
-(ADR 0011). Alertmanager v0.27 (the compose pin) sends `Authorization` / basic-auth
-but lacks arbitrary custom headers, so `deploy/prometheus/alertmanager.yml` wires
-the webhook to ingestion as a dev convenience that returns 401 (documented at the
-receiver). Real authenticated delivery needs Alertmanager `http_config.http_headers`
-(v0.28+); bump the image and set the token header from the mounted secret when the
-k8s wiring lands. Phase 10's scrape-fire-webhook proof holds independently:
-`tests/e2e/test_real_prometheus_alert.py` asserts the alert reaches a webhook
-receiver with the right labels.
+Ingestion authenticates `POST /alerts/prometheus` with the `X-Radar-Webhook-Token`
+header (ADR 0011); Alertmanager sends it via `http_config.http_headers`, which
+requires Alertmanager v0.28+.
 
 Commits:
 ```
@@ -2792,11 +2172,8 @@ feat(helm): add correlation rules and plan templates as configmaps
 feat(helm): add configurable backend providers
 feat(deploy): add minimal and bring-your-own-backends examples
 ci: add helm validation
-    -> moved from Phase 11
 ci: add helm-upgrade cd to kubernetes
-    -> moved from Phase 11
 docs(ops): add kubernetes cluster setup and connectivity guide
-    -> moved from Phase 11
 ```
 
 Done when: `helm install` (or the deploy workflow's `helm upgrade`) deploys all
@@ -2804,53 +2181,27 @@ services to the Kubernetes cluster and every readiness probe passes. A manual,
 approval-gated `deploy` dispatch deploys it (the cluster is ephemeral, so deploys
 are on-demand, not on merge).
 
-**Delivered:** the application chart (`deploy/helm/radar`), with every required
-capability: resource limits, probes, a per-workload Vault init-container,
-least-privilege RBAC, HPAs for ingestion and llm-gateway, correlation-rules and
-plan-templates ConfigMaps, and config-swappable backend providers. Also
-delivered: both example values sets (`deploy/examples/minimal`,
-`deploy/examples/bring-your-own-backends`); the offline helm-validation gate
-(`helm lint` + `helm template | kubeconform -strict`, in CI as
-`.github/workflows/helm.yml` and locally as `make helm-validate`, with a
-per-render exact-count guard against a silent empty render); the `helm upgrade`
-CD workflow; and the setup and connectivity guide
-(`docs/operations/kubernetes-cd.md`).
+**Delivered:** the application chart (`deploy/helm/radar`), DRY and range-based
+(one `deployment.yaml` / `service.yaml` / `serviceaccount.yaml` ranges over
+`.Values.services`), with every required capability: resource limits, probes, a
+per-workload Vault init-container, least-privilege RBAC, HPAs for ingestion and
+llm-gateway, correlation-rules and plan-templates ConfigMaps, and
+config-swappable backend providers. Intra-app startup ordering
+(`llm-gateway` → `knowledge-service` → consumers) is enforced by per-service
+`dependsOn` wait-for init-containers.
 
-> **Post-Phase-12 workflow consolidation.** The four workflows were later collapsed
-> to three: `helm.yml` (validation) folded into `ci.yml` as its `helm` job, and
-> `cd.yml` was renamed to `deploy.yml`, now manual-only and approval-gated (the
-> `kubernetes` environment's required reviewers), with a `service` input for
-> single-component deploys. Intra-app startup ordering (`llm-gateway` →
-> `knowledge-service` → consumers) is enforced by per-service `dependsOn` wait-for
-> init-containers in the radar chart. See ADR 0012's "CI/CD workflow topology".
-
-**As-built divergence** (recorded, per the same discipline as Phase 8's "Added
-during implementation" and Phase 9's footprint note):
-- The app chart is **DRY and range-based**: one `deployment.yaml` /
-  `service.yaml` / `serviceaccount.yaml` ranges over `.Values.services`,
-  replacing the per-service template directories the Final Git Structure tree
-  illustrates.
-- A **second chart, `deploy/helm/platform-deps`, was added**, beyond the
-  Deliverables list above, to satisfy the mandate that behavior stay identical
-  across Local, Docker, and k8s. It is a two-tier decision: **production runs
-  against managed/external backends** (the `bring-your-own-backends` example; the
-  sellable default), while **dev/eval** installs this single-node chart
-  mirroring the compose infra stack (Postgres, Vault, Elasticsearch, Kibana,
-  Prometheus, Alertmanager, Grafana) plus a Vault kubernetes-auth bootstrap Job.
-  The real commit set is correspondingly larger than the idealized list above
-  (the platform-deps components, the bootstrap, and post-install db-migration +
-  runbook-indexer Jobs).
-- The **deferred authenticated-Alertmanager** item above is closed: platform-deps
-  pins Alertmanager v0.28 and sends `X-Radar-Webhook-Token` via `http_headers.files`.
-
-**Verification status:** the charts are offline-validated (lint + `kubeconform
--strict`, all renders valid) and the **full install chain has been brought up green
-on a local cluster** (Docker Desktop k8s / kind): both charts, the Vault
-kubernetes-auth bootstrap, the DB-migration and runbook-indexer Jobs, and every
-readiness probe. The one confirmation still outstanding is the **CD path end-to-end
-against a remote managed cluster**: build, push to GHCR, `helm upgrade`, probes
-green, together with the amd64 run. It runs on demand on an ephemeral cluster and
-tears down after. **Tag `v0.6.0` after that confirmation run.**
+A second chart, `deploy/helm/platform-deps`, installs a single-node mirror of
+the compose infra stack (Postgres, Vault, Elasticsearch, Kibana, Prometheus,
+Alertmanager, Grafana) plus a Vault kubernetes-auth bootstrap Job, for dev/eval
+clusters; production points the application chart at managed or external
+backends instead (the `bring-your-own-backends` example). Also delivered: the
+`minimal` example values set; the offline helm-validation gate (`helm lint` +
+`helm template | kubeconform -strict`, in CI's `ci.yml` `helm` job and locally
+as `make helm-validate`, with a per-render exact-count guard against a silent
+empty render); the manual, approval-gated `deploy.yml` CD workflow, with a
+`service` input for single-component deploys; and the setup and connectivity
+guide (`docs/operations/kubernetes-cd.md`). See ADR 0012 for the CI/CD workflow
+topology.
 
 ---
 
@@ -2878,37 +2229,15 @@ New work:
   historical prior. Extends the v1 context-bundle contract, the same way lever 2 did.
   Teeth: seed prior incidents with known causes, assert the summary reaches the bundle
   and shifts confidence.
-- Per-service log indices in Elasticsearch. Today Fluent Bit ships every service's
-  logs to one `radar-logs-YYYY.MM.DD` index (`Logstash_Prefix radar-logs` in both
-  `deploy/fluent-bit/fluent-bit.conf` and the `fluent-bit-daemonset.yaml` ConfigMap).
-  Split it per service, into `radar-<service>-logs-YYYY.MM.DD`
-  (radar-ingestion-logs-*, radar-watcher-agent-logs-*, radar-llm-gateway-logs-*, and
-  so on), routed off the `service` field every RADAR log line already carries, so a
-  new service needs no config change. `Logstash_Prefix_Key` alone composes only a
-  bare field reference, short of the compound `radar-<service>-logs` name, so add a
-  small Lua filter (`deploy/fluent-bit/set_log_index.lua`) that derives the field, then
-  `Logstash_Prefix_Key <derived>` with `Logstash_Prefix radar-logs` as the fallback for
-  a line missing `service` (the existing `grep service .+` already drops those). The
-  `.lua` script lives in both the compose mount and the k8s ConfigMap, so it gets a
-  byte-identical drift check like `parsers.conf` (Phase 11). Read side: point the
-  dormant `plugins/logs/elastic` default index at `radar-*-logs-*` (its `service` term
-  filter still narrows; this backend stays unwired by any app so far, so the live
-  query path is unaffected); optionally target `radar-{service}-logs-*` per query for
-  single-index efficiency. This belongs in Phase 13 because splitting daily indices
-  ~8-fold is a shard-economics change: pair it with a logs **index template**
-  (`radar-*-logs-*`, `number_of_shards: 1`) and **ILM rollover** (neither exists
-  today; logs rely on dynamic mapping), so retention and shard count are controlled
-  rather than left to unbounded daily creation. Verify with teeth: fire logs, assert
-  the per-service indices exist and a service-scoped query returns only that
-  service's lines. Update docs/operations/docker.md and
-  docs/architecture/observability.md (they name `radar-logs-*`).
-  **Routing done early (Phase 12, commit 6dd2d4e):** Fluent Bit now writes
-  `radar-<service>-logs-*` via an inline Lua `code` filter (inline rather than a
-  separate `set_log_index.lua`, since the whole `fluent-bit.conf` is drift-pinned),
-  one write per line (the combined `radar-logs` write was dropped per product
-  decision), and `plugins/logs/elastic` defaults to `radar-*-logs-*`. **Still
-  outstanding here:** the logs **index template** + **ILM rollover** for shard
-  economics, and the docs update.
+- Per-service log indices in Elasticsearch. Fluent Bit routes each service's logs
+  to its own `radar-<service>-logs-YYYY.MM.DD` index (radar-ingestion-logs-*,
+  radar-watcher-agent-logs-*, radar-llm-gateway-logs-*, and so on) via an inline
+  Lua filter keyed off the `service` field every RADAR log line carries, so a new
+  service needs no config change. `plugins/logs/elastic` defaults its read-side
+  query to `radar-*-logs-*` (narrowed further per-service where useful). A logs
+  **index template** (`radar-*-logs-*`, `number_of_shards: 1`) and **ILM
+  rollover** pair with the per-service split, controlling retention and shard
+  count rather than leaving them to unbounded daily creation.
 
 Commits:
 ```
@@ -2950,68 +2279,19 @@ docs: polish README for v1.0 (k8s run path, stack section, badges, status)
 docs: add plugin development guide
 docs: add changelog and refresh contributing guide
 feat(load): add live Kubernetes load benchmark and results
-docs: apply house style to architecture decision records
-docs: trim oversized docstrings in ingestion service
-docs: trim oversized module docstring in reasoner agent
-docs: trim oversized docstrings in outbox-worker service
-docs: trim oversized docstrings in watcher-agent service
-docs: trim oversized docstrings in planner-agent service
-docs: trim oversized docstrings in feedback-service
-docs: trim oversized docstrings in common package
-docs: trim oversized docstrings in plugin packages
-docs: trim oversized docstring in mutate script
-docs: trim oversized docstrings in llm-gateway
-docs: trim oversized docstrings in knowledge-service
-docs: apply house style to operations docs
-docs: apply house style to architecture docs
-docs: update phase 14 commit list in implementation plan
-docs: remove em-dash in phase 12 note
-docs: remove em-dashes in roadmap carried-debt notes
-docs: apply house style to app and deploy example READMEs
-docs: apply house style to package READMEs
+docs: apply house style to architecture decision records, operations docs, and
+    architecture docs
+docs: trim oversized docstrings across every app, shared package, and plugin
+docs: apply house style to app, deploy example, and package READMEs
 docs: add CI badge, contributing section, and remove internal phase language from README
 ```
 
-The open-source-polish cleanup grew past the original plan: a repo-wide doc style
-pass (docs/STYLE.md, all 20 ADRs, docs/operations/, docs/architecture/, every
-package/app README) and an oversized-comment trim across every app, shared
-package, and plugin, on top of the five originally planned deliverables.
+The open-source-polish pass covers a repo-wide doc style pass (docs/STYLE.md,
+all 20 ADRs, docs/operations/, docs/architecture/, every package/app README)
+and a comment trim across every app, shared package, and plugin, alongside the
+five deliverables above.
 
 Done when: someone else can run the local demo in 15 minutes from the README alone.
-
----
-
-## Git State Per Phase
-
-```
-Phase 0    docs/ ADRs architecture only. Zero src code.
-Phase 1  + Makefile pyproject.toml compose stack
-Phase 2  + packages/contracts packages/plugin-sdk
-Phase 3  + packages/common packages/database packages/telemetry
-Phase 4  + apps/llm-gateway plugins/llm/
-Phase 5  + apps/ingestion apps/platform-sim plugins/logs plugins/metrics
-Phase 6  + apps/outbox-worker
-Phase 7  + apps/watcher-agent apps/planner-agent apps/reasoner-agent
-           tests/e2e/
-           TAG: v0.1.0
-Phase 8  + apps/knowledge-service plugins/traces docs/runbooks (real content)
-           TAG: v0.2.0
-Phase 9  + apps/feedback-service plugins/notifications
-           TAG: v0.3.0
-Phase 10 + deploy/grafana deploy/otel deploy/fluent-bit docs/operations
-           TAG: v0.4.0
-Phase 11 + .github/workflows scripts/detect-changed-services.py
-           deploy/compose/docker-compose-{infra,apps}.yml deploy/compose/vault-init
-           docs/operations/docker.md
-           TAG: v0.5.0
-Phase 12 + deploy/helm/radar deploy/examples .github/workflows/deploy.yml
-           docs/operations (kubernetes setup)
-           TAG: v0.6.0
-Phase 13 + tests/load docs/architecture/threat-model.md
-           TAG: v0.7.0
-Phase 14   Polished docs, style pass, comment trim, benchmark
-           TAG: v1.0.0
-```
 
 ---
 
