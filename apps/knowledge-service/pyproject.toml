@@ -10,7 +10,7 @@ dependencies = [
     "radar-database",
     "radar-telemetry",
     "radar-plugin-knowledge-elastic",
-    "fastapi==0.115.0",
+    "fastapi==0.141.1",
     "uvicorn[standard]==0.32.0",
     "sqlalchemy[asyncio]==2.0.51",
     "httpx==0.28.0",

@@ -85,7 +85,8 @@ def _post(
     client: TestClient, source: str, *, token: str | None, json: object
 ) -> Response:
     headers = {"X-Radar-Webhook-Token": token} if token is not None else {}
-    return client.post(f"/alerts/{source}", json=json, headers=headers)
+    response: Response = client.post(f"/alerts/{source}", json=json, headers=headers)
+    return response
 
 
 # --- happy path + dedup -------------------------------------------------------

@@ -5,7 +5,7 @@ description = "RADAR shared runtime primitives: structured logging, config/secre
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi==0.115.0",
+    "fastapi==0.141.1",
     "pydantic==2.13.4",
     "pydantic-settings==2.6.0",
     "structlog==24.4.0",
