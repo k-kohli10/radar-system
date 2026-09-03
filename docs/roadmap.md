@@ -24,7 +24,7 @@ is just the summary view.
 | `v0.13-hardened` | v0.7.0 | Load test, circuit breaker, threat model, audit log completeness. |
 | `v1.0` | v1.0.0 | Open-source polish: quickstart, plugin guide, benchmark, house doc style. |
 
-## 📚 Contents
+## Contents
 
 - 📏 [The Proof-of-Concept Line](#the-proof-of-concept-line)
 - 🔒 [Fixed Decisions](#fixed-decisions)

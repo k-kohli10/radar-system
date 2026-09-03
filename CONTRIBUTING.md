@@ -12,19 +12,21 @@ discussion/issue first, so the reasoning gets captured alongside the change.
 
 ---
 
-## 📚 Contents
+## Contents
 
-- [🧭 Ground Rules](#-ground-rules)
-- [🛠️ Development Setup](#-development-setup)
-- [✅ Code Standards](#-code-standards)
-- [🧪 Testing Expectations](#-testing-expectations)
-- [🔀 Pull Requests](#-pull-requests)
-- [🐛 Reporting Issues](#-reporting-issues)
+- [Ground Rules](#-ground-rules)
+- [Development Setup](#-development-setup)
+- [Code Standards](#-code-standards)
+- [Testing Expectations](#-testing-expectations)
+- [Pull Requests](#-pull-requests)
+- [Reporting Issues](#-reporting-issues)
 
 ---
 
 ## 🧭 Ground Rules
 
+- 🤝 **Follow the [Code of Conduct](CODE_OF_CONDUCT.md).** It applies to
+  every issue, PR, and discussion in this repo.
 - 🎯 **One logical change, one PR.** Keep a PR to a single feature, fix, or
   cleanup. Don't bundle unrelated changes.
 - 🏛️ **Know the current architecture.** Agents talk to each other through a

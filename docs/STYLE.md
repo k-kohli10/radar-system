@@ -5,13 +5,13 @@ is the example. 🎯
 
 ---
 
-## 📚 Contents
+## Contents
 
-- [🧭 The Shape](#-the-shape)
-- [🚫 Banned](#-banned)
-- [📐 Anchors](#-anchors)
-- [🖼️ When to Diagram](#-when-to-diagram)
-- [🔒 Exceptions](#-exceptions)
+- [The Shape](#-the-shape)
+- [Banned](#-banned)
+- [Anchors](#-anchors)
+- [When to Diagram](#-when-to-diagram)
+- [Exceptions](#-exceptions)
 
 ---
 
@@ -20,7 +20,7 @@ is the example. 🎯
 | Element | Rule |
 |---|---|
 | 🏷️ H1 | One emoji, then the title |
-| 📚 Contents | A `## Contents` block right after the intro, linking every `##` heading |
+| 📚 Contents | A plain `## Contents` block right after the intro, linking every `##` heading. No emoji in the Contents header or in TOC link text |
 | 🎨 Headings | One emoji per `##`/`###`, meaningful (not decorative) |
 | 📊 Tables | Prefer a table to a paragraph wherever the content is a list of facts |
 | ✅ Steps | Numbered or bulleted, short: one idea per line |
@@ -68,6 +68,15 @@ turning a *leading* emoji + its following space into a *leading* hyphen. So:
 ```
 ## 🔍 Troubleshooting   ->   #-troubleshooting
 ## Contents              ->   #contents
+```
+
+Emoji lives only on the real heading, never in the Contents header or the TOC
+link text, and the anchor is unaffected: the leading hyphen already encodes
+the heading's emoji, so the TOC entry points at it unchanged.
+
+```
+## 🎯 Scope        ->   #-scope
+- [Scope](#-scope)
 ```
 
 Check every `## Contents` link resolves before shipping a doc.

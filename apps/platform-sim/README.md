@@ -18,14 +18,14 @@ Kubernetes and deliberately has no Postgres, no transactional outbox, no
 `POST /events`, no `/readyz`, and no agent token. The standard RADAR service
 template does not apply to it.
 
-## 📚 Contents
+## Contents
 
-- [🧪 Simulated services](#-simulated-services)
-- [🔗 Endpoints](#-endpoints)
-- [📈 Metrics](#-metrics)
-- [🌀 Chaos](#-chaos)
-- [▶️ Run locally](#-run-locally)
-- [🐳 Docker](#-docker)
+- [Simulated services](#-simulated-services)
+- [Endpoints](#-endpoints)
+- [Metrics](#-metrics)
+- [Chaos](#-chaos)
+- [Run locally](#-run-locally)
+- [Docker](#-docker)
 
 ## 🧪 Simulated services
 

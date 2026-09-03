@@ -3,9 +3,9 @@
 Phase 13's resilience deliverable: drive the pipeline under concurrency and prove
 it neither loses data nor hides latency.
 
-## 📚 Contents
+## Contents
 
-- [🔀 `test_concurrent_alerts.py`: 100 concurrent alerts](#-test_concurrent_alertspy-100-concurrent-alerts)
+- [`test_concurrent_alerts.py`: 100 concurrent alerts](#-test_concurrent_alertspy-100-concurrent-alerts)
 
 ## 🔀 `test_concurrent_alerts.py`: 100 concurrent alerts
 
