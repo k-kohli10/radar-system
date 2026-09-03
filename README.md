@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml"><img src="https://github.com/k-kohli10/radar-system/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/k-kohli10/radar-system/actions/workflows/security.yml"><img src="https://github.com/k-kohli10/radar-system/actions/workflows/security.yml/badge.svg" alt="Security"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/k-kohli10/radar-system"><img src="https://api.scorecard.dev/projects/github.com/k-kohli10/radar-system/badge" alt="OpenSSF Scorecard"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/k-kohli10/radar-system"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.scorecard.dev%2Fprojects%2Fgithub.com%2Fk-kohli10%2Fradar-system&query=%24.score&label=openssf%20scorecard&color=yellow" alt="OpenSSF Scorecard"></a>
   <a href="https://github.com/k-kohli10/radar-system/releases"><img src="https://img.shields.io/github/v/release/k-kohli10/radar-system?sort=semver" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.14-blue.svg" alt="Python 3.14"></a>

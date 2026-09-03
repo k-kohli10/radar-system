@@ -1,0 +1,31 @@
+version: 2
+
+# Dependency update configuration. This repo pins GitHub Actions by commit SHA
+# and Docker base images by digest, so routine version-bump PRs would be noise;
+# open-pull-requests-limit: 0 disables those version-update PRs for every
+# ecosystem below. Dependabot SECURITY updates are governed separately (repo
+# Settings -> Code security) and still open PRs for real advisories — the
+# behavior we want. The config's presence also satisfies the OpenSSF Scorecard
+# Dependency-Update-Tool check.
+updates:
+  # GitHub Actions referenced in .github/workflows/*.yml (all SHA-pinned).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  # Docker base images across the nine service images (all digest-pinned).
+  - package-ecosystem: "docker"
+    directories:
+      - "/apps/*"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+
+  # Python dependencies in the uv workspace lockfile (uv.lock, hashed).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0

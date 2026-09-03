@@ -9,10 +9,10 @@
 # uv.lock. The root .dockerignore trims the context.
 
 # --- builder: resolve the workspace and install llm-gateway into a venv -------
-FROM python:3.14-slim AS builder
+FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
 
 # Pinned uv, matching the version the repo's uv.lock was written with.
-COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.26@sha256:3d868e555f8f1dbc324afa005066cd11e1053fc4743b9808ca8025283e65efa5 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -34,7 +34,7 @@ COPY . .
 RUN uv sync --frozen --no-dev --no-editable --package radar-llm-gateway
 
 # --- runtime: just the venv, no uv, no build tooling, non-root -----------------
-FROM python:3.14-slim
+FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 
 WORKDIR /app
 
