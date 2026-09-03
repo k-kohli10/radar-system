@@ -10,18 +10,18 @@ pulling images. One script does the setup, and nothing secret touches the repo.
 
 ## Contents
 
-- [🎯 TL;DR](#-tldr)
-- [🧰 Prerequisites](#-prerequisites)
-- [🚀 Step 1: Bootstrap](#-step-1-bootstrap)
-- [🔑 Step 2: Add your external credentials](#-step-2-add-your-external-credentials)
-- [🟢 Step 3: Start the stack](#-step-3-start-the-stack)
-- [⚡ Everyday commands](#-everyday-commands)
-- [🔐 Tokens and secrets](#-tokens-and-secrets)
-- [🤖 Run the LLM gateway](#-run-the-llm-gateway)
-- [🔥 Run the whole pipeline](#-run-the-whole-pipeline)
-- [🪝 Git hooks](#-git-hooks)
-- [🛟 Troubleshooting](#-troubleshooting)
-- [🧭 Where to go next](#-where-to-go-next)
+- [TL;DR](#-tldr)
+- [Prerequisites](#-prerequisites)
+- [Step 1: Bootstrap](#-step-1-bootstrap)
+- [Step 2: Add your external credentials](#-step-2-add-your-external-credentials)
+- [Step 3: Start the stack](#-step-3-start-the-stack)
+- [Everyday commands](#-everyday-commands)
+- [Tokens and secrets](#-tokens-and-secrets)
+- [Run the LLM gateway](#-run-the-llm-gateway)
+- [Run the whole pipeline](#-run-the-whole-pipeline)
+- [Git hooks](#-git-hooks)
+- [Troubleshooting](#-troubleshooting)
+- [Where to go next](#-where-to-go-next)
 
 ---
 
@@ -344,7 +344,7 @@ curl -s localhost:8081/readyz                    # {"status":"ready"}; 503 means
 
 # Every gateway token grants exactly ONE mode, so the token you send decides the
 # mode you may ask for. reasoner-agent is granted `extended`; asking it for any
-# other mode is a 403, not a 401 — the token is valid, the mode is not.
+# other mode is a 403, not a 401: the token is valid, the mode is not.
 TOKEN=$(cat ~/.radar-dev/secrets/reasoner-agent/gateway_token)
 curl -s localhost:8081/v1/complete \
   -H "X-Radar-Agent-Token: $TOKEN" \
@@ -375,7 +375,7 @@ starts them all, tracks PIDs in `.dev-run/`, and prints a readiness table.
 ```bash
 scripts/bootstrap.sh                # tools, uv, .env, deps
 # edit .env: set OPENAI_API_KEY
-#            (+ SLACK_BOT_TOKEN and SLACK_APP_TOKEN for feedback-service — Phase 9)
+#            (+ SLACK_BOT_TOKEN and SLACK_APP_TOKEN for feedback-service, Phase 9)
 
 make dev-infra-up                      # 6 containers
 make dev-infra-ps                             # wait: all healthy

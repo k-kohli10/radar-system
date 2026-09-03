@@ -6,14 +6,14 @@ score plateaus or a new check regresses.
 
 ---
 
-## 📚 Contents
+## Contents
 
-- [🔭 Overview](#-overview)
-- [📦 What Shipped (the Five Commits)](#-what-shipped-the-five-commits)
-- [📈 Remaining to Reach ~8](#-remaining-to-reach-8)
-- [🔐 Branch Protection (main and Release*)](#-branch-protection-main-and-release)
-- [🏅 OpenSSF Best Practices (CII) Badge](#-openssf-best-practices-cii-badge)
-- [🔎 Verifying the Score](#-verifying-the-score)
+- [Overview](#-overview)
+- [What Shipped (the Five Commits)](#-what-shipped-the-five-commits)
+- [Remaining to Reach ~8](#-remaining-to-reach-8)
+- [Branch Protection (main and Release*)](#-branch-protection-main-and-release)
+- [OpenSSF Best Practices (CII) Badge](#-openssf-best-practices-cii-badge)
+- [Verifying the Score](#-verifying-the-score)
 
 ---
 

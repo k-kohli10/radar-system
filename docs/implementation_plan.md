@@ -1343,7 +1343,7 @@ feedback-quality.json    Positive/negative ratio, correction rate over time
 ### Package Versions
 
 Every dependency is pinned to an exact version in the workspace member that uses
-it — one `pyproject.toml` per app, package, and plugin — and resolved into a
+it (one `pyproject.toml` per app, package, and plugin) and resolved into a
 single lockfile, `uv.lock`, which is the authoritative record of exact versions
 for the whole workspace. The floor is `requires-python = ">=3.12"`; the build and
 CI run on Python 3.14. Change a version by editing the owning `pyproject.toml` and

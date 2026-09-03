@@ -8,13 +8,13 @@ fallbacks**, drained in **~7 minutes** on a single reasoner replica.
 
 ---
 
-## 📚 Contents
+## Contents
 
-- [🧪 What Was Measured](#-what-was-measured)
-- [✅ Results](#-results)
-- [🔍 How to Read the Latency](#-how-to-read-the-latency)
-- [🆚 vs. the Mocked Baseline](#-vs-the-mocked-baseline)
-- [🔁 Reproduce It](#-reproduce-it)
+- [What Was Measured](#-what-was-measured)
+- [Results](#-results)
+- [How to Read the Latency](#-how-to-read-the-latency)
+- [vs. the Mocked Baseline](#-vs-the-mocked-baseline)
+- [Reproduce It](#-reproduce-it)
 
 ---
 

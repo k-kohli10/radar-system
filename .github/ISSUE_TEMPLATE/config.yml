@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/k-kohli10/radar-system/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.
+  - name: 💬 Question or help
+    url: https://github.com/k-kohli10/radar-system/blob/main/CONTRIBUTING.md
+    about: See CONTRIBUTING.md, or email the maintainer at kohli22k@gmail.com.

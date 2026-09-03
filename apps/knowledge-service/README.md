@@ -7,15 +7,15 @@ chunking contract are documented in that directory's README, and the join
 between runbook frontmatter and the Prometheus alert rules is enforced by
 `tests/test_runbook_alert_contract.py`.
 
-## 📑 Contents
+## Contents
 
-- [🚧 Design constraints](#-design-constraints)
-- [🔎 The retrieval pipeline](#-the-retrieval-pipeline)
-- [🧩 Modules](#-modules)
-- [🌐 The context API](#-the-context-api)
-- [🏃 Running an indexing pass](#-running-an-indexing-pass)
-- [🗂️ Indexed document shape](#-indexed-document-shape)
-- [✂️ Chunking](#-chunking)
+- [Design constraints](#-design-constraints)
+- [The retrieval pipeline](#-the-retrieval-pipeline)
+- [Modules](#-modules)
+- [The context API](#-the-context-api)
+- [Running an indexing pass](#-running-an-indexing-pass)
+- [Indexed document shape](#-indexed-document-shape)
+- [Chunking](#-chunking)
 
 ## 🚧 Design constraints
 

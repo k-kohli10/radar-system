@@ -9,15 +9,15 @@ Inbound `/alerts/*` authenticate with a per-source `X-Radar-Webhook-Token` loade
 from Vault (never the internal `X-Radar-Agent-Token`), and there is no
 `POST /events`: ingestion *produces* outbox events, it does not consume them.
 
-## 📚 Contents
+## Contents
 
-- [🔗 Endpoints](#-endpoints)
-- [🔁 Ingestion logic](#-ingestion-logic)
-- [✉️ One alert per request](#-one-alert-per-request)
-- [🔑 Webhook authentication](#-webhook-authentication)
-- [⚙️ Configuration and secrets](#-configuration-and-secrets)
-- [▶️ Run locally](#-run-locally)
-- [🐳 Docker](#-docker)
+- [Endpoints](#-endpoints)
+- [Ingestion logic](#-ingestion-logic)
+- [One alert per request](#-one-alert-per-request)
+- [Webhook authentication](#-webhook-authentication)
+- [Configuration and secrets](#-configuration-and-secrets)
+- [Run locally](#-run-locally)
+- [Docker](#-docker)
 
 ## 🔗 Endpoints
 

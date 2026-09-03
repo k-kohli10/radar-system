@@ -10,10 +10,10 @@ See the module docstring in `src/radar_feedback_service/__init__.py` for the
 layout, and `docs/architecture/agent-pipeline.md` for where it sits in the
 pipeline.
 
-## 📚 Contents
+## Contents
 
-- [🃏 RCA card buttons](#-rca-card-buttons)
-- [🤖 `@radar` bot commands](#-radar-bot-commands)
+- [RCA card buttons](#-rca-card-buttons)
+- [`@radar` bot commands](#-radar-bot-commands)
 
 ## 🃏 RCA card buttons
 

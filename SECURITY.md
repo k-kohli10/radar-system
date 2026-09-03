@@ -2,18 +2,18 @@
 
 Thanks for helping keep RADAR and its users safe. This document explains which
 versions receive security fixes and how to report a vulnerability privately.
-RADAR's architecture decisions — including how secrets and inter-agent
-communication are handled — are recorded as [ADRs](docs/adr/); see
+RADAR's architecture decisions (including how secrets and inter-agent
+communication are handled) are recorded as [ADRs](docs/adr/); see
 [docs/implementation_plan.md](docs/implementation_plan.md) for the full picture.
 
 ---
 
-## 📚 Contents
+## Contents
 
-- [📦 Supported Versions](#-supported-versions)
-- [🐛 Reporting a Vulnerability](#-reporting-a-vulnerability)
-- [⏱️ What to Expect](#-what-to-expect)
-- [🤝 Coordinated Disclosure](#-coordinated-disclosure)
+- [Supported Versions](#-supported-versions)
+- [Reporting a Vulnerability](#-reporting-a-vulnerability)
+- [What to Expect](#-what-to-expect)
+- [Coordinated Disclosure](#-coordinated-disclosure)
 
 ---
 
@@ -32,7 +32,7 @@ latest `1.0.x` line and ship in a patch release.
 Please report security issues **privately** so a fix can ship before details go
 public. Use either channel:
 
-- **Preferred — GitHub private advisory:** open a report at
+- **Preferred: GitHub private advisory.** Open a report at
   <https://github.com/k-kohli10/radar-system/security/advisories/new>. This keeps
   the discussion private to you and the maintainer and produces a coordinated
   advisory when the fix lands.
@@ -43,7 +43,7 @@ Please include what you can:
 
 - the affected service or package and version (or commit SHA),
 - a description of the impact and how it could be exploited,
-- steps to reproduce — an alert payload, a `make` command, or logs, and
+- steps to reproduce (an alert payload, a `make` command, or logs), and
 - any suggested remediation you have in mind.
 
 ## ⏱️ What to Expect

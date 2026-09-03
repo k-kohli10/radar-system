@@ -12,16 +12,16 @@ That's it. No base class, no framework, no service edits.
 
 ---
 
-## 📚 Contents
+## Contents
 
-- [🧭 How Plugins Fit](#-how-plugins-fit)
-- [📦 Available Protocols](#-available-protocols)
-- [🏗️ Anatomy of a Plugin](#-anatomy-of-a-plugin)
-- [✍️ Add a New Plugin](#-add-a-new-plugin)
-- [🧪 Testing Your Plugin](#-testing-your-plugin)
-- [🚫 Rules](#-rules)
-- [🔍 Troubleshooting](#-troubleshooting)
-- [🧯 Next Steps](#-next-steps)
+- [How Plugins Fit](#-how-plugins-fit)
+- [Available Protocols](#-available-protocols)
+- [Anatomy of a Plugin](#-anatomy-of-a-plugin)
+- [Add a New Plugin](#-add-a-new-plugin)
+- [Testing Your Plugin](#-testing-your-plugin)
+- [Rules](#-rules)
+- [Troubleshooting](#-troubleshooting)
+- [Next Steps](#-next-steps)
 
 ---
 
@@ -163,7 +163,7 @@ Run the whole suite + gates:
 
 ```bash
 make test      # full test suite
-make lint      # ruff + mypy strict — catches a signature that's close but not conformant
+make lint      # ruff + mypy strict: catches a signature that's close but not conformant
 ```
 
 ---

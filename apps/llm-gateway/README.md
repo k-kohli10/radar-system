@@ -10,13 +10,13 @@ Provider failures are retried with backoff (1s, 3s, 9s), then routed to a
 fallback provider if one is configured; if that also fails the gateway returns
 503 and the caller degrades (the Reasoner falls back to a template RCA).
 
-## 📚 Contents
+## Contents
 
-- [🔗 Endpoints](#-endpoints)
-- [🔀 Request validation order](#-request-validation-order)
-- [🙈 Logging policy](#-logging-policy)
-- [☁️ Providers](#-providers)
-- [▶️ Run locally](#-run-locally)
+- [Endpoints](#-endpoints)
+- [Request validation order](#-request-validation-order)
+- [Logging policy](#-logging-policy)
+- [Providers](#-providers)
+- [Run locally](#-run-locally)
 
 ## 🔗 Endpoints
 
