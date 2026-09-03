@@ -6,7 +6,9 @@ name: build
 on:
   push:
     branches: ["**"]
+    paths-ignore: ["**/*.md", "docs/**"]
   pull_request:
+    paths-ignore: ["**/*.md", "docs/**"]
 
 permissions:
   contents: read
