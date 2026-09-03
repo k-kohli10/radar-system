@@ -10,7 +10,7 @@ full technical plan, see [docs/implementation_plan.md](docs/implementation_plan.
 
 ---
 
-## [1.0.0] - 2026-09-02
+## [1.0.0] - 2026-09-04
 
 RADAR's first public release.
 
@@ -37,5 +37,5 @@ RADAR's first public release.
 ## 🏷️ Versioning
 
 Milestones are the version scheme (`v0.x-<focus>`). `v1.0.0`, dated
-2026-09-02, is RADAR's first public release. See
+2026-09-04, is RADAR's first public release. See
 [docs/roadmap.md](docs/roadmap.md) for the full milestone history.
