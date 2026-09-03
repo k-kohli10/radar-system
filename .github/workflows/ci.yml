@@ -20,9 +20,59 @@ env:
   KUBECONFORM_VERSION: "v0.8.0"
 
 jobs:
+  # Decide whether this change touches only docs. When it does, the heavy jobs
+  # below skip via `if:` — a skipped required check reports as passing, so branch
+  # protection stays satisfied without running lint/test/helm on an .md edit.
+  changes:
+    name: detect docs-only change
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - id: filter
+        name: Classify changed files
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+          # New branch / unknown base: diff against the empty tree so nothing is
+          # mistaken for docs-only.
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git hash-object -t tree /dev/null)"
+          fi
+          changed="$(git diff --name-only "$base" "$head")"
+          echo "changed files:"; echo "$changed"
+          # docs_only stays true only while EVERY changed path is docs/non-code.
+          # A `case` glob's * spans '/', so *.md matches markdown at any depth.
+          docs_only=true
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              *.md|docs/*|LICENSE|NOTICE) ;;
+              *) docs_only=false ;;
+            esac
+          done <<< "$changed"
+          # An empty diff runs CI, rather than being treated as docs-only.
+          [ -z "$changed" ] && docs_only=false
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs_only=$docs_only"
+
   lint:
     name: lint + typecheck (ruff, mypy strict)
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     permissions:
       contents: read
     steps:
@@ -38,6 +88,8 @@ jobs:
   test:
     name: test (full suite + no-silent-skip guard)
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     permissions:
       contents: read
     # Mapped through env: the workflow parser rejects secrets.* in a step `if:`.
@@ -117,6 +169,8 @@ jobs:
   helm:
     name: helm lint + template + kubeconform (--strict)
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     permissions:
       contents: read
     steps:
