@@ -3,7 +3,12 @@
 The plugin SDK for RADAR: base classes, a protocol-conformance registry, and a
 config-driven loader that instantiate the backend plugins in `plugins/*`.
 
-## Rules
+## Contents
+
+- [Rules](#-rules)
+- [Modules](#-modules)
+
+## 🔒 Rules
 
 - **Zero vendor imports.** Depends only on `radar-contracts`, `pydantic`, and
   the standard library. No `anthropic`, `openai`, `slack-sdk`, Elasticsearch,
@@ -12,11 +17,11 @@ config-driven loader that instantiate the backend plugins in `plugins/*`.
   against the `radar-contracts` backend Protocols.
 - **mypy strict** must pass.
 
-## Contents
+## 📦 Modules
 
-| Module        | Purpose                                                       |
-| ------------- | ------------------------------------------------------------ |
-| `base.py`     | Shared plugin base/metadata types.                           |
-| `registry.py` | Register plugins and check them against a contract Protocol. |
-| `loader.py`   | Instantiate a backend from configuration.                    |
-| `config.py`   | Pydantic config models for plugin selection.                 |
+| Module | Purpose |
+|---|---|
+| `base.py` | Shared plugin base/metadata types |
+| `registry.py` | Register plugins and check them against a contract Protocol |
+| `loader.py` | Instantiate a backend from configuration |
+| `config.py` | Pydantic config models for plugin selection |
