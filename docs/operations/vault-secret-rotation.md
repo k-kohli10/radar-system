@@ -5,12 +5,12 @@ Not an alert: a **procedure**. But a *botched* rotation surfaces minutes later a
 
 ## Contents
 
-- 🎯 [The one principle](#the-one-principle)
-- ♻️ [Restart-set per secret type](#restart-set-per-secret-type)
-- ✔️ [Verify](#verify)
-- 🆘 [If recovery doesn't work / known limits / when to escalate](#if-recovery-doesnt-work--known-limits--when-to-escalate)
+- [The one principle](#-the-one-principle)
+- [Restart-set per secret type](#-restart-set-per-secret-type)
+- [Verify](#-verify)
+- [If recovery doesn't work / known limits / when to escalate](#-if-recovery-doesnt-work--known-limits--when-to-escalate)
 
-## The one principle
+## 🎯 The one principle
 Secrets are loaded **once, at startup** (in each service's lifespan). There is
 **no hot-reload.** Rotating a secret means restarting **every component that holds
 it**, and different secret types have different restart-sets. A missing or stale
@@ -18,7 +18,7 @@ secret makes a service report `/readyz` **503 (retryable), not crash**, so a
 half-rotated system looks like it's "still starting," not broken. That is the trap:
 **an incomplete restart-set leaves stale credentials failing silently.**
 
-## Restart-set per secret type
+## ♻️ Restart-set per secret type
 Rotate the secret, re-render it (`make rotate SERVICE=<svc>` then
 `make agent-secrets` in dev; the Vault init-container in k8s), then restart:
 
@@ -30,14 +30,14 @@ Rotate the secret, re-render it (`make rotate SERVICE=<svc>` then
 | **`postgres_dsn`** (DB credential) | **all 7 DB services** (`ingestion`, `watcher-agent`, `planner-agent`, `reasoner-agent`, `feedback-service`, `outbox-worker`, `knowledge-service`); `llm-gateway` has no DB, so it's excluded | the missed service can't reach the DB → its `/readyz` 503, that pipeline stage stalls |
 | **Webhook token** (`webhook_token_<source>`) | `ingestion` **and** reconfigure the **external** source (Prometheus Alertmanager / Kibana) that presents it | external side still sends the old token → `401` at ingestion → that source's alerts silently dropped |
 
-## Verify
+## ✔️ Verify
 - Every restarted component reports `/readyz` 200 (`make dev-apps-ps` in dev).
 - Drive one test event end to end and confirm **no `401`s** in the outbox-worker
   dispatch logs or the gateway logs.
 - Any alert the botched state would raise (`OutboxBacklogHigh`,
   `LLMTemplateFallbackActive`) stays clear for a few minutes.
 
-## If recovery doesn't work / known limits / when to escalate
+## 🆘 If recovery doesn't work / known limits / when to escalate
 - **Silent-failure signature:** the rotation "looked done," then minutes later
   `OutboxBacklogHigh` or `LLMTemplateFallbackActive` fires. You missed a component
   in the restart-set. Re-check the table for that secret type: the most-missed is

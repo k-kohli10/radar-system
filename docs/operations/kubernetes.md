@@ -9,22 +9,22 @@ managed backends instead: see `deploy/examples/bring-your-own-backends`.
 
 ## Contents
 
-- [What gets installed](#what-gets-installed)
-- [Prerequisites](#prerequisites)
-- [Step 0: confirm the cluster](#step-0-confirm-the-cluster)
-- [Step 1: metrics-server (for the HPAs)](#step-1-metrics-server-for-the-hpas)
-- [Step 2: build the 8 images](#step-2-build-the-8-images)
-- [Step 3: create the namespace + supplied secrets](#step-3-create-the-namespace--supplied-secrets)
-- [Step 4: install platform-deps, wait for it](#step-4-install-platform-deps-wait-for-it)
-- [Step 5: confirm the Vault bootstrap finished](#step-5-confirm-the-vault-bootstrap-finished)
-- [Step 6: install the app chart (raise the hook timeout)](#step-6-install-the-app-chart-raise-the-hook-timeout)
-- [Step 7: watch the hooks (migration first, then indexer)](#step-7-watch-the-hooks-migration-first-then-indexer)
-- [Step 8: verify](#step-8-verify)
-- [Step 9: open dashboards (optional)](#step-9-open-dashboards-optional)
-- [Teardown](#teardown)
-- [Troubleshooting](#troubleshooting)
+- [What gets installed](#-what-gets-installed)
+- [Prerequisites](#-prerequisites)
+- [Step 0: confirm the cluster](#-step-0-confirm-the-cluster)
+- [Step 1: metrics-server (for the HPAs)](#-step-1-metrics-server-for-the-hpas)
+- [Step 2: build the 8 images](#-step-2-build-the-8-images)
+- [Step 3: create the namespace + supplied secrets](#-step-3-create-the-namespace--supplied-secrets)
+- [Step 4: install platform-deps, wait for it](#-step-4-install-platform-deps-wait-for-it)
+- [Step 5: confirm the Vault bootstrap finished](#-step-5-confirm-the-vault-bootstrap-finished)
+- [Step 6: install the app chart (raise the hook timeout)](#-step-6-install-the-app-chart-raise-the-hook-timeout)
+- [Step 7: watch the hooks (migration first, then indexer)](#-step-7-watch-the-hooks-migration-first-then-indexer)
+- [Step 8: verify](#-step-8-verify)
+- [Step 9: open dashboards (optional)](#-step-9-open-dashboards-optional)
+- [Teardown](#-teardown)
+- [Troubleshooting](#-troubleshooting)
 
-## What gets installed
+## 📦 What gets installed
 
 Two charts, two namespaces:
 
@@ -35,7 +35,7 @@ Two charts, two namespaces:
 
 Install order matters: **platform-deps first** (it seeds Vault), then **radar**.
 
-## Prerequisites
+## 🧰 Prerequisites
 
 | Requirement | Detail |
 |---|---|
@@ -46,14 +46,14 @@ Install order matters: **platform-deps first** (it seeds Vault), then **radar**.
 Run the steps in order. Steps 4 and 5 must finish before Step 6 (the bootstrap seeds
 the secrets the app pods read). Commands assume you run them from `radar-system/`.
 
-## Step 0: confirm the cluster
+## 🔍 Step 0: confirm the cluster
 
 ```bash
 kubectl config current-context     # docker-desktop
 kubectl get nodes                  # one node, Ready
 ```
 
-## Step 1: metrics-server (for the HPAs)
+## 📊 Step 1: metrics-server (for the HPAs)
 
 Docker Desktop does not ship metrics-server. Install it (the
 `--kubelet-insecure-tls` patch is required):
@@ -64,7 +64,7 @@ kubectl -n kube-system patch deployment metrics-server --type=json \
   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 ```
 
-## Step 2: build the 8 images
+## 🏗️ Step 2: build the 8 images
 
 Kubeadm shares the Docker image store, so the cluster uses these directly (the
 chart sets `imagePullPolicy: IfNotPresent`): **no load step**. Tag them exactly as
@@ -82,7 +82,7 @@ Platform-dependency images (Postgres, Vault, Elasticsearch, …) are public and 
 pulled by the cluster automatically. (On `kind` instead of Kubeadm, add
 `kind load docker-image ghcr.io/k-kohli10/radar-$s:0.6.0 --name radar` after each build.)
 
-## Step 3: create the namespace + supplied secrets
+## 🔐 Step 3: create the namespace + supplied secrets
 
 The LLM key and (optionally) Slack are credentials RADAR does not mint. Create
 them in `radar-infra` **before** platform-deps so the Vault bootstrap seeds them.
@@ -103,14 +103,14 @@ kubectl -n radar-infra create secret generic radar-slack-keys \
   --from-literal=slack_app_token=xapp-YOUR-APP-TOKEN
 ```
 
-## Step 4: install platform-deps, wait for it
+## 📥 Step 4: install platform-deps, wait for it
 
 ```bash
 helm install radar-infra deploy/helm/platform-deps -n radar-infra
 kubectl -n radar-infra get pods -w        # wait until all are Running/Ready, then Ctrl-C
 ```
 
-## Step 5: confirm the Vault bootstrap finished
+## ✅ Step 5: confirm the Vault bootstrap finished
 
 The `vault-bootstrap` Job runs automatically once Vault is up:
 
@@ -119,7 +119,7 @@ kubectl -n radar-infra get jobs
 kubectl -n radar-infra logs job/vault-bootstrap        # ends with "bootstrap done"
 ```
 
-## Step 6: install the app chart (raise the hook timeout)
+## 📦 Step 6: install the app chart (raise the hook timeout)
 
 The post-install hooks run as Jobs (migration, then the indexer embedding 17
 runbooks), so give them room:
@@ -128,7 +128,7 @@ runbooks), so give them room:
 helm install radar deploy/helm/radar -n radar --create-namespace --timeout 10m
 ```
 
-## Step 7: watch the hooks (migration first, then indexer)
+## 👀 Step 7: watch the hooks (migration first, then indexer)
 
 ```bash
 kubectl -n radar get jobs
@@ -136,14 +136,14 @@ kubectl -n radar logs job/db-migration          # creates the Postgres schema (w
 kubectl -n radar logs job/knowledge-indexer     # embeds the runbooks (weight 10)
 ```
 
-## Step 8: verify
+## ✔️ Step 8: verify
 
 ```bash
 kubectl -n radar get pods        # all 8 services Running, READY 1/1 (7/8 if Slack skipped)
 kubectl -n radar get hpa         # ingestion + llm-gateway show CPU metrics
 ```
 
-## Step 9: open dashboards (optional)
+## 📈 Step 9: open dashboards (optional)
 
 Or use the VSCode Kubernetes extension → right-click a Service → Port Forward.
 
@@ -154,7 +154,7 @@ kubectl -n radar-infra port-forward svc/kibana  5601:5601
 kubectl -n radar-infra get secret radar-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
 ```
 
-## Teardown
+## 🧹 Teardown
 
 ```bash
 helm uninstall radar -n radar
@@ -163,7 +163,7 @@ helm uninstall radar-infra -n radar-infra
 # kind: kind delete cluster --name radar
 ```
 
-## Troubleshooting
+## 🛟 Troubleshooting
 
 **A pod is `ImagePullBackOff`.** The cluster can't see a locally built image.
 On kind, run the `kind load` for it (Step 2). On Docker Desktop, confirm the image

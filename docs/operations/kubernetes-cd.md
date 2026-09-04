@@ -21,14 +21,14 @@ token-authenticated, so no self-hosted runner is needed.
 
 ## Contents
 
-- [How the pieces fit](#how-the-pieces-fit)
-- [One-time setup](#one-time-setup)
-- [Per-session: bring the cluster up](#per-session-bring-the-cluster-up)
-- [Deploy](#deploy)
-- [Connectivity notes](#connectivity-notes)
-- [Teardown](#teardown)
+- [How the pieces fit](#-how-the-pieces-fit)
+- [One-time setup](#-one-time-setup)
+- [Per-session: bring the cluster up](#-per-session-bring-the-cluster-up)
+- [Deploy](#-deploy)
+- [Connectivity notes](#-connectivity-notes)
+- [Teardown](#-teardown)
 
-## How the pieces fit
+## 🧩 How the pieces fit
 
 ```
 workflow_dispatch ──▶ deploy workflow (GitHub-hosted runner)
@@ -62,12 +62,12 @@ consumers (`reasoner`/`planner`/`watcher`/`feedback`). `ingestion` and
 `outbox-worker` are ungated and start immediately. Because gated consumers wait on
 the indexer hook, **Verify rollout** allows 300s per Deployment.
 
-## One-time setup
+## 🏗️ One-time setup
 
 You do this once; it survives cluster teardown because it lives in GitHub, not on
 the cluster.
 
-### 1. Make the GHCR packages public
+### 📦 Make the GHCR packages public
 
 The images carry no secrets, since every credential is fetched from Vault at runtime,
 so the `radar-*` packages are published **public**. Public means pods and the
@@ -78,7 +78,7 @@ After the first `deploy` run has pushed the packages, open each package under
 `github.com/users/k-kohli10/packages`, and in **Package settings → Change
 visibility** set it to **Public**. (New GHCR packages default to private.)
 
-### 2. Create the `kubernetes` GitHub environment
+### 🔧 Create the `kubernetes` GitHub environment
 
 The deploy job runs under an [environment](../../.github/workflows/deploy.yml) named
 `kubernetes`, so the cluster credentials are scoped to it (they carry
@@ -87,13 +87,13 @@ cluster-admin reach). In the repo: **Settings → Environments → New environme
 reviewers** (add yourself): this is the approval gate, the run builds the images,
 then pauses for your approval before the `deploy` job touches the cluster.
 
-## Per-session: bring the cluster up
+## ▶️ Per-session: bring the cluster up
 
 Provision a managed Kubernetes (K3s) cluster from your provider. The commands
 below use `kubectl`/`helm` against whatever kubeconfig your provider hands you;
 create the cluster with the provider's CLI or console.
 
-### 3. Create the cluster
+### ☁️ Create the cluster
 
 Size it for the full stack (the eight app services + in-cluster platform deps;
 Elasticsearch is the memory driver): **3 nodes × 2 vCPU / 4 GB**.
@@ -111,7 +111,7 @@ ships RADAR's own dev backends, and a second Postgres just competes for memory.
 Once created, merge the kubeconfig into `~/.kube/config` and select it, then
 confirm `kubectl get nodes` shows three `Ready` nodes.
 
-### 4. Store the kubeconfig as a secret
+### 🔑 Store the kubeconfig as a secret
 
 The deploy job reads a **base64-encoded** kubeconfig from the `kubernetes`
 environment secret `CD_KUBECONFIG`:
@@ -123,7 +123,7 @@ base64 -w0 < "$KUBECONFIG"    # macOS: `base64 < "$KUBECONFIG"`
 Paste the output into **Settings → Environments → kubernetes → Add secret →
 `CD_KUBECONFIG`**.
 
-### 5. (Optional) provider + Slack secrets
+### 🔐 (Optional) provider + Slack secrets
 
 The deploy seeds these into the cluster before `helm upgrade` when they are
 present, and skips them otherwise. Add them as `kubernetes` environment secrets:
@@ -135,7 +135,7 @@ present, and skips them otherwise. Add them as `kubernetes` environment secrets:
 
 The deploy still completes without them; only these two services degrade.
 
-## Deploy
+## 📦 Deploy
 
 Deploys are **manual** (`workflow_dispatch`): the cluster is per-session, so bring
 it up, store the kubeconfig, then dispatch: **Actions → deploy → Run workflow**.
@@ -154,7 +154,7 @@ environment gate) before `helm upgrade -> k8s`. The final **Verify rollout** ste
 prints the pods and fails the run if the targeted Deployment(s) are not fully
 rolled out.
 
-## Connectivity notes
+## 🔌 Connectivity notes
 
 - **kubectl from your laptop:** select the cluster's kubeconfig, then
   `kubectl -n radar get pods`. The API server is public and token-authed.
@@ -164,7 +164,7 @@ rolled out.
 - **Dashboards:** there is no public Grafana ingress by default. Reach it with a
   port-forward: `kubectl -n radar-infra port-forward svc/grafana 3000:3000`.
 
-## Teardown
+## 🧹 Teardown
 
 A managed cluster bills while it runs, so remove it when the session ends.
 Deleting the cluster takes its volumes and any load balancer with it, so billing
