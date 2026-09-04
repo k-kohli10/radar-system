@@ -1,9 +1,16 @@
 # 🔌 ADR 0005: Plugin Architecture for Backends
 
-## Status
+## Contents
+
+- [Status](#-status)
+- [Context](#-context)
+- [Decision](#-decision)
+- [Consequences](#-consequences)
+
+## 🚦 Status
 Accepted
 
-## Context
+## 🧩 Context
 RADAR depends on several categories of external backend that a given deployment might
 want to swap: LLM providers (OpenAI/Anthropic/Gemini), log storage (Elasticsearch),
 metrics (Prometheus), traces (Elasticsearch APM), and notifications (Slack). Someone
@@ -13,7 +20,7 @@ and `packages/plugin-sdk`, the interfaces these backends implement, must have ze
 dependency on any specific vendor SDK, so the core codebase stays swappable in
 principle even where only one backend is implemented today.
 
-## Decision
+## ✅ Decision
 Every swappable backend category is defined as a `Protocol` interface in
 `packages/contracts` (`LLMProvider`, `EmbeddingProvider`, `LogsBackend`,
 `MetricsBackend`, `TracesBackend`, `NotificationBackend`, `KnowledgeStore`). Concrete
@@ -22,7 +29,7 @@ implementations live under `plugins/<category>/<vendor>/` (e.g. `plugins/llm/ope
 `packages/plugin-sdk`, which checks protocol conformance at registration time. Services
 depend only on the protocol type, never on a concrete vendor import.
 
-## Consequences
+## ⚖️ Consequences
 - `packages/contracts` and `packages/plugin-sdk` have zero vendor imports, enforced by
   a mypy-strict CI check (Phase 2's "done when"). This is what makes the plugin
   boundary real rather than aspirational.

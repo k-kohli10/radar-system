@@ -1,9 +1,17 @@
 # 🚪 ADR 0004: A Single LLM Gateway for All Provider Calls
 
-## Status
+## Contents
+
+- [Status](#-status)
+- [Context](#-context)
+- [Decision](#-decision)
+- [Consequences](#-consequences)
+- [Amendment (Phase 4): where the config and the token map live](#-amendment-phase-4-where-the-config-and-the-token-map-live)
+
+## 🚦 Status
 Accepted
 
-## Context
+## 🧩 Context
 Only reasoner-agent (RCA generation) and knowledge-service (embeddings, CRAG grading)
 need LLM calls, but every such call needs the same things: per-mode model selection,
 timeout enforcement, retries, a fallback provider if the primary fails, token/latency
@@ -12,7 +20,7 @@ each service hold its own provider API key and implement its own retry/fallback 
 means that behavior, and the security surface of who holds a raw OpenAI/Anthropic key,
 gets duplicated and drifts service by service.
 
-## Decision
+## ✅ Decision
 One internal service, `llm-gateway`, is the only thing in RADAR that holds real
 provider API keys. Every other service authenticates to it with a static per-agent
 token (`X-Radar-Agent-Token`, `secrets.token_hex(32)`, Vault-stored) scoped to exactly
@@ -39,7 +47,7 @@ fail: reasoner-agent falls back to a template-based RCA built from the investiga
 plan's steps, marked `is_fallback=true`, `confidence=low`. An incident is never left
 without a recommendation, even during a full provider outage.
 
-## Consequences
+## ⚖️ Consequences
 - Exactly one place in the codebase touches `anthropic`/`openai`/`google-generativeai`
   SDKs directly: the plugin adapters behind the gateway.
 - The gateway is a small, purpose-built router: it routes a request to a provider,
@@ -55,7 +63,7 @@ without a recommendation, even during a full provider outage.
   Phase 13 adds a circuit breaker to fail fast against a provider that is currently
   down, rather than retrying into a known-bad backend on every request.
 
-## Amendment (Phase 4): where the config and the token map live
+## 🛠️ Amendment (Phase 4): where the config and the token map live
 
 The plan's gateway config shape shows `modes`, `fallback`, and `tokens` as one
 document, but token values are secrets and the mode table is meant to be a

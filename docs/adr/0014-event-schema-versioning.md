@@ -8,18 +8,18 @@
 
 ## Contents
 
-- [Context](#context)
-- [Event Structure](#event-structure)
-- [Versioning Scheme](#versioning-scheme)
-- [What Is a Breaking Change](#what-is-a-breaking-change)
-- [Rules](#rules)
-- [Current Event Types and Versions](#current-event-types-and-versions)
-- [Payload Schemas (v1)](#payload-schemas-v1)
-- [Decision Record](#decision-record)
+- [Context](#-context)
+- [Event Structure](#-event-structure)
+- [Versioning Scheme](#-versioning-scheme)
+- [What Is a Breaking Change](#-what-is-a-breaking-change)
+- [Rules](#-rules)
+- [Current Event Types and Versions](#-current-event-types-and-versions)
+- [Payload Schemas (v1)](#-payload-schemas-v1)
+- [Decision Record](#-decision-record)
 
 ---
 
-## Context
+## 🧭 Context
 
 Outbox events carry a JSON payload. As RADAR evolves, these payloads will change.
 A field gets added. A field gets renamed. A field gets removed. Without rules for
@@ -30,7 +30,7 @@ This document defines the rules.
 
 ---
 
-## Event Structure
+## 📨 Event Structure
 
 Every outbox event has this envelope, which never changes:
 
@@ -49,7 +49,7 @@ The `payload` field is where schema changes happen. The envelope fields are froz
 
 ---
 
-## Versioning Scheme
+## 🔢 Versioning Scheme
 
 `schema_version` is a simple integer starting at 1. It increments by 1 for every
 breaking change. Non-breaking changes do not increment the version.
@@ -64,7 +64,7 @@ No semver. No minor versions. No patch versions. One number. Breaking or not bre
 
 ---
 
-## What Is a Breaking Change
+## 💥 What Is a Breaking Change
 
 A breaking change is anything that requires the consumer to update its parsing code
 to avoid a runtime error or silent data corruption.
@@ -78,9 +78,9 @@ to avoid a runtime error or silent data corruption.
 
 ---
 
-## Rules
+## 📏 Rules
 
-### Rule 1: Never remove or rename a field without incrementing the version
+### 🚫 Rule 1: Never remove or rename a field without incrementing the version
 
 If you remove `service_name` from `alert.normalized`, existing events in the outbox
 with the old schema will fail to parse. Consumers that already processed some events
@@ -89,7 +89,7 @@ will break on the next batch.
 Add a new field instead of renaming. Deprecate the old one. Remove it only after
 all consumers have migrated and no old-schema events remain in the outbox.
 
-### Rule 2: Consumers must handle unknown fields without crashing
+### 🧩 Rule 2: Consumers must handle unknown fields without crashing
 
 Use Pydantic's `model_config = ConfigDict(extra="ignore")` on all event payload
 models. A consumer receiving an event with extra fields it does not recognize must
@@ -108,7 +108,7 @@ class AlertNormalizedPayload(BaseModel):
     fired_at: datetime
 ```
 
-### Rule 3: Consumers must check schema_version before parsing
+### 🔍 Rule 3: Consumers must check schema_version before parsing
 
 Each consumer reads the `schema_version` from the envelope before parsing the
 payload. If the version is higher than the consumer knows how to handle, the
@@ -125,7 +125,7 @@ def can_handle(event: OutboxEvent) -> bool:
 
 This prevents silent data corruption from a consumer misreading a newer event shape.
 
-### Rule 4: Both schema versions must be supported during any transition
+### 🔀 Rule 4: Both schema versions must be supported during any transition
 
 When you introduce schema_version 2 for `alert.normalized`, the consumer must
 handle both version 1 and version 2 simultaneously for a transition period. This
@@ -141,7 +141,7 @@ def parse_alert_normalized(event: OutboxEvent) -> AlertNormalizedPayload:
     raise UnsupportedSchemaVersion(event.schema_version)
 ```
 
-### Rule 5: Old schema versions are removed only when the outbox is fully drained
+### 🗑️ Rule 5: Old schema versions are removed only when the outbox is fully drained
 
 Do not remove support for schema_version 1 while there are still version 1 events
 sitting in the outbox (status=pending or status=dead_letter). Check the outbox table
@@ -156,7 +156,7 @@ WHERE event_type = 'alert.normalized'
 
 If the count is zero, it is safe to remove v1 handling.
 
-### Rule 6: Schema changes are documented in CHANGELOG.md
+### 📝 Rule 6: Schema changes are documented in CHANGELOG.md
 
 Every schema version bump gets a CHANGELOG entry:
 
@@ -172,7 +172,7 @@ Every schema version bump gets a CHANGELOG entry:
 
 ---
 
-## Current Event Types and Versions
+## 📋 Current Event Types and Versions
 
 ```
 alert.normalized              schema_version: 1
@@ -186,9 +186,9 @@ follow the rules above.
 
 ---
 
-## Payload Schemas (v1)
+## 🧾 Payload Schemas (v1)
 
-### alert.normalized
+### 📥 alert.normalized
 
 ```json
 {
@@ -204,7 +204,7 @@ follow the rules above.
 }
 ```
 
-### incident.plan_requested
+### 📋 incident.plan_requested
 
 ```json
 {
@@ -217,7 +217,7 @@ follow the rules above.
 }
 ```
 
-### incident.reasoning_requested
+### 🧠 incident.reasoning_requested
 
 ```json
 {
@@ -231,7 +231,7 @@ follow the rules above.
 }
 ```
 
-### recommendation.created
+### ✅ recommendation.created
 
 ```json
 {
@@ -245,7 +245,7 @@ follow the rules above.
 
 ---
 
-## Decision Record
+## ✅ Decision Record
 
 Integer schema versions. Extra fields ignored. Version checked before parsing.
 Both versions supported during transitions. Old versions removed only after drain.

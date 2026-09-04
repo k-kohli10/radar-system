@@ -1,9 +1,16 @@
 # 🚀 ADR 0002: FastAPI for All Services
 
-## Status
+## Contents
+
+- [Status](#-status)
+- [Context](#-context)
+- [Decision](#-decision)
+- [Consequences](#-consequences)
+
+## 🚦 Status
 Accepted
 
-## Context
+## 🧩 Context
 Every RADAR service is an async HTTP service exposing a small, consistent surface:
 `GET /healthz`, `GET /readyz`, `GET /metrics`, and either `POST /events` (agents) or a
 domain-specific API (ingestion's `/alerts/*`, llm-gateway's `/v1/complete` and
@@ -12,12 +19,12 @@ database access is async (SQLAlchemy 2.0 + asyncpg), and all outbound LLM/HTTP c
 need to be non-blocking so a single service instance can handle concurrent work
 without one slow call stalling everything else.
 
-## Decision
+## ✅ Decision
 FastAPI, on Uvicorn, for every service in `apps/`. Pydantic v2 models (from
 `packages/contracts`) for all request/response validation. `opentelemetry-instrumentation-fastapi`
 for automatic per-request spans.
 
-## Consequences
+## ⚖️ Consequences
 - Native `async def` route handlers match the async Postgres/HTTP stack throughout the
   codebase, with no thread-pool bridging needed for I/O-bound work.
 - Pydantic v2 validation gives request/response schema enforcement for free, backed by

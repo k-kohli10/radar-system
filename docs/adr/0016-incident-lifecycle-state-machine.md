@@ -8,21 +8,21 @@
 
 ## Contents
 
-- [Context](#context)
-- [States](#states)
-- [State Definitions](#state-definitions)
-- [State Transition Diagram](#state-transition-diagram)
-- [Valid Transitions](#valid-transitions)
-- [Who Can Trigger Each Transition](#who-can-trigger-each-transition)
-- [Audit Log Entries Per Transition](#audit-log-entries-per-transition)
-- [Stale Incident Handling](#stale-incident-handling)
-- [Multiple Alerts on One Incident](#multiple-alerts-on-one-incident)
-- [Amendments (Phase 9: v0.9-feedback)](#amendments-phase-9-v09-feedback)
-- [Decision Record](#decision-record)
+- [Context](#-context)
+- [States](#-states)
+- [State Definitions](#-state-definitions)
+- [State Transition Diagram](#-state-transition-diagram)
+- [Valid Transitions](#-valid-transitions)
+- [Who Can Trigger Each Transition](#-who-can-trigger-each-transition)
+- [Audit Log Entries Per Transition](#-audit-log-entries-per-transition)
+- [Stale Incident Handling](#-stale-incident-handling)
+- [Multiple Alerts on One Incident](#-multiple-alerts-on-one-incident)
+- [Amendments (Phase 9: v0.9-feedback)](#-amendments-phase-9-v09-feedback)
+- [Decision Record](#-decision-record)
 
 ---
 
-## Context
+## 🧭 Context
 
 An incident in RADAR goes through several states from the moment the first alert
 fires to the moment it is closed. Without a defined state machine, services write
@@ -34,7 +34,7 @@ follow it.
 
 ---
 
-## States
+## 🔢 States
 
 ```
 open
@@ -47,9 +47,9 @@ That is it. Four states. Not six. Not ten.
 
 ---
 
-## State Definitions
+## 📖 State Definitions
 
-### open
+### 🟢 open
 
 The incident has been created. At least one alert has fired. The pipeline has not
 yet produced a recommendation. This is the initial state.
@@ -58,7 +58,7 @@ An incident stays in `open` from the moment it is created until the reasoner age
 produces a recommendation (or a fallback recommendation). If no recommendation is
 produced within 10 minutes, the `IncidentRCAStalled` Prometheus alert fires.
 
-### investigating
+### 🔎 investigating
 
 The reasoner agent has written a recommendation. The Slack card has been sent.
 The incident is now in the hands of an on-call engineer.
@@ -70,7 +70,7 @@ An incident can stay in `investigating` indefinitely. It transitions out when an
 engineer takes action: either marking it resolved via Slack feedback or the source
 alerts resolve.
 
-### resolved
+### ✅ resolved
 
 The incident has been addressed. Either:
 - An engineer clicked "resolved" in the Slack card or bot command
@@ -79,7 +79,7 @@ The incident has been addressed. Either:
 When an incident resolves, `resolved_at` is set. The incident may still have
 open follow-up questions but the immediate operational impact is over.
 
-### closed
+### 🔒 closed
 
 The incident has been reviewed, documented, and closed. In v1 this is a manual
 action via the Slack bot (`@radar close INC-abc123`). In a future version this
@@ -97,7 +97,7 @@ in `@radar open` results.
 
 ---
 
-## State Transition Diagram
+## 🗺️ State Transition Diagram
 
 ```
                     alert fires
@@ -122,7 +122,7 @@ in `@radar open` results.
 
 ---
 
-## Valid Transitions
+## ↔️ Valid Transitions
 
 | From | To | Allowed? | Note |
 |---|---|---|---|
@@ -140,7 +140,7 @@ transition.
 
 ---
 
-## Who Can Trigger Each Transition
+## 👤 Who Can Trigger Each Transition
 
 | Transition | Triggered by |
 |---|---|
@@ -193,7 +193,7 @@ async def transition_status(
 
 ---
 
-## Audit Log Entries Per Transition
+## 📜 Audit Log Entries Per Transition
 
 Every status transition writes to `audit_log`. No exceptions.
 
@@ -226,7 +226,7 @@ invalid transition attempt:
 
 ---
 
-## Stale Incident Handling
+## ⏰ Stale Incident Handling
 
 An incident that stays in `open` for more than 10 minutes without a recommendation
 is considered stalled. This fires the `IncidentRCAStalled` Prometheus alert.
@@ -245,7 +245,7 @@ In v2 a scheduled job could nag the on-call channel about stale incidents.
 
 ---
 
-## Multiple Alerts on One Incident
+## 🔁 Multiple Alerts on One Incident
 
 When a second alert with the same fingerprint arrives while an incident is `open`
 or `investigating`, it attaches to the existing incident. The incident `alert_count`
@@ -260,7 +260,7 @@ incident status. The incident stays in its current state.
 
 ---
 
-## Amendments (Phase 9: v0.9-feedback)
+## 📝 Amendments (Phase 9: v0.9-feedback)
 
 Recorded when `IncidentRepository.transition_status` was codified in
 `packages/database`. The state machine itself (four states, four edges) is
@@ -310,7 +310,7 @@ attempt in its own transaction).
 
 ---
 
-## Decision Record
+## ✔️ Decision Record
 
 Four states. Defined valid transitions. Transition validation in the repository
 layer, not in services. Every transition writes to audit_log. Invalid transitions

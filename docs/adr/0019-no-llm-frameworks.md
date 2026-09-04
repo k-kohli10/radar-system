@@ -12,23 +12,23 @@
 
 ## Contents
 
-- [Context](#context)
-- [Decision](#decision)
-- [Comparison](#comparison)
-- [What We Do Instead](#what-we-do-instead)
-- [Tradeoffs Accepted](#tradeoffs-accepted)
-- [Decision Record](#decision-record)
+- [Context](#-context)
+- [Decision](#-decision)
+- [Comparison](#-comparison)
+- [What We Do Instead](#-what-we-do-instead)
+- [Tradeoffs Accepted](#-tradeoffs-accepted)
+- [Decision Record](#-decision-record)
 
 ---
 
-## Context
+## 🧭 Context
 
 LangChain, LangGraph, and LiteLLM are the common defaults for calling LLMs. This
 ADR records why RADAR uses none of them.
 
 ---
 
-## Decision
+## ⚖️ Decision
 
 RADAR calls LLM provider SDKs directly through a custom gateway, with no
 orchestration framework and no abstraction layer beyond what the gateway itself
@@ -36,7 +36,7 @@ provides.
 
 ---
 
-## Comparison
+## 🔀 Comparison
 
 | | What it's for | Why RADAR skips it |
 |---|---|---|
@@ -46,7 +46,7 @@ provides.
 
 ---
 
-## What We Do Instead
+## 🧰 What We Do Instead
 
 The LLM gateway is raw Python:
 
@@ -57,7 +57,7 @@ The LLM gateway is raw Python:
 
 ---
 
-## Tradeoffs Accepted
+## ⚠️ Tradeoffs Accepted
 
 | Tradeoff | Cost | Why it's acceptable |
 |---|---|---|
@@ -67,7 +67,7 @@ The LLM gateway is raw Python:
 
 ---
 
-## Decision Record
+## ✔️ Decision Record
 
 No LangChain. No LangGraph. No LiteLLM. Raw Python with direct SDK calls through
 a custom gateway. This decision does not get revisited unless RADAR needs to support
