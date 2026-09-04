@@ -6,6 +6,18 @@ a later one. The full technical plan, with every deliverable and acceptance
 criterion, lives in [docs/implementation_plan.md](implementation_plan.md); this
 is just the summary view.
 
+## Contents
+
+- [Milestones](#-milestones)
+- [The Proof-of-Concept Line](#-the-proof-of-concept-line)
+- [Fixed Decisions](#-fixed-decisions)
+- [Carried Debt](#-carried-debt)
+- [Development Notes](#-development-notes)
+
+---
+
+## 🗓️ Milestones
+
 | Milestone | Tag | Focus |
 |---|---|---|
 | `v0.0-foundation` | n/a | Docs and decisions only. No code. |
@@ -24,14 +36,9 @@ is just the summary view.
 | `v0.13-hardened` | v0.7.0 | Load test, circuit breaker, threat model, audit log completeness. |
 | `v1.0` | v1.0.0 | Open-source polish: quickstart, plugin guide, benchmark, house doc style. |
 
-## Contents
+---
 
-- 📏 [The Proof-of-Concept Line](#the-proof-of-concept-line)
-- 🔒 [Fixed Decisions](#fixed-decisions)
-- 💳 [Carried Debt](#carried-debt)
-- 🗒️ [Development Notes](#development-notes)
-
-## The Proof-of-Concept Line
+## 📏 The Proof-of-Concept Line
 
 Everything through `v0.7-vertical-slice` is the proof of concept: one alert, one
 correlated incident, one investigation plan, one LLM-generated (or fallback) RCA,
@@ -39,14 +46,18 @@ proven by an end-to-end test with real OpenAI calls. Everything after it, meanin
 knowledge retrieval, Slack delivery, observability, CI/CD, Kubernetes, hardening,
 and polish, is improvement on top of a working core, not a prerequisite for it.
 
-## Fixed Decisions
+---
+
+## 🔒 Fixed Decisions
 
 The "Locked Decisions" in the implementation plan hold for every milestone:
 Postgres-outbox-only agent comms, Slack-only notifications, Vault
 init-container-only secrets, and the stack constraints (no Redis, no Jaeger, no
 agent frameworks). These are settled for v1, and each milestone builds on them.
 
-## Carried Debt
+---
+
+## 💳 Carried Debt
 
 Each item is recorded in the milestone that incurs it and paid in the milestone
 named in the "Owed by" column.
@@ -57,7 +68,9 @@ named in the "Owed by" column.
 | Unscheduled (define when a consumer needs it) | **`investigation_plans.status` has no lifecycle.** Every plan is stored `'pending'` and nothing ever advances it: no code reads or writes plan status. It is inert-but-stated (the planner's `PLAN_STATUS_PENDING` docstring says so), not a silent gap: "was this plan reasoned over?" is already answered by whether a `recommendations` row exists for the incident. Defining a real `pending → …` transition means first answering what the value should be on a fallback and on the duplicate path (questions the plan does not answer), so it waits until a consumer actually needs the column. |
 | Unscheduled (revisit under load) | **A slow reasoner dispatch can stall its batch for up to 90 seconds.** The outbox worker dispatches a claimed batch *sequentially*, and the reasoner's per-target dispatch timeout is 90s because it calls an LLM before it can answer. Ninety, not sixty: 60s is the budget the reasoner *aims* for (past which it abandons the LLM and writes a template-fallback RCA), while 90s is what the worker will actually wait if the reasoner is not merely slow but **gone**. So other events claimed in the same batch as a hung reasoning event wait behind it. At low volume this is invisible: the events are delivered a minute or two later and nothing is lost, because the outbox is durable. But under real load it wants **concurrent dispatch within a batch** (`asyncio.gather` over the claimed events). That change redefines the graceful-shutdown semantics tested today (the un-started tail is asserted left in `processing` for the reaper, which concurrency reframes), so it is real work and deliberately not done yet. |
 
-## Development Notes
+---
+
+## 🗒️ Development Notes
 
 - **`packages/testing` scales to the agents.** The duplicated real-Postgres
   pytest fixtures were extracted into a `radar-testing` workspace package,
