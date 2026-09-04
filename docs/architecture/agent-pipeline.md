@@ -2,15 +2,15 @@
 
 ## Contents
 
-- 🔲 [Pipeline Shape](#pipeline-shape)
-- 🚦 [Why No Direct HTTP Between Agents](#why-no-direct-http-between-agents)
-- 📨 [POST /events Contract](#post-events-contract)
-- 👁️ [Watcher Agent](#watcher-agent)
-- 🗺️ [Planner Agent](#planner-agent)
-- 🧠 [Reasoner Agent](#reasoner-agent)
-- ♻️ [Idempotency](#idempotency)
+- [Pipeline Shape](#-pipeline-shape)
+- [Why No Direct HTTP Between Agents](#-why-no-direct-http-between-agents)
+- [POST /events Contract](#-post-events-contract)
+- [Watcher Agent](#-watcher-agent)
+- [Planner Agent](#-planner-agent)
+- [Reasoner Agent](#-reasoner-agent)
+- [Idempotency](#-idempotency)
 
-## Pipeline Shape
+## 🔲 Pipeline Shape
 
 ```mermaid
 flowchart LR
@@ -23,7 +23,7 @@ flowchart LR
 Three fixed, linear stages. Each is a purpose-built service that does one job and
 hands off to the next through the outbox.
 
-## Why No Direct HTTP Between Agents
+## 🚦 Why No Direct HTTP Between Agents
 
 Agents communicate exclusively through a Postgres transactional outbox, dispatched by a
 dedicated outbox-worker. An agent never calls another agent's HTTP endpoint directly to
@@ -39,7 +39,7 @@ events and emit none), so a request/response call to one is a query: the reasone
 the answer to proceed. This is the canonical description of the boundary; other docs
 link here rather than restate it.
 
-## POST /events Contract
+## 📨 POST /events Contract
 
 Every agent exposes the same inbound contract for outbox-worker to dispatch into:
 
@@ -60,7 +60,7 @@ Body:
 422 → malformed payload
 ```
 
-## Watcher Agent
+## 👁️ Watcher Agent
 
 Correlates raw alerts into incidents.
 
@@ -100,7 +100,7 @@ and escalation are the rules it applies; window overrides, service groups, and
 fingerprint fields are validated and carried in the same file but applied by nothing yet
 (see [ADR 0013](../adr/0013-watcher-correlation-scope.md)).
 
-## Planner Agent
+## 🗺️ Planner Agent
 
 Builds an investigation plan from a template, no LLM call.
 
@@ -130,7 +130,7 @@ flowchart TD
 
 Templates live in `apps/planner-agent/config/plan-templates.yaml`.
 
-## Reasoner Agent
+## 🧠 Reasoner Agent
 
 The only stage that calls an LLM.
 
@@ -171,7 +171,7 @@ recommendation, whether retrieval comes back grounded, empty, or unavailable. Se
 full and [sequence-flows.md](sequence-flows.md#1-happy-path-alert-to-rca-in-slack) for
 the three retrieval outcomes.
 
-## Idempotency
+## ♻️ Idempotency
 
 Every stage checks `processed_events` (keyed on `event_id` + the processing service's
 name) before doing any work, and writes its own `processed_events` row in the same

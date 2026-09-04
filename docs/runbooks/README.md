@@ -11,11 +11,11 @@ the corpus the knowledge-service indexes and the reasoner retrieves against.
 
 ## Contents
 
-- 📋 [Frontmatter contract](#frontmatter-contract)
-- ✂️ [Chunking boundary](#chunking-boundary)
-- 🧱 [Section structure](#section-structure)
+- [Frontmatter Contract](#-frontmatter-contract)
+- [Chunking Boundary](#-chunking-boundary)
+- [Section Structure](#-section-structure)
 
-## Frontmatter contract
+## 📋 Frontmatter Contract
 
 Every runbook begins with a YAML frontmatter block. These fields are the join
 keys between the corpus, the Postgres manifest, and the alerting rules; a typo
@@ -43,7 +43,7 @@ status: fixture
 | `severity` | yes | `critical \| high \| medium \| low`. For Tier-1, must match the alert rule's `severity:` label. |
 | `status` | yes | `fixture \| reviewed`. See the note above. |
 
-### Tier-1 runbooks
+### 🔗 Tier-1 Runbooks
 
 A **Tier-1** runbook describes an alert that can actually fire. The mapping is
 one-to-one and is enforced by test:
@@ -62,7 +62,7 @@ and exist so retrieval has to disambiguate *within* a service, not merely across
 services. Distinguishing "order-service is failing to persist orders" from
 "order-service is leaking memory" is the harder and more realistic problem.
 
-## Chunking boundary
+## ✂️ Chunking Boundary
 
 The indexer chunks on **`##` (H2) section boundaries**, one chunk per section,
 with the document title prepended to each chunk as a breadcrumb so a chunk
@@ -82,7 +82,7 @@ of retrieval.** Write each section so it stands on its own. A section that only
 makes sense after reading the one above it will be retrieved without that
 context and will read as a fragment.
 
-## Section structure
+## 🧱 Section Structure
 
 Keep sections in this order. It is what makes the corpus uniform enough for
 retrieval quality to be about *content* rather than about structural accidents.

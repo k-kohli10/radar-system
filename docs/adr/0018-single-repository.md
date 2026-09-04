@@ -1,12 +1,22 @@
 # 📦 ADR 0018: Single Repository, Superseding ADR 0001
 
-## Status
+## Contents
+
+- [Status](#-status)
+- [Supersedes](#-supersedes)
+- [Context](#-context)
+- [Decision](#-decision)
+- [Consequences](#-consequences)
+
+---
+
+## 🚦 Status
 Accepted
 
-## Supersedes
+## 🔀 Supersedes
 ADR 0001 (Two repositories: radar-system + radar-infra)
 
-## Context
+## 🧭 Context
 ADR 0001 split RADAR into two repositories: radar-system for product code and
 radar-infra for platform configuration. The stated benefit was release-cadence
 isolation: a platform config change (a Grafana dashboard edit, a Postgres chart
@@ -29,7 +39,7 @@ moment adoption is won or lost.
 radar-infra was also never created. The plan referenced a repository that does
 not exist, so retiring it removes plan-versus-reality drift.
 
-## Decision
+## ⚖️ Decision
 RADAR is a single repository: radar-system. The product-versus-platform-config
 separation ADR 0001 valued is preserved as top-level directory structure, not as
 a repository boundary:
@@ -66,7 +76,7 @@ is unaffected by this ADR and keeps its name, including the Vault
 init-container's `vault.radar-infra.svc.cluster.local` address from ADR 0007.
 Only the repository is retired.
 
-## Consequences
+## 📌 Consequences
 - One clone, one quickstart. Onboarding matches the Phase 14 done-when.
 - Cadence isolation is preserved via path-based CI: a change under `deploy/`
   triggers no application build. The property ADR 0001 wanted, without the

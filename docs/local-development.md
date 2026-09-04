@@ -230,7 +230,7 @@ part Kubernetes' init-container plays in the cluster. The token model itself (ag
 vs gateway tokens, the per-service design) lives in
 [ADR 0020](adr/0020-static-token-auth.md).
 
-### The commands
+### ⌨️ The commands
 
 ```bash
 make seed      # what a HUMAN supplies:   postgres_dsn, openai_api_key (from .env)
@@ -250,7 +250,7 @@ step with them.
 > restart. Whenever it comes back empty, rebuild it with `make seed && make tokens`,
 > then the three `*-secrets` pulls.
 
-### Where the files land
+### 🗂️ Where the files land
 
 One directory per service, mirroring its per-pod Vault mount in production:
 
@@ -269,7 +269,7 @@ One directory per service, mirroring its per-pod Vault mount in production:
 Each service launches with `RADAR_SECRETS_DIR` at **its own** directory: two services
 sharing one would share the `agent_token` file, collapsing per-service tokens into one.
 
-### Rotating a service's tokens
+### 🔄 Rotating a service's tokens
 
 ```bash
 make rotate SERVICE=reasoner-agent   # fresh agent + gateway token, and the worker's map entry
@@ -370,7 +370,7 @@ Eight processes: ingestion, the three agents, the outbox worker, the
 llm-gateway, the knowledge service, and the feedback-service. `make dev-apps-up`
 starts them all, tracks PIDs in `.dev-run/`, and prints a readiness table.
 
-### From nothing to a working pipeline
+### 🏁 From nothing to a working pipeline
 
 ```bash
 scripts/bootstrap.sh                # tools, uv, .env, deps
@@ -404,7 +404,7 @@ retries; the rest of the pipeline (ingestion → agents → reasoner) is unaffec
 > ⚠️ `make dev-infra-stop` wipes the in-memory Vault (re-seed as above); Postgres
 > and Elasticsearch use named volumes, so the index and past RCAs survive.
 
-### Ports
+### 🔌 Ports
 
 | service | port | | service | port |
 |---|---|---|---|---|
@@ -413,7 +413,7 @@ retries; the rest of the pipeline (ingestion → agents → reasoner) is unaffec
 | watcher-agent | 8091 | | knowledge-service | 8095 |
 | planner-agent | 8092 | | feedback-service | 8096 |
 
-### Complete e2e test
+### 🧪 Complete e2e test
 
 Test the full pipeline by firing alerts that exercise three scenarios: retrieval-grounded RCAs,
 ungrounded RCAs (no runbook match), and LLM fallback (gateway down). The whole run takes about
@@ -463,7 +463,7 @@ A grounded or ungrounded alert takes a few seconds for the LLM; the fallback is 
 since it makes no LLM call. Use a different service per scenario: a repeat within 5 minutes
 deduplicates onto the open incident instead of creating a new one.
 
-### Verify the results
+### 📋 Verify the results
 
 After ~60 seconds (all three scenarios complete):
 

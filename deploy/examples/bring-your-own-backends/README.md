@@ -3,7 +3,13 @@
 The production pattern. RADAR's app chart runs against **your** managed backends
 instead of the bundled dev stack: you do not install `platform-deps`.
 
-## What you provide
+## Contents
+
+- [What You Provide](#-what-you-provide)
+- [Vault Setup](#-vault-setup)
+- [Install](#-install)
+
+## 📦 What You Provide
 
 | Dependency | What RADAR needs |
 |---|---|
@@ -13,7 +19,7 @@ instead of the bundled dev stack: you do not install `platform-deps`.
 | **LLM provider** | The API key(s) at `secret/radar/llm` (e.g. `openai_api_key`). |
 | **Slack** (optional) | `slack_bot_token` + `slack_app_token` at `secret/radar/feedback-service`. |
 
-## Vault setup
+## 🔐 Vault Setup
 
 Each service's pod authenticates to Vault with the kubernetes auth method as
 `role=radar-<service>`, bound to ServiceAccount `<service>` in the `radar`
@@ -31,7 +37,7 @@ and the token model in
 [`scripts/dev-mint-tokens.py`](../../../scripts/dev-mint-tokens.py). Adapt it to
 your Vault, or run your own equivalent.
 
-## Install
+## ⚙️ Install
 
 ```bash
 # (platform-deps is NOT installed)

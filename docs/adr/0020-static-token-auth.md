@@ -12,18 +12,18 @@
 
 ## Contents
 
-- [Context](#context)
-- [Decision](#decision)
-- [Options Considered](#options-considered)
-- [What This Looks Like in Practice](#what-this-looks-like-in-practice)
-- [Security Properties This Provides](#security-properties-this-provides)
-- [Known Limitations (v1)](#known-limitations-v1)
-- [Migration Path](#migration-path)
-- [Decision Record](#decision-record)
+- [Context](#-context)
+- [Decision](#-decision)
+- [Options Considered](#-options-considered)
+- [What This Looks Like in Practice](#-what-this-looks-like-in-practice)
+- [Security Properties This Provides](#-security-properties-this-provides)
+- [Known Limitations (v1)](#-known-limitations-v1)
+- [Migration Path](#-migration-path)
+- [Decision Record](#-decision-record)
 
 ---
 
-## Context
+## 🧭 Context
 
 RADAR services call each other. The outbox-worker calls agent HTTP endpoints. Agents
 call the LLM gateway. The knowledge service calls the LLM gateway. These internal
@@ -35,7 +35,7 @@ and mutual TLS.
 
 ---
 
-## Decision
+## ⚖️ Decision
 
 Static 32-byte hex tokens per service. One token per service. Stored in Vault.
 Loaded at startup via init-container. Validated on every internal request.
@@ -48,7 +48,7 @@ calls, and so on.
 
 ---
 
-## Options Considered
+## 🔀 Options Considered
 
 Static per-service tokens win because they enforce the per-mode restriction and
 give an audit trail with two lines of code per service and one config value.
@@ -61,7 +61,7 @@ give an audit trail with two lines of code per service and one config value.
 
 ---
 
-## What This Looks Like in Practice
+## 🛠️ What This Looks Like in Practice
 
 Vault stores one secret per service:
 
@@ -91,7 +91,7 @@ rotate, no distributed secret to invalidate.
 
 ---
 
-## Security Properties This Provides
+## 🛡️ Security Properties This Provides
 
 - Internal endpoints are not callable without a valid token
 - Each service has a unique token, so a compromised token is scoped to one service
@@ -102,7 +102,7 @@ rotate, no distributed secret to invalidate.
 
 ---
 
-## Known Limitations (v1)
+## ⚠️ Known Limitations (v1)
 
 Acceptable gaps for v1 on a homelab, each addressed by the migration path below:
 
@@ -113,7 +113,7 @@ Acceptable gaps for v1 on a homelab, each addressed by the migration path below:
 
 ---
 
-## Migration Path
+## 🚚 Migration Path
 
 When RADAR has external users, real production traffic, and a dedicated ops concern
 for security:
@@ -128,7 +128,7 @@ The migration is incremental and does not require rewriting application code.
 
 ---
 
-## Decision Record
+## ✔️ Decision Record
 
 Static 32-byte hex tokens in Vault for v1. Revisit for v2 if RADAR has external
 users or a security audit that identifies this as an unacceptable risk.

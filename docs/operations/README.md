@@ -15,6 +15,12 @@ those alerts, dashboards, traces, and logs fit together (and why RADAR self-aler
 a blackhole instead of becoming incidents) is drawn in
 [`docs/architecture/observability.md`](../architecture/observability.md).
 
+## Contents
+
+- [Runbook Index](#-runbook-index)
+
+## 📋 Runbook Index
+
 | Runbook | Alert | Dashboard |
 |---|---|---|
 | [LLM gateway failure](llm-gateway-failure.md) | `LLMTemplateFallbackActive` | `llm-gateway`, `incident-pipeline` |

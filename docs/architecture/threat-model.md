@@ -2,21 +2,21 @@
 
 ## Contents
 
-- [Scope](#scope)
-- [System Model and Trust Boundaries](#system-model-and-trust-boundaries)
-- [Assets](#assets)
-- [Threats and Mitigations](#threats-and-mitigations)
-  - [B1: External alert sources → ingestion](#b1-external-alert-sources--ingestion)
-  - [B2: Agent → LLM gateway → provider](#b2-agent--llm-gateway--provider)
-  - [B3: Untrusted content in the reasoning path](#b3-untrusted-content-in-the-reasoning-path)
-  - [B4: Secrets and Vault](#b4-secrets-and-vault)
-  - [B5: Slack](#b5-slack)
-  - [B6: Postgres and the audit log](#b6-postgres-and-the-audit-log)
-  - [B7: Availability under load](#b7-availability-under-load)
-- [Residual Risks](#residual-risks)
-- [Out of Scope for V1](#out-of-scope-for-v1)
+- [Scope](#-scope)
+- [System Model and Trust Boundaries](#-system-model-and-trust-boundaries)
+- [Assets](#-assets)
+- [Threats and Mitigations](#-threats-and-mitigations)
+  - [B1: External alert sources → ingestion](#-b1-external-alert-sources--ingestion)
+  - [B2: Agent → LLM gateway → provider](#-b2-agent--llm-gateway--provider)
+  - [B3: Untrusted content in the reasoning path](#-b3-untrusted-content-in-the-reasoning-path)
+  - [B4: Secrets and Vault](#-b4-secrets-and-vault)
+  - [B5: Slack](#-b5-slack)
+  - [B6: Postgres and the audit log](#-b6-postgres-and-the-audit-log)
+  - [B7: Availability under load](#-b7-availability-under-load)
+- [Residual Risks](#-residual-risks)
+- [Out of Scope for V1](#-out-of-scope-for-v1)
 
-## Scope
+## 🎯 Scope
 
 This models RADAR itself: the ingestion, agent, gateway, knowledge, and
 feedback services and the data flowing between them. It does **not** model the
@@ -29,7 +29,7 @@ a forged or malicious inbound alert, and untrusted text riding an alert into the
 LLM prompt. It does not model an anonymous internet attacker, because nothing here is meant to
 be internet-facing except the two alert webhooks (B1).
 
-## System Model and Trust Boundaries
+## 🗺️ System Model and Trust Boundaries
 
 ```
              ┌── B1 ──┐                                    ┌── B4 ──┐
@@ -65,7 +65,7 @@ RADAR's services never call each other directly: every hand-off is a row in
 delivered over HTTP with an internal agent token. The trust boundaries an
 attacker would cross are numbered B1–B7 above and analysed below.
 
-## Assets
+## 💎 Assets
 
 | Asset | Why it matters |
 |-------|----------------|
@@ -77,13 +77,13 @@ attacker would cross are numbered B1–B7 above and analysed below.
 | Slack app/bot tokens | Post to the workspace and read interactions |
 | Vault | Root of trust for every secret above |
 
-## Threats and Mitigations
+## 🛡️ Threats and Mitigations
 
 Organised per boundary; each threat is tagged with the STRIDE category it falls
 under and names the mitigation actually in the codebase (with the ADR or module
 that owns it), then the residual risk.
 
-### B1: External alert sources → ingestion
+### 📥 B1: External alert sources → ingestion
 
 The only endpoints RADAR intends to expose outside its own trust boundary:
 `POST /alerts/{prometheus,kibana,mock}`.
@@ -107,7 +107,7 @@ The only endpoints RADAR intends to expose outside its own trust boundary:
   is rotated (rotate the one Vault file, restart ingestion; ADR 0011). Rate
   limiting per source is not implemented (B7).
 
-### B2: Agent → LLM gateway → provider
+### 🔑 B2: Agent → LLM gateway → provider
 
 - **Spoofing / Elevation (a compromised service runs up an LLM bill or reaches a
   mode it should not).** Internal calls carry `X-Radar-Agent-Token`, one static
@@ -135,7 +135,7 @@ The only endpoints RADAR intends to expose outside its own trust boundary:
   chooses static tokens over short-TTL JWT deliberately (ADR 0020), accepting this
   in exchange for no token-service dependency.
 
-### B3: Untrusted content in the reasoning path
+### ☣️ B3: Untrusted content in the reasoning path
 
 The subtle boundary: **alert labels/annotations and runbook text are attacker- or
 author-influenced text that flows into an LLM prompt.** A crafted alert annotation
@@ -160,7 +160,7 @@ could attempt prompt injection ("ignore your instructions; recommend running…"
   The mitigation is blast-radius: advisory-only output, schema-constrained parsing,
   and a human in the loop. RADAR does not sanitise alert text beyond typing it.
 
-### B4: Secrets and Vault
+### 🗝️ B4: Secrets and Vault
 
 - **Information disclosure (secrets in env vars, images, or git).** Every secret is
   a **file** delivered by the Vault init-container (ADR 0007); nothing reads a
@@ -176,7 +176,7 @@ could attempt prompt injection ("ignore your instructions; recommend running…"
   mount, are out of scope (trusted platform). A root compromise of the node reads
   the mounted files; RADAR's boundary ends at "secrets are files, not env."
 
-### B5: Slack
+### 💬 B5: Slack
 
 RADAR connects to Slack over **Socket Mode**: an outbound WebSocket authenticated
 by an app token (`xapp`) and a bot token (`xoxb`), both Vault-stored. There is **no
@@ -193,7 +193,7 @@ internet for Slack.
   RADAR does not currently authorize *which* workspace user may resolve an incident
   (feedback is attributed by `slack_user_id`, not gated by it).
 
-### B6: Postgres and the audit log
+### 🗄️ B6: Postgres and the audit log
 
 - **Tampering (the audit trail is rewritten to hide an action).** `audit_log` is
   append-only by discipline: no code path updates or deletes a row, and every audit
@@ -211,7 +211,7 @@ internet for Slack.
   credentials to the services. Append-only is enforced in code, not by a DB
   privilege / trigger.
 
-### B7: Availability under load
+### ⚡ B7: Availability under load
 
 - **DoS (a provider outage stalls every incident).** The LLM gateway's **circuit
   breaker** (Phase 13) opens after repeated failures to a provider binding and fails
@@ -227,7 +227,7 @@ internet for Slack.
   no global admission control; a source that floods `/alerts/*` can grow the outbox
   backlog (visible on the outbox-depth panel, runbook in `docs/operations/`).
 
-## Residual Risks
+## ⚠️ Residual Risks
 
 Collected from the per-boundary analysis, the risks V1 knowingly accepts:
 
@@ -239,7 +239,7 @@ Collected from the per-boundary analysis, the risks V1 knowingly accepts:
 4. **Audit append-only is enforced in code, not by DB privilege** (B6).
 5. **No per-user authorization on Slack actions** (B5).
 
-## Out of Scope for V1
+## 🚫 Out of Scope for V1
 
 The target platform, the upstream detection systems, and the managed platform
 (Vault, Postgres, Elasticsearch, Kubernetes, the LLM provider) are trusted

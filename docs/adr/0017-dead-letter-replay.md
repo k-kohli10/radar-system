@@ -8,20 +8,20 @@
 
 ## Contents
 
-- [Context](#context)
-- [What Causes Dead Letters](#what-causes-dead-letters)
-- [Dead Letter Detection](#dead-letter-detection)
-- [Investigation Before Replay](#investigation-before-replay)
-- [Replay Mechanism](#replay-mechanism)
-- [Replay Rules](#replay-rules)
-- [When to Discard Instead of Replay](#when-to-discard-instead-of-replay)
-- [Dead Letter Metrics and Alerting](#dead-letter-metrics-and-alerting)
-- [Preventing Dead Letters](#preventing-dead-letters)
-- [Decision Record](#decision-record)
+- [Context](#-context)
+- [What Causes Dead Letters](#-what-causes-dead-letters)
+- [Dead Letter Detection](#-dead-letter-detection)
+- [Investigation Before Replay](#-investigation-before-replay)
+- [Replay Mechanism](#-replay-mechanism)
+- [Replay Rules](#-replay-rules)
+- [When to Discard Instead of Replay](#-when-to-discard-instead-of-replay)
+- [Dead Letter Metrics and Alerting](#-dead-letter-metrics-and-alerting)
+- [Preventing Dead Letters](#-preventing-dead-letters)
+- [Decision Record](#-decision-record)
 
 ---
 
-## Context
+## 🧭 Context
 
 The outbox worker retries failed event dispatches up to five times with exponential
 backoff. After five failures, an event moves to `dead_letter` status and stops being
@@ -33,7 +33,7 @@ how to replay them, and when to discard them instead.
 
 ---
 
-## What Causes Dead Letters
+## 🧨 What Causes Dead Letters
 
 An event reaches dead_letter status because the target service rejected or failed
 to process it five consecutive times.
@@ -48,7 +48,7 @@ to process it five consecutive times.
 
 ---
 
-## Dead Letter Detection
+## 🚨 Dead Letter Detection
 
 Prometheus alert:
 
@@ -68,12 +68,12 @@ dead-letter event does not fire the alert. A sustained rate does.
 > depth only (`bot.py`'s `_run_status`). No dead-letter count. There is no
 > `@radar dead-letters` verb in `BotCommandType`. The real v1 way to inspect and
 > replay dead letters is the admin HTTP endpoints (`curl`) under
-> [Replay Mechanism](#replay-mechanism) below. A Slack-native dead-letter view is
+> [Replay Mechanism](#-replay-mechanism) below. A Slack-native dead-letter view is
 > unbuilt, same status as `@radar replay` further down that section.
 
 ---
 
-## Investigation Before Replay
+## 🔍 Investigation Before Replay
 
 Do not replay blindly. Before replaying any dead-letter event:
 
@@ -105,7 +105,7 @@ event is safe because of idempotency, but it is worth knowing.
 
 ---
 
-## Replay Mechanism
+## ♻️ Replay Mechanism
 
 The outbox worker exposes two admin endpoints:
 
@@ -138,7 +138,7 @@ In v2 the Slack bot can expose `@radar replay <event_id>` as a command.
 
 ---
 
-## Replay Rules
+## 📏 Replay Rules
 
 **Rule 1: Fix the root cause before replaying.**
 Replaying an event into a broken service will just dead-letter it again. Fix the
@@ -166,23 +166,15 @@ with: event_id, event_type, operator (who did it), reason (why).
 
 ---
 
-## When to Discard Instead of Replay
+## 🗑️ When to Discard Instead of Replay
 
 Discard a dead-letter event when:
 
-**The incident is already resolved.** If `incident.plan_requested` dead-lettered
-but the incident is already `resolved` or `closed`, there is no point generating
-a plan. Discard the event and close the dead-letter entry with reason `stale`.
-
-**The payload is invalid and cannot be fixed.** If the event carries a malformed
-payload that no version of the consumer can parse, and there is no way to reconstruct
-the correct payload, discard it. Log the discard to audit_log with reason
-`invalid_payload_unrecoverable`.
-
-**The event is older than 24 hours.** A `recommendation.created` event that has
-been sitting in dead-letter for 24 hours means the Slack notification is 24 hours
-late. Sending it now is worse than not sending it. Discard it, mark the incident
-as needing manual review.
+| Condition | Action |
+|---|---|
+| **The incident is already resolved.** `incident.plan_requested` dead-lettered but the incident is already `resolved` or `closed` | There is no point generating a plan. Discard the event and close the dead-letter entry with reason `stale`. |
+| **The payload is invalid and cannot be fixed.** The event carries a malformed payload that no version of the consumer can parse, with no way to reconstruct the correct payload | Discard it. Log the discard to audit_log with reason `invalid_payload_unrecoverable`. |
+| **The event is older than 24 hours.** A `recommendation.created` event that has been sitting in dead-letter for 24 hours means the Slack notification is 24 hours late | Sending it now is worse than not sending it. Discard it, mark the incident as needing manual review. |
 
 Discard via a dedicated endpoint:
 
@@ -196,7 +188,7 @@ POST /admin/dead-letter/{event_id}/discard
 
 ---
 
-## Dead Letter Metrics and Alerting
+## 📊 Dead Letter Metrics and Alerting
 
 | Metric | Description |
 |---|---|
@@ -210,27 +202,19 @@ If it grows consistently, something structural is broken.
 
 ---
 
-## Preventing Dead Letters
+## 🛡️ Preventing Dead Letters
 
 Most dead letters are preventable:
 
-**Liveness and readiness probes** ensure the outbox worker only dispatches to
-services that are actually ready. If a service's readiness probe fails, Kubernetes
-removes it from the service endpoint list and the outbox worker gets connection
-refused immediately rather than after a timeout.
-
-**Circuit breaker on the outbox worker** (future improvement) would detect sustained
-failures to a specific target service and pause dispatching to it for a backoff
-period, rather than burning through all retry attempts.
-
-**Schema validation in the producer** catches invalid payloads before they are
-written to the outbox. If ingestion tries to write an `alert.normalized` event with
-a missing required field, the validation should fail at write time, not at dispatch
-time five retries later.
+| Mechanism | Effect |
+|---|---|
+| **Liveness and readiness probes** | Ensure the outbox worker only dispatches to services that are actually ready. If a service's readiness probe fails, Kubernetes removes it from the service endpoint list and the outbox worker gets connection refused immediately rather than after a timeout. |
+| **Circuit breaker on the outbox worker** (future improvement) | Would detect sustained failures to a specific target service and pause dispatching to it for a backoff period, rather than burning through all retry attempts. |
+| **Schema validation in the producer** | Catches invalid payloads before they are written to the outbox. If ingestion tries to write an `alert.normalized` event with a missing required field, the validation should fail at write time, not at dispatch time five retries later. |
 
 ---
 
-## Decision Record
+## ✔️ Decision Record
 
 Dead letters are investigated before replay. Root cause fixed first. Individual
 replay, not batch. 4xx events investigated carefully before replay. Stale or

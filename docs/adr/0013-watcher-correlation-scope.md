@@ -4,7 +4,19 @@
 **Date:** 2026-07-13
 **Phase:** 7 (Agent Pipeline and Vertical Slice)
 
-## Context
+---
+
+## Contents
+
+- [Context](#-context)
+- [Decision](#-decision)
+- [Why the idempotency marker is not itself in the correlation chain](#-why-the-idempotency-marker-is-not-itself-in-the-correlation-chain)
+- [Consequences](#-consequences)
+- [Alternatives considered](#-alternatives-considered)
+
+---
+
+## 🧭 Context
 
 The implementation plan's *Watcher Agent Logic* has the watcher compute a
 fingerprint, search for an open incident within a window, and then either attach the
@@ -28,7 +40,7 @@ and `docs/architecture/sequence-flows.md` describes the shipped behaviour ("Note
 ingestion: normalize, dedupe, INSERT incident+alert+outbox"). It is the *Watcher Agent
 Logic* pseudo-code and the agent-pipeline flowchart that are stale.
 
-## Decision
+## ⚖️ Decision
 
 **Ingestion owns incident identity. The watcher owns correlation policy.**
 
@@ -43,7 +55,7 @@ to it:
 Three consequences follow, and each is a deliberate deferral rather than an
 oversight.
 
-### 1. Ingestion publishes on the dedup path too
+### 📤 1. Ingestion publishes on the dedup path too
 
 Ingestion previously wrote **no** outbox event when an alert deduplicated onto an open
 incident, so duplicates never reached the watcher. That makes escalation (*"3 alerts
@@ -52,7 +64,7 @@ watcher shown only first-of-kind alerts can never observe a burst. Ingestion now
 publishes on both paths, tagging the payload with `incident_id` and `deduplicated`
 (commit `a288a4e`).
 
-### 2. `default_window_minutes` / `window_overrides` are inert
+### ⏱️ 2. `default_window_minutes` / `window_overrides` are inert
 
 The correlation window is applied wherever the new-vs-duplicate decision is made, and
 that is ingestion, which uses a hardcoded 5 minutes. The watcher cannot honour a
@@ -65,7 +77,7 @@ ConfigMap, or the window moves into ingestion's own settings. Both are real opti
 neither is needed for the POC, and the boundary is already tested where it is actually
 enforced (ingestion's `test_dedup_boundary` pins 4m59s / 5m00s / 5m01s).
 
-### 3. `service_groups` are inert
+### 🧩 3. `service_groups` are inert
 
 Folding `[order-service, order-db, inventory-service]` into a single incident requires
 **merging incidents ingestion has already opened separately**. That's a lifecycle the
@@ -74,7 +86,7 @@ does not need it. The config also contains an ambiguity that proves the feature 
 rather than defaulting: `order-service` belongs to *both* `order-stack` and
 `checkout-stack`, and nothing says which wins.
 
-### 4. `fingerprint_fields` is a validated declaration, enforced at startup
+### 🔒 4. `fingerprint_fields` is a validated declaration, enforced at startup
 
 Ingestion hashes the three fields in code. Rather than let the YAML *appear* to
 control something it does not, the watcher **refuses to start** if
@@ -82,7 +94,7 @@ control something it does not, the watcher **refuses to start** if
 likely to be edited in the belief that it changes behaviour therefore cannot diverge
 in silence: it fails loudly.
 
-## Why the idempotency marker is not itself in the correlation chain
+## 🔍 Why the idempotency marker is not itself in the correlation chain
 
 The load-bearing property of this phase is that **one** correlation id (the value
 minted at ingress) appears on every row the pipeline writes, so Phase 10 can trace an
@@ -98,17 +110,11 @@ ingress UUID == incidents.correlation_id      (written by ingestion)
 `correlation_id` column: the table is keyed `(event_id, processed_by)` and holds
 nothing else (Phase 3 schema). The marker is therefore anchored by the `event_id` of
 the very envelope that carried the ingress correlation id: the same event whose
-handling produced the audit and outbox rows above.
+handling produced the audit and outbox rows above. Adding a `correlation_id` column
+to `processed_events` for this was considered and rejected; see
+[Alternatives considered](#-alternatives-considered).
 
-We considered adding a `correlation_id` column to `processed_events` to make the
-assertion read more cleanly in one line, and rejected it. The marker's job is
-idempotency (has this service handled this event id?), and that question needs
-exactly two columns. Adding a third so a test can assert on it is reshaping the schema
-to fit the test, and it would put a *denormalized copy* of the correlation id in a table
-that has no use for it. The chain is complete without it. The marker is evidence that
-the event was handled, not evidence about the trace.
-
-## Consequences
+## 📌 Consequences
 
 **Good.** Zero change to a shipped, tested phase's write path. The e2e test's
 `incident_id` from the `202` stays meaningful. The watcher has a real, testable job
@@ -130,9 +136,10 @@ today: those alerts are absorbed by ingestion's 5-minute window and arrive tagge
 ingestion opens a second incident where a 10-minute window would have correlated. Both
 resolve the same way: by moving the window decision to whoever opens the incident.
 
-## Alternatives considered
+## 🔀 Alternatives considered
 
 | Alternative | Why not chosen |
 |---|---|
-| **Strip dedup and incident creation out of ingestion** (the plan, taken literally) | Rewrites a shipped and tested phase, and breaks the `202 → incident_id` response that the plan's own e2e test depends on. |
+| **Strip dedup and incident creation out of ingestion** (the plan, taken literally) | Rewrites a shipped and tested phase, and breaks the `202 -> incident_id` response that the plan's own e2e test depends on. |
 | **Watcher merges group siblings.** Truest to `group_as_single_incident`, and the right answer eventually | Needs a migration (`incidents.merged_into_id`, a `merged` status) and a merge lifecycle: real work, no POC payoff, and nothing in Phase 7's tests exercises it. |
+| **Add a `correlation_id` column to `processed_events`** so the idempotency-chain assertion reads in one line | The marker's job is idempotency (has this service handled this event id?), which needs exactly two columns. A third column would be a denormalized copy of the correlation id, added only so a test could assert on it. The chain is already complete without it: the marker is evidence the event was handled, not evidence about the trace. |

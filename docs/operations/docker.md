@@ -4,7 +4,7 @@ RADAR runs as two docker-compose stacks on one shared network.
 
 ## Contents
 
-- [Overview](#overview)
+- [Overview](#-overview)
 - [From scratch](#-from-scratch)
 - [Host ports](#-host-ports)
 - [End-to-end test](#-end-to-end-test)
@@ -12,7 +12,7 @@ RADAR runs as two docker-compose stacks on one shared network.
 - [Observability](#-observability)
 - [Limitations](#-limitations)
 
-## Overview
+## 🗺️ Overview
 
 | Stack | File | Contents |
 |-------|------|----------|

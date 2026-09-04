@@ -11,13 +11,13 @@ ADR 0007 (Vault init-container files only).
 
 ## Contents
 
-- [The one rule](#the-one-rule)
-- [Two Vault models](#two-vault-models)
-- [The persistent / HCP model](#the-persistent--hcp-model)
-  - [CD carries nothing sensitive](#cd-carries-nothing-sensitive)
-- [Relationship to the k8s-Secret intermediary](#relationship-to-the-k8s-secret-intermediary)
+- [The one rule](#-the-one-rule)
+- [Two Vault models](#-two-vault-models)
+- [The persistent / HCP model](#-the-persistent--hcp-model)
+  - [CD carries nothing sensitive](#-cd-carries-nothing-sensitive)
+- [Relationship to the k8s-Secret intermediary](#-relationship-to-the-k8s-secret-intermediary)
 
-## The one rule
+## 📜 The one rule
 
 Every secret RADAR uses is a **file** delivered by a Vault init-container. Nothing
 reads a secret from an environment variable or a baked image layer. Each pod
@@ -25,7 +25,7 @@ authenticates to Vault (kubernetes auth, `role=radar-<service>`) and reads only 
 own paths under `secret/radar/*`. So "where do secrets live" has one answer:
 **Vault**. The only question is which Vault, and how it gets seeded.
 
-## Two Vault models
+## 🗂️ Two Vault models
 
 | | **Bundled dev Vault** (evaluation) | **Persistent / HCP Vault** (production) |
 |---|---|---|
@@ -41,7 +41,7 @@ have to be re-supplied every time the cluster is rebuilt, and if you deploy via
 CD, they ride in as GitHub Actions secrets (`RADAR_OPENAI_API_KEY`,
 `RADAR_SLACK_*`; see [deploy.yml](../../.github/workflows/deploy.yml)).
 
-## The persistent / HCP model
+## 🏛️ The persistent / HCP model
 
 Point RADAR at a Vault that lives outside the cluster and the picture inverts: the
 secrets are entered **once**, directly into Vault, and survive every `helm upgrade`
@@ -70,7 +70,7 @@ requirements).
 `env.RADAR_ELASTICSEARCH_URL`) in your values; no secret values go in the chart,
 only the address of the Vault that holds them.
 
-### CD carries nothing sensitive
+### 🔒 CD carries nothing sensitive
 
 With the secrets already in the persistent Vault, the deploy pipeline needs no
 secret values at all. CD's only secret is `CD_KUBECONFIG` (cluster reach to run
@@ -80,7 +80,7 @@ never secret contents, so nothing sensitive is in git, in the image, or in the C
 logs. Rotating a secret is a `vault kv put` + pod restart
 ([rotation runbook](vault-secret-rotation.md)); the pipeline never sees it.
 
-## Relationship to the k8s-Secret intermediary
+## 🔗 Relationship to the k8s-Secret intermediary
 
 In the dev-Vault flow the human-supplied secrets reach Vault through k8s Secrets
 (`radar-llm-keys`, `radar-slack-keys`) that the bootstrap reads. A persistent Vault

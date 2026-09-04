@@ -19,13 +19,13 @@ For the incident data-flow plane (alerts to agents to Slack), see
 
 ## Contents
 
-- 🔀 [The pipeline](#the-pipeline)
-- 📈 [Metrics and alerting](#metrics-and-alerting)
-- 🧵 [Traces](#traces)
-- 📜 [Logs](#logs)
-- 🗂️ [Where each signal is configured](#where-each-signal-is-configured)
+- [The pipeline](#-the-pipeline)
+- [Metrics and alerting](#-metrics-and-alerting)
+- [Traces](#-traces)
+- [Logs](#-logs)
+- [Where each signal is configured](#-where-each-signal-is-configured)
 
-## The pipeline
+## 🔀 The pipeline
 
 ```mermaid
 flowchart TB
@@ -74,7 +74,7 @@ Only RADAR services emit all three signals. `platform-sim` exposes `/metrics` an
 nothing else: it has no tracing and ships no logs, because it is a POC target, not a
 RADAR service.
 
-## Metrics and alerting
+## 📈 Metrics and alerting
 
 Prometheus scrapes `/metrics` from every RADAR service (each target carries a `service`
 label) and from `platform-sim`. Two rule files load side by side, and they are kept
@@ -105,7 +105,7 @@ Grafana reads Prometheus and provisions five dashboards: `radar-overview`,
 > known limitation of the compose dev-stack. The scrape-to-fire-to-webhook path is
 > proven independently by `tests/e2e/test_real_prometheus_alert.py`.
 
-## Traces
+## 🧵 Traces
 
 Each RADAR service emits OpenTelemetry spans over OTLP/gRPC to the OTel Collector, which
 exports them to Elasticsearch using OTel-native mapping (the `traces-generic-default`
@@ -123,7 +123,7 @@ Each service therefore emits its own disconnected trace, joined only by the shar
 which there are none, so it stays empty; the correlation-id filter in Discover is the
 supported trace view.
 
-## Logs
+## 📜 Logs
 
 Every service logs structured JSON to stdout via structlog. Fluent Bit tails those lines
 (the `.dev-run/<service>.log` files in compose, container stdout in Kubernetes), keeps
@@ -138,7 +138,7 @@ Because `correlation_id` is bound on every RADAR log line and also rides on ever
 logs and traces for one incident are queryable by the same key in the same
 Elasticsearch: a single mock alert is traceable end to end by `correlation_id` alone.
 
-## Where each signal is configured
+## 🗂️ Where each signal is configured
 
 | Signal | Emitter | Collector | Store | Viewer | Config |
 |---|---|---|---|---|---|
