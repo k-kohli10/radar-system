@@ -2,15 +2,15 @@
 
 ## Contents
 
-- ✅ [1. Happy Path: Alert to RCA in Slack](#1-happy-path-alert-to-rca-in-slack)
-- 🔬 [1a. Full Pipeline Detail: outbox-worker, transactions, and fallback](#1a-full-pipeline-detail-outbox-worker-transactions-and-fallback)
-- 🧬 [2. Deduplication](#2-deduplication)
-- 🪂 [3. LLM Fallback](#3-llm-fallback)
-- 🔁 [4. Feedback Loop](#4-feedback-loop)
-- 💬 [5. Slack Bot Query](#5-slack-bot-query)
-- ☠️ [6. Outbox Retry and Dead Lettering](#6-outbox-retry-and-dead-lettering)
+- [1. Happy Path: Alert to RCA in Slack](#-1-happy-path-alert-to-rca-in-slack)
+- [1a. Full Pipeline Detail: outbox-worker, transactions, and fallback](#-1a-full-pipeline-detail-outbox-worker-transactions-and-fallback)
+- [2. Deduplication](#-2-deduplication)
+- [3. LLM Fallback](#-3-llm-fallback)
+- [4. Feedback Loop](#-4-feedback-loop)
+- [5. Slack Bot Query](#-5-slack-bot-query)
+- [6. Outbox Retry and Dead Lettering](#-6-outbox-retry-and-dead-lettering)
 
-## 1. Happy Path: Alert to RCA in Slack
+## ✅ 1. Happy Path: Alert to RCA in Slack
 
 ```mermaid
 sequenceDiagram
@@ -64,7 +64,7 @@ Every arrow labeled "via outbox-worker" is: agent commits state + outbox row in 
 transaction → outbox-worker polls, claims the row (`FOR UPDATE SKIP LOCKED`), and
 `POST /events` to the next agent.
 
-## 1a. Full Pipeline Detail: outbox-worker, transactions, and fallback
+## 🔬 1a. Full Pipeline Detail: outbox-worker, transactions, and fallback
 
 The same happy path as (1), with the outbox-worker hops, the Postgres transactions, and
 the reasoner's fallback made explicit. This is the view that matters when reasoning about
@@ -122,7 +122,7 @@ The one correlation id minted at ingress is written on every row in this flow:
 `outbox_events` row. That's what makes an incident traceable end-to-end by that
 value alone.
 
-## 2. Deduplication
+## 🧬 2. Deduplication
 
 ```
 POST /alerts/mock  (OrderProcessingFailureRate, order-service)
@@ -138,7 +138,7 @@ POST /alerts/mock  (same alert, 90 seconds later)
 
 The second POST produces no pipeline work. The engineer sees one incident, not two.
 
-## 3. LLM Fallback
+## 🪂 3. LLM Fallback
 
 ```mermaid
 sequenceDiagram
@@ -169,7 +169,7 @@ sequenceDiagram
 No incident is ever left without a recommendation, even during a full LLM provider
 outage. See [docs/adr/0004-llm-gateway.md](../adr/0004-llm-gateway.md).
 
-### 3a. Retrieval degradation: a different failure, a different cost
+### 📉 3a. Retrieval degradation: a different failure, a different cost
 
 The knowledge call has its own failure path, and it costs strictly less: the
 reasoner proceeds with an EMPTY `retrieved_context` and still calls the LLM, so
@@ -203,7 +203,7 @@ incident its grounding rather than the worker's dispatch margin. Both budgets
 live in `radar_common.timeouts`, where an import-time assertion keeps their sum
 below the outbox worker's dispatch timeout.
 
-## 4. Feedback Loop
+## 🔁 4. Feedback Loop
 
 ```mermaid
 sequenceDiagram
@@ -217,7 +217,7 @@ sequenceDiagram
     Note over feedback: validate callback<br/>write feedback row (linked to recommendation + incident)<br/>update incident status if appropriate<br/>increment radar_feedback_total{sentiment}
 ```
 
-## 5. Slack Bot Query
+## 💬 5. Slack Bot Query
 
 ```mermaid
 sequenceDiagram
@@ -235,7 +235,7 @@ sequenceDiagram
     feedback->>Slack: reply in the same thread
 ```
 
-## 6. Outbox Retry and Dead Lettering
+## ☠️ 6. Outbox Retry and Dead Lettering
 
 ```
 outbox-worker dispatches event → target agent unreachable / 5xx

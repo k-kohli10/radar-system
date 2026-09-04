@@ -2,20 +2,20 @@
 
 ## Contents
 
-- 🎯 [Purpose](#purpose)
-- 🛒 [Domain](#domain)
-- 🧩 [Services](#services)
-- 🔀 [Data and Control Flow](#data-and-control-flow)
-- 🧵 [Cross-Cutting Concerns](#cross-cutting-concerns)
-- 🚀 [Deployment Target](#deployment-target)
+- [Purpose](#-purpose)
+- [Domain](#-domain)
+- [Services](#-services)
+- [Data and Control Flow](#-data-and-control-flow)
+- [Cross-Cutting Concerns](#-cross-cutting-concerns)
+- [Deployment Target](#-deployment-target)
 
-## Purpose
+## 🎯 Purpose
 
 RADAR is a Reliability Intelligence Platform. It sits downstream of detection systems
 (Prometheus, Kibana Watcher) and upstream of the on-call engineer. Its job is
 correlation, reasoning, and delivery.
 
-## Domain
+## 🛒 Domain
 
 The target system is an e-commerce platform, stubbed as a single `order-service` for
 local development. Realistic alert scenarios:
@@ -31,7 +31,7 @@ OrderServiceHighMemory        order-service memory usage > 85%
 Runbooks under `docs/runbooks/` cover these scenarios with realistic investigation
 steps, and are RAG-indexed by the knowledge-service for the reasoner to draw on.
 
-## Services
+## 🧩 Services
 
 All services live in the `radar` namespace in Kubernetes; platform dependencies live in
 `radar-infra`.
@@ -52,7 +52,7 @@ feedback-service      Delivers RCA cards to Slack, collects feedback, and runs t
                      Slack bot that answers status queries.
 ```
 
-## Data and Control Flow
+## 🔀 Data and Control Flow
 
 Detection is external. RADAR's flow starts at ingestion:
 
@@ -100,7 +100,7 @@ All agent-to-agent communication is mediated by the Postgres transactional outbo
 [docs/architecture/agent-pipeline.md](agent-pipeline.md) and
 [docs/adr/0003-postgres-outbox.md](../adr/0003-postgres-outbox.md).
 
-## Cross-Cutting Concerns
+## 🧵 Cross-Cutting Concerns
 
 ```
 Secrets        HashiCorp Vault, injected via init-container only. No sidecars,
@@ -118,7 +118,7 @@ The telemetry plane (the three signals, and the split between watching the simul
 shop versus watching RADAR itself) is drawn in
 [observability.md](observability.md).
 
-## Deployment Target
+## 🚀 Deployment Target
 
 Two targets, from the same multi-arch images: the two-stack Docker deployment
 (`radar-infra` + `radar-apps`) for local end-to-end runs, and an ephemeral managed
