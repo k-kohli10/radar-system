@@ -9,7 +9,7 @@ on:
   schedule:
     - cron: "0 0 * * 0"
   push:
-    branches: ["main", "Release*"]
+    branches: ["Release*", "main"]
 
 permissions:
   contents: read
