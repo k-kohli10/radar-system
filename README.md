@@ -150,6 +150,16 @@ Two rules follow from this:
 
 See [docs/architecture/agent-pipeline.md](docs/architecture/agent-pipeline.md).
 
+What the on-call engineer receives at the end of that pipeline:
+
+<p align="center">
+  <img src="docs/assets/observability/slack-rca-card.png" alt="A Slack card from RADAR for an order-service incident: severity Critical, confidence High, a runbook-grounded root cause explaining a deployment regression, recommended actions with a kubectl rollback command, and thumbs-up, thumbs-down, and resolve buttons" width="560">
+</p>
+
+<p align="center">
+  <sub>A delivered RCA: severity and confidence, a runbook-grounded root cause, recommended actions, and 👍/👎/✅ buttons that write feedback back into RADAR. See <a href="docs/architecture/observability.md">observability.md</a> for the live dashboards and the correlation_id that ties this incident across metrics, traces, and logs.</sub>
+</p>
+
 ---
 
 ## 🚀 Run It
